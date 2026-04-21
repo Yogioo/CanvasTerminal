@@ -268,15 +268,24 @@ impl GraphApp {
             && !any_popup_open
             && self.editing_text_node.is_none()
             && self.editing_title_node.is_none()
+            && self.editing_identity_node.is_none()
         {
             self.focus_selected_or_all(rect);
         }
 
-        let terminal_rects_before_zoom = self.terminal_content_rects_screen(rect);
         let pointer_over_terminal_before_zoom = pointer_pos.is_some_and(|p| {
-            terminal_rects_before_zoom
+            let local = self.screen_to_world_pos(rect, p);
+            let Some((node_id, _)) = self.find_node_at(local) else {
+                return false;
+            };
+            self.nodes
                 .iter()
-                .any(|(_, term_rect)| term_rect.contains(p))
+                .find(|n| n.id == node_id)
+                .is_some_and(|n| {
+                    n.kind == NodeKind::Terminal
+                        && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT
+                        && !Self::terminal_identity_badge_world_rect(n).contains(local)
+                })
         });
 
         if pointer_in_canvas && !pointer_over_terminal_before_zoom {
@@ -302,9 +311,18 @@ impl GraphApp {
 
         let terminal_content_rects = self.terminal_content_rects_screen(rect);
         let pointer_over_terminal_content = pointer_pos.is_some_and(|p| {
-            terminal_content_rects
+            let local = self.screen_to_world_pos(rect, p);
+            let Some((node_id, _)) = self.find_node_at(local) else {
+                return false;
+            };
+            self.nodes
                 .iter()
-                .any(|(_, term_rect)| term_rect.contains(p))
+                .find(|n| n.id == node_id)
+                .is_some_and(|n| {
+                    n.kind == NodeKind::Terminal
+                        && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT
+                        && !Self::terminal_identity_badge_world_rect(n).contains(local)
+                })
         });
 
         let current_time = ctx.input(|i| i.time);
@@ -315,15 +333,22 @@ impl GraphApp {
         let mut tolerant_double_click = false;
         if primary_clicked {
             if let Some(pointer) = pointer_pos {
-                if let Some((terminal_id, _)) = terminal_content_rects
-                    .iter()
-                    .rev()
-                    .find(|(_, term_rect)| term_rect.contains(pointer))
-                {
-                    self.set_single_selection(*terminal_id);
+                let local = self.screen_to_world_pos(rect, pointer);
+                if let Some(node_id) = self.find_terminal_identity_badge_at(local) {
+                    self.set_single_selection(node_id);
                     self.editing_text_node = None;
-                    if self.suspend_terminal_focus == Some(*terminal_id) {
-                        self.suspend_terminal_focus = None;
+                } else if let Some((node_id, _)) = self.find_node_at(local) {
+                    if let Some(node) = self.nodes.iter().find(|n| n.id == node_id) {
+                        if node.kind == NodeKind::Terminal
+                            && local.y > node.pos.y + TERMINAL_HEADER_HEIGHT
+                            && !Self::terminal_identity_badge_world_rect(node).contains(local)
+                        {
+                            self.set_single_selection(node_id);
+                            self.editing_text_node = None;
+                            if self.suspend_terminal_focus == Some(node_id) {
+                                self.suspend_terminal_focus = None;
+                            }
+                        }
                     }
                 }
 
@@ -382,7 +407,11 @@ impl GraphApp {
             ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::ResizeNwSe);
         }
 
-        if !is_panning && self.editing_title_node.is_none() && primary_pressed {
+        if !is_panning
+            && self.editing_title_node.is_none()
+            && self.editing_identity_node.is_none()
+            && primary_pressed
+        {
             if let Some((id, local, size)) = resize_handle_hit {
                 self.resizing = Some((id, local, size));
                 self.dragging = None;
@@ -392,7 +421,14 @@ impl GraphApp {
             } else if !pointer_over_terminal_content {
                 if let Some(pointer) = pointer_pos {
                     let local = self.screen_to_world_pos(rect, pointer);
-                    if let Some((id, node_pos, can_drag)) = self.find_node_hit(local) {
+                    if let Some(id) = self.find_terminal_identity_badge_at(local) {
+                        self.set_single_selection(id);
+                        self.dragging = None;
+                        self.drag_start_pos = None;
+                        self.drag_group_start = None;
+                        self.box_select_start = None;
+                        self.box_select_current = None;
+                    } else if let Some((id, node_pos, can_drag)) = self.find_node_hit(local) {
                         if subtract_select_modifier {
                             self.remove_from_selection(id);
                             self.dragging = None;
@@ -668,18 +704,20 @@ impl GraphApp {
             && !pointer_over_terminal_content
             && (response.double_clicked() || tolerant_double_click)
         {
-            if let Some(pointer_pos) = response.interact_pointer_pos() {
-                let local = self.screen_to_world_pos(rect, pointer_pos);
-                if let Some((id, _)) = self.find_node_at(local) {
+            if let Some(pointer) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
+                let local = self.screen_to_world_pos(rect, pointer);
+                if let Some(id) = self.find_terminal_identity_badge_at(local) {
+                    self.start_identity_edit(id);
+                } else if let Some((id, _)) = self.find_node_at(local) {
                     self.set_single_selection(id);
                     if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
                         if node.kind == NodeKind::Text {
                             self.editing_text_node = Some(id);
                             self.pending_text_focus = Some(id);
-                        } else if node.kind == NodeKind::Terminal
-                            && local.y <= node.pos.y + TERMINAL_HEADER_HEIGHT
-                        {
-                            self.start_title_edit(id);
+                        } else if node.kind == NodeKind::Terminal {
+                            if local.y <= node.pos.y + TERMINAL_HEADER_HEIGHT {
+                                self.start_title_edit(id);
+                            }
                         }
                     }
                 } else {
@@ -696,9 +734,12 @@ impl GraphApp {
             && response.clicked()
             && !multi_select_modifier
         {
-            if let Some(pointer_pos) = response.interact_pointer_pos() {
-                let local = self.screen_to_world_pos(rect, pointer_pos);
-                if let Some((id, _)) = self.find_node_at(local) {
+            if let Some(pointer) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
+                let local = self.screen_to_world_pos(rect, pointer);
+                if let Some(id) = self.find_terminal_identity_badge_at(local) {
+                    self.set_single_selection(id);
+                    self.editing_text_node = None;
+                } else if let Some((id, _)) = self.find_node_at(local) {
                     self.set_single_selection(id);
                     if self.editing_text_node != Some(id) {
                         self.editing_text_node = None;
@@ -732,18 +773,21 @@ impl GraphApp {
 
         self.autosize_text_nodes(&painter);
         self.ensure_image_textures(ctx);
-        let (text_edit_rect, title_edit_rect) = self.draw_nodes(&painter, rect);
+        self.draw_embedded_terminals(ui, ctx, rect, &terminal_content_rects);
+
+        let (text_edit_rect, title_edit_rect, identity_edit_rect) = self.draw_nodes(&painter, rect);
         self.handle_text_node_editor(ui, ctx, text_edit_rect);
         self.handle_title_editor(ui, ctx, title_edit_rect, primary_clicked, pointer_pos);
-
-        self.draw_embedded_terminals(ctx, rect, &terminal_content_rects);
+        self.handle_identity_editor(ui, ctx, identity_edit_rect, primary_clicked, pointer_pos);
 
         if !is_panning && self.resizing.is_none() && resize_handle_hit.is_none() {
             if let Some(pos) = response.hover_pos() {
                 let local = self.screen_to_world_pos(rect, pos);
                 if is_space_down && response.hovered() {
                     ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grab);
-                } else if self.find_node_at(local).is_some() {
+                } else if self.find_terminal_identity_badge_at(local).is_some()
+                    || self.find_node_at(local).is_some()
+                {
                     ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                 }
             }

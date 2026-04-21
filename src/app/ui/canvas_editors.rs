@@ -104,8 +104,63 @@ impl GraphApp {
         }
     }
 
+    pub(in crate::app::ui) fn handle_identity_editor(
+        &mut self,
+        ui: &mut Ui,
+        ctx: &egui::Context,
+        identity_edit_rect: Option<(usize, Rect)>,
+        primary_clicked: bool,
+        pointer_pos: Option<Pos2>,
+    ) {
+        let Some((id, edit_rect)) = identity_edit_rect else {
+            return;
+        };
+
+        let identity_edit_id = egui::Id::new(("terminal-identity-editor", id));
+        let should_focus_and_select_all = self.pending_identity_focus == Some(id);
+        if should_focus_and_select_all {
+            ctx.memory_mut(|m| m.request_focus(identity_edit_id));
+        }
+
+        let text_edit = TextEdit::singleline(&mut self.identity_edit_buffer)
+            .id(identity_edit_id)
+            .font(FontId::proportional((13.0 * self.zoom).max(8.0)))
+            .text_color(Color32::from_rgb(238, 235, 255))
+            .desired_width(f32::INFINITY)
+            .frame(false);
+        let resp = ui.put(edit_rect, text_edit);
+
+        if should_focus_and_select_all {
+            if let Some(mut state) = egui::TextEdit::load_state(ctx, identity_edit_id) {
+                let len = self.identity_edit_buffer.chars().count();
+                let range = egui::text::CCursorRange::two(
+                    egui::text::CCursor::new(0),
+                    egui::text::CCursor::new(len),
+                );
+                state.cursor.set_char_range(Some(range));
+                state.store(ctx, identity_edit_id);
+            }
+            self.pending_identity_focus = None;
+        }
+
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.cancel_identity_edit();
+        } else if ctx.input(|i| i.key_pressed(egui::Key::Enter))
+            || (resp.lost_focus() && !ctx.input(|i| i.pointer.primary_down()))
+        {
+            self.commit_identity_edit(id, ctx);
+        } else if primary_clicked {
+            if let Some(pointer) = pointer_pos {
+                if !edit_rect.contains(pointer) {
+                    self.commit_identity_edit(id, ctx);
+                }
+            }
+        }
+    }
+
     pub(in crate::app::ui) fn draw_embedded_terminals(
         &mut self,
+        ui: &mut Ui,
         ctx: &egui::Context,
         canvas_rect: Rect,
         terminal_content_rects: &[(usize, Rect)],
@@ -123,39 +178,34 @@ impl GraphApp {
                 self.ensure_terminal(*node_id, ctx);
             }
 
-            egui::Area::new(egui::Id::new(("terminal_node_embedded_area", node_id)))
-                .order(egui::Order::Foreground)
-                .constrain(false)
-                .fixed_pos(term_rect.min)
-                .show(ctx, |ui| {
-                    let full_screen_rect = Rect::from_min_size(term_rect.min, term_rect.size());
-                    let mut term_ui = ui.new_child(
-                        egui::UiBuilder::new()
-                            .max_rect(full_screen_rect)
-                            .layout(*ui.layout()),
-                    );
-                    term_ui.set_clip_rect(visible_rect);
+            let full_screen_rect = Rect::from_min_size(term_rect.min, term_rect.size());
+            let mut term_ui = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(full_screen_rect)
+                    .layout(*ui.layout()),
+            );
+            term_ui.set_clip_rect(visible_rect);
 
-                    if let Some(err) = self.terminal_errors.get(node_id) {
-                        term_ui.colored_label(Color32::LIGHT_RED, err);
-                    } else if let Some(backend) = self.terminal_backends.get_mut(node_id) {
-                        let term_font_size = (14.0 * self.zoom).min(36.0);
-                        let term_font = TerminalFont::new(egui_term::FontSettings {
-                            font_type: FontId::monospace(term_font_size),
-                        });
-                        let term = TerminalView::new(&mut term_ui, backend)
-                            .set_focus(
-                                self.selected == Some(*node_id)
-                                    && self.editing_title_node != Some(*node_id)
-                                    && self.suspend_terminal_focus != Some(*node_id),
-                            )
-                            .set_font(term_font)
-                            .set_size(term_rect.size());
-                        term_ui.add(term);
-                    } else {
-                        term_ui.label("终端未启动，请在右侧点击“重启终端”。");
-                    }
+            if let Some(err) = self.terminal_errors.get(node_id) {
+                term_ui.colored_label(Color32::LIGHT_RED, err);
+            } else if let Some(backend) = self.terminal_backends.get_mut(node_id) {
+                let term_font_size = (14.0 * self.zoom).min(36.0);
+                let term_font = TerminalFont::new(egui_term::FontSettings {
+                    font_type: FontId::monospace(term_font_size),
                 });
+                let term = TerminalView::new(&mut term_ui, backend)
+                    .set_focus(
+                        self.selected == Some(*node_id)
+                            && self.editing_title_node != Some(*node_id)
+                            && self.editing_identity_node != Some(*node_id)
+                            && self.suspend_terminal_focus != Some(*node_id),
+                    )
+                    .set_font(term_font)
+                    .set_size(term_rect.size());
+                term_ui.add(term);
+            } else {
+                term_ui.label("终端未启动，请在右侧点击“重启终端”。");
+            }
         }
     }
 }

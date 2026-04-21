@@ -5,6 +5,7 @@ use crate::event_protocol::DoneEvent;
 use crate::event_server::start_done_event_server;
 use crate::model::{Node, NodeKind};
 use crate::shell::{system_shell, terminal_shell_args};
+use chrono::Local;
 use eframe::egui::{self, vec2, ColorImage, Pos2, Rect, SidePanel, Stroke, TextureHandle, TextureOptions};
 use egui_term::{BackendCommand, BackendSettings, PtyEvent, TerminalBackend};
 use image::ImageReader;
@@ -62,6 +63,9 @@ pub struct GraphApp {
     editing_title_node: Option<usize>,
     pending_title_focus: Option<usize>,
     title_edit_buffer: String,
+    editing_identity_node: Option<usize>,
+    pending_identity_focus: Option<usize>,
+    identity_edit_buffer: String,
     suspend_terminal_focus: Option<usize>,
     resizing: Option<(usize, Pos2, egui::Vec2)>,
     context_menu_node: Option<usize>,
@@ -131,6 +135,9 @@ impl GraphApp {
             editing_title_node: None,
             pending_title_focus: None,
             title_edit_buffer: String::new(),
+            editing_identity_node: None,
+            pending_identity_focus: None,
+            identity_edit_buffer: String::new(),
             suspend_terminal_focus: None,
             resizing: None,
             context_menu_node: None,
@@ -170,6 +177,7 @@ impl GraphApp {
         self.selected = Some(node_id);
         self.selected_nodes.clear();
         self.selected_nodes.insert(node_id);
+        self.bring_node_to_front(node_id);
     }
 
     fn clear_selection(&mut self) {
@@ -194,6 +202,7 @@ impl GraphApp {
         } else {
             self.selected_nodes.insert(node_id);
             self.selected = Some(node_id);
+            self.bring_node_to_front(node_id);
         }
     }
 
@@ -208,7 +217,7 @@ impl GraphApp {
         let id = self.alloc_node_id();
         self.nodes.push(Node {
             id,
-            title: format!("Terminal {id}"),
+            title: "Terminal".to_owned(),
             kind: NodeKind::Terminal,
             category: "终端".to_owned(),
             identity: format!("agent-{id}"),
@@ -229,7 +238,7 @@ impl GraphApp {
             kind: NodeKind::Text,
             category: "文本".to_owned(),
             identity: String::new(),
-            text_body: "双击继续编辑".to_owned(),
+            text_body: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             image_path: String::new(),
             pos,
             size: vec2(260.0, 140.0),
@@ -636,6 +645,18 @@ impl GraphApp {
         None
     }
 
+    fn find_terminal_identity_badge_at(&self, local: Pos2) -> Option<usize> {
+        for n in self.nodes.iter().rev() {
+            if n.kind != NodeKind::Terminal {
+                continue;
+            }
+            if Self::terminal_identity_badge_world_rect(n).contains(local) {
+                return Some(n.id);
+            }
+        }
+        None
+    }
+
     fn world_to_screen_pos(&self, canvas_rect: Rect, world: Pos2) -> Pos2 {
         canvas_rect.min + self.pan + world.to_vec2() * self.zoom
     }
@@ -701,6 +722,15 @@ impl GraphApp {
         if let Some(target_world_rect) = target {
             self.focus_rect(canvas_rect, target_world_rect);
         }
+    }
+
+    fn terminal_identity_badge_world_rect(node: &Node) -> Rect {
+        let height = 22.0;
+        let width = node.size.x.clamp(120.0, 220.0);
+        Rect::from_min_size(
+            Pos2::new(node.pos.x + 10.0, node.pos.y - height - 8.0),
+            vec2(width, height),
+        )
     }
 
     fn terminal_content_rect_screen(&self, node_id: usize, canvas_rect: Rect) -> Option<Rect> {
@@ -771,6 +801,16 @@ impl GraphApp {
         }
     }
 
+    fn bring_node_to_front(&mut self, node_id: usize) {
+        if let Some(index) = self.nodes.iter().position(|n| n.id == node_id) {
+            if index + 1 == self.nodes.len() {
+                return;
+            }
+            let node = self.nodes.remove(index);
+            self.nodes.push(node);
+        }
+    }
+
     fn remove_node(&mut self, node_id: usize) {
         self.nodes.retain(|n| n.id != node_id);
         self.edges.retain(|(from, to)| *from != node_id && *to != node_id);
@@ -812,6 +852,11 @@ impl GraphApp {
             self.editing_title_node = None;
             self.pending_title_focus = None;
             self.title_edit_buffer.clear();
+        }
+        if self.editing_identity_node == Some(node_id) {
+            self.editing_identity_node = None;
+            self.pending_identity_focus = None;
+            self.identity_edit_buffer.clear();
         }
         if self.suspend_terminal_focus == Some(node_id) {
             self.suspend_terminal_focus = None;
@@ -1012,6 +1057,9 @@ impl GraphApp {
         self.resizing = None;
         self.editing_text_node = None;
         self.pending_text_focus = None;
+        self.editing_identity_node = None;
+        self.pending_identity_focus = None;
+        self.identity_edit_buffer.clear();
         self.editing_title_node = Some(node_id);
         self.pending_title_focus = Some(node_id);
         self.title_edit_buffer = title;
@@ -1035,6 +1083,58 @@ impl GraphApp {
         self.editing_title_node = None;
         self.pending_title_focus = None;
         self.title_edit_buffer.clear();
+        self.suspend_terminal_focus = node_id;
+    }
+
+    fn start_identity_edit(&mut self, node_id: usize) {
+        let Some(identity) = self
+            .nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .map(|n| n.identity.clone())
+        else {
+            return;
+        };
+
+        self.set_single_selection(node_id);
+        self.dragging = None;
+        self.drag_start_pos = None;
+        self.drag_group_start = None;
+        self.resizing = None;
+        self.editing_text_node = None;
+        self.pending_text_focus = None;
+        self.editing_title_node = None;
+        self.pending_title_focus = None;
+        self.title_edit_buffer.clear();
+        self.editing_identity_node = Some(node_id);
+        self.pending_identity_focus = Some(node_id);
+        self.identity_edit_buffer = identity;
+    }
+
+    fn commit_identity_edit(&mut self, node_id: usize, ctx: &egui::Context) {
+        let mut identity_changed = false;
+        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+            let trimmed = self.identity_edit_buffer.trim();
+            if !trimmed.is_empty() && node.identity != trimmed {
+                node.identity = trimmed.to_owned();
+                identity_changed = true;
+            }
+        }
+        self.editing_identity_node = None;
+        self.pending_identity_focus = None;
+        self.identity_edit_buffer.clear();
+        self.suspend_terminal_focus = Some(node_id);
+
+        if identity_changed {
+            self.restart_terminal(node_id, ctx);
+        }
+    }
+
+    fn cancel_identity_edit(&mut self) {
+        let node_id = self.editing_identity_node;
+        self.editing_identity_node = None;
+        self.pending_identity_focus = None;
+        self.identity_edit_buffer.clear();
         self.suspend_terminal_focus = node_id;
     }
 

@@ -84,9 +84,14 @@ impl GraphApp {
         }
     }
 
-    pub(in crate::app::ui) fn draw_nodes(&self, painter: &Painter, rect: Rect) -> (Option<(usize, Rect)>, Option<(usize, Rect)>) {
+    pub(in crate::app::ui) fn draw_nodes(
+        &self,
+        painter: &Painter,
+        rect: Rect,
+    ) -> (Option<(usize, Rect)>, Option<(usize, Rect)>, Option<(usize, Rect)>) {
         let mut text_edit_rect: Option<(usize, Rect)> = None;
         let mut title_edit_rect: Option<(usize, Rect)> = None;
+        let mut identity_edit_rect: Option<(usize, Rect)> = None;
 
         for node in &self.nodes {
             let node_rect = self.world_to_screen_rect(rect, Rect::from_min_size(node.pos, node.size));
@@ -153,12 +158,26 @@ impl GraphApp {
                 }
             };
 
-            if node.kind != NodeKind::Image {
+            if node.kind == NodeKind::Text {
                 painter.rect(node_rect, 8.0 * zoom_scale, fill, stroke, egui::StrokeKind::Outside);
             }
 
             match node.kind {
                 NodeKind::Terminal => {
+                    painter.rect_stroke(
+                        node_rect,
+                        8.0 * zoom_scale,
+                        stroke,
+                        egui::StrokeKind::Outside,
+                    );
+
+                    let header_height = TERMINAL_HEADER_HEIGHT * zoom_scale;
+                    let header_rect = Rect::from_min_max(
+                        node_rect.min,
+                        Pos2::new(node_rect.max.x, (node_rect.min.y + header_height).min(node_rect.max.y)),
+                    );
+                    painter.rect_filled(header_rect, 8.0 * zoom_scale, fill);
+
                     let is_title_editing = self.editing_title_node == Some(node.id);
                     if !is_title_editing {
                         painter.text(
@@ -193,13 +212,39 @@ impl GraphApp {
                         );
                     }
 
-                    if !node.identity.trim().is_empty() {
+                    let identity_world_rect = Self::terminal_identity_badge_world_rect(node);
+                    let identity_rect = self.world_to_screen_rect(rect, identity_world_rect);
+                    let identity_fill = Color32::from_rgba_premultiplied(42, 36, 78, 235);
+                    let identity_stroke = Stroke::new(
+                        1.0 * zoom_scale.clamp(0.6, 1.6),
+                        Color32::from_rgb(146, 132, 205),
+                    );
+                    painter.rect(
+                        identity_rect,
+                        6.0 * zoom_scale,
+                        identity_fill,
+                        identity_stroke,
+                        egui::StrokeKind::Outside,
+                    );
+
+                    if self.editing_identity_node == Some(node.id) {
+                        let edit_rect = Rect::from_min_max(
+                            identity_rect.min + vec2(8.0, 3.0) * zoom_scale,
+                            identity_rect.max - vec2(8.0, 3.0) * zoom_scale,
+                        );
+                        identity_edit_rect = Some((node.id, edit_rect));
+                    } else {
+                        let identity_text = if node.identity.trim().is_empty() {
+                            "agent"
+                        } else {
+                            &node.identity
+                        };
                         painter.text(
-                            node_rect.left_top() + vec2(12.0, 30.0) * zoom_scale,
-                            Align2::LEFT_TOP,
-                            format!("@{}", node.identity),
+                            identity_rect.left_center() + vec2(8.0, 0.0) * zoom_scale,
+                            Align2::LEFT_CENTER,
+                            format!("@{identity_text}"),
                             FontId::proportional((13.0 * zoom_scale).max(8.0)),
-                            Color32::from_rgb(214, 205, 255),
+                            Color32::from_rgb(230, 224, 255),
                         );
                     }
 
@@ -287,6 +332,6 @@ impl GraphApp {
             }
         }
 
-        (text_edit_rect, title_edit_rect)
+        (text_edit_rect, title_edit_rect, identity_edit_rect)
     }
 }
