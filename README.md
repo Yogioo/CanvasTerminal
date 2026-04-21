@@ -38,3 +38,66 @@ git clone https://github.com/Yogioo/CanvasTerminal
 cd CanvasTerminal
 cargo run
 ```
+
+---
+
+## 3) 打包
+
+### 仅打包主程序
+
+```cmd
+scripts\package-canvas-app.cmd
+```
+
+输出：
+
+```text
+dist/app/CanvasTerminal.exe
+```
+
+### 仅打包 agent skill + CLI
+
+```cmd
+scripts\package-canvas-agent-kit.cmd
+```
+
+输出：
+
+```text
+dist/canvas_skills/canvas-agent-events/
+```
+
+其中包含：
+
+```text
+SKILL.md
+bin/canvas.exe
+scripts/canvas.cmd
+```
+
+### 一键打包全部
+
+```cmd
+scripts\package-all.cmd
+```
+
+输出：
+
+```text
+dist/app/CanvasTerminal.exe
+dist/canvas_skills/canvas-agent-events/
+```
+
+### 仅重新编译 CLI（开发用）
+
+Debug:
+
+```cmd
+scripts\build-canvas-cli.cmd
+```
+
+Release:
+
+```cmd
+scripts\build-canvas-cli-release.cmd
+```

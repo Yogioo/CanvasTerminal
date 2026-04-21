@@ -1,10 +1,12 @@
 mod ui;
 
 use crate::constants::TERMINAL_HEADER_HEIGHT;
+use crate::event_protocol::DoneEvent;
+use crate::event_server::start_done_event_server;
 use crate::model::{Node, NodeKind};
-use crate::shell::system_shell;
+use crate::shell::{system_shell, terminal_shell_args};
 use eframe::egui::{self, vec2, Pos2, Rect, SidePanel, Stroke};
-use egui_term::{BackendSettings, PtyEvent, TerminalBackend};
+use egui_term::{BackendCommand, BackendSettings, PtyEvent, TerminalBackend};
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc;
 
@@ -34,6 +36,9 @@ pub struct GraphApp {
     pty_tx: mpsc::Sender<(u64, PtyEvent)>,
     terminal_exited: HashSet<usize>,
     terminal_errors: HashMap<usize, String>,
+    pending_terminal_injections: HashMap<usize, Vec<String>>,
+    done_event_rx: Option<mpsc::Receiver<DoneEvent>>,
+    done_event_error: Option<String>,
 
     next_node_id: usize,
     menu_search_text: String,
@@ -60,6 +65,10 @@ impl GraphApp {
         let (pty_tx, pty_rx) = mpsc::channel();
 
         let nodes = Vec::new();
+        let (done_event_rx, done_event_error) = match start_done_event_server() {
+            Ok(rx) => (Some(rx), None),
+            Err(err) => (None, Some(err)),
+        };
 
         let app = Self {
             nodes,
@@ -74,6 +83,9 @@ impl GraphApp {
             pty_tx,
             terminal_exited: HashSet::new(),
             terminal_errors: HashMap::new(),
+            pending_terminal_injections: HashMap::new(),
+            done_event_rx,
+            done_event_error,
             next_node_id: 1,
             menu_search_text: String::new(),
             menu_search_selected: 0,
@@ -110,6 +122,7 @@ impl GraphApp {
             title: format!("Terminal {id}"),
             kind: NodeKind::Terminal,
             category: "终端".to_owned(),
+            identity: format!("agent-{id}"),
             text_body: String::new(),
             pos,
             size: vec2(420.0, 220.0),
@@ -125,6 +138,7 @@ impl GraphApp {
             title: format!("文本节点 {id}"),
             kind: NodeKind::Text,
             category: "文本".to_owned(),
+            identity: String::new(),
             text_body: "双击继续编辑".to_owned(),
             pos,
             size: vec2(260.0, 140.0),
@@ -194,19 +208,76 @@ impl GraphApp {
         }
     }
 
+    fn terminal_identity(&self, node_id: usize) -> String {
+        self.nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .map(|n| n.identity.trim())
+            .filter(|identity| !identity.is_empty())
+            .unwrap_or("agent")
+            .to_owned()
+    }
+
+    fn inject_terminal_text(&mut self, node_id: usize, text: &str) {
+        if let Some(backend) = self.terminal_backends.get_mut(&node_id) {
+            backend.process_command(BackendCommand::Write(text.as_bytes().to_vec()));
+        } else {
+            self.pending_terminal_injections
+                .entry(node_id)
+                .or_default()
+                .push(text.to_owned());
+        }
+    }
+
+    fn poll_done_events(&mut self) {
+        let mut queued = Vec::new();
+        if let Some(rx) = &self.done_event_rx {
+            while let Ok(event) = rx.try_recv() {
+                queued.push(event);
+            }
+        }
+
+        for event in queued {
+            self.handle_done_event(event);
+        }
+    }
+
+    fn handle_done_event(&mut self, event: DoneEvent) {
+        self.change_history.push(format!(
+            "节点 #{} ({}) 完成: {}",
+            event.node_id, event.identity, event.summary
+        ));
+
+        let downstream: Vec<usize> = self
+            .edges
+            .iter()
+            .filter_map(|(from, to)| (*from == event.node_id).then_some(*to))
+            .collect();
+
+        let injected = format!(
+            "上游节点 {} 已完成：{}\r\n",
+            event.identity, event.summary
+        );
+
+        for node_id in downstream {
+            self.inject_terminal_text(node_id, &injected);
+        }
+    }
+
     fn ensure_terminal(&mut self, node_id: usize, ctx: &egui::Context) {
         if self.terminal_backends.contains_key(&node_id) {
             return;
         }
 
         let shell = system_shell();
+        let identity = self.terminal_identity(node_id);
         match TerminalBackend::new(
             node_id as u64,
             ctx.clone(),
             self.pty_tx.clone(),
             BackendSettings {
                 shell,
-                args: vec![],
+                args: terminal_shell_args(node_id, &identity),
                 working_directory: std::env::current_dir().ok(),
             },
         ) {
@@ -214,6 +285,12 @@ impl GraphApp {
                 self.terminal_backends.insert(node_id, backend);
                 self.terminal_exited.remove(&node_id);
                 self.terminal_errors.remove(&node_id);
+
+                if let Some(pending) = self.pending_terminal_injections.remove(&node_id) {
+                    for text in pending {
+                        self.inject_terminal_text(node_id, &text);
+                    }
+                }
             }
             Err(e) => {
                 self.terminal_errors
@@ -355,6 +432,7 @@ impl GraphApp {
         self.terminal_backends.remove(&node_id);
         self.terminal_exited.remove(&node_id);
         self.terminal_errors.remove(&node_id);
+        self.pending_terminal_injections.remove(&node_id);
 
         if self.selected == Some(node_id) {
             self.selected = None;
@@ -551,6 +629,7 @@ impl GraphApp {
 impl eframe::App for GraphApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_terminal_events();
+        self.poll_done_events();
 
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) {
             self.undo_last_change();

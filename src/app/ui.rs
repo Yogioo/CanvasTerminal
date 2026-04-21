@@ -19,6 +19,13 @@ impl GraphApp {
                 ui.label(format!("分类: {}", node.category));
                 ui.label(format!("状态: {}", node.status));
 
+                if node.kind == NodeKind::Terminal {
+                    ui.separator();
+                    ui.label("节点身份:");
+                    ui.text_edit_singleline(&mut node.identity);
+                    ui.small("terminal 内可直接执行: canvas done \"...\"");
+                }
+
                 if node.kind == NodeKind::Text {
                     ui.separator();
                     ui.label("文本内容:");
@@ -49,7 +56,20 @@ impl GraphApp {
 
         ui.heading("Terminal 节点");
         ui.separator();
+        let identity = self
+            .nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .map(|n| n.identity.as_str())
+            .unwrap_or("agent");
+
         ui.label("终端现在直接嵌入在画布中的 Terminal 节点内部。\n拖拽 Terminal 节点顶部可移动它。");
+        ui.label(format!("Identity: {identity}"));
+        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+            ui.label("编辑身份:");
+            ui.text_edit_singleline(&mut node.identity);
+        }
+        ui.small("修改 identity 后，点击“重启终端”使环境变量生效。\n可在终端中执行: canvas done \"已完成...\"");
 
         if ui.button("重启终端").clicked() {
             self.restart_terminal(node_id, ctx);
@@ -65,6 +85,9 @@ impl GraphApp {
         }
 
         if let Some(err) = self.terminal_errors.get(&node_id) {
+            ui.colored_label(Color32::LIGHT_RED, err);
+        }
+        if let Some(err) = &self.done_event_error {
             ui.colored_label(Color32::LIGHT_RED, err);
         }
 
@@ -607,6 +630,16 @@ impl GraphApp {
                         FontId::proportional((13.0 * zoom_scale).max(8.0)),
                         Color32::from_rgb(225, 220, 255),
                     );
+
+                    if !node.identity.trim().is_empty() {
+                        painter.text(
+                            node_rect.left_top() + vec2(12.0, 30.0) * zoom_scale,
+                            Align2::LEFT_TOP,
+                            format!("@{}", node.identity),
+                            FontId::proportional((13.0 * zoom_scale).max(8.0)),
+                            Color32::from_rgb(214, 205, 255),
+                        );
+                    }
 
                     painter.line_segment(
                         [

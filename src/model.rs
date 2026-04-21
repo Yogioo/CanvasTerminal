@@ -12,6 +12,7 @@ pub struct Node {
     pub title: String,
     pub kind: NodeKind,
     pub category: String,
+    pub identity: String,
     pub text_body: String,
     pub pos: Pos2,
     pub size: egui::Vec2,

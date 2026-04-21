@@ -1,5 +1,7 @@
 mod app;
 mod constants;
+mod event_protocol;
+mod event_server;
 mod fonts;
 mod model;
 mod shell;
