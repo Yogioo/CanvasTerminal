@@ -238,13 +238,35 @@ impl GraphApp {
         label.contains(kw)
     }
 
-    fn menu_item_highlighted_label(&self, label: &str) -> String {
+    fn menu_item_highlighted_label(&self, label: &str) -> egui::text::LayoutJob {
         let kw = self.menu_search_text.trim();
+        let mut job = egui::text::LayoutJob::default();
+
+        let mut normal = egui::TextFormat::default();
+        normal.color = egui::Color32::BLACK;
+
         if kw.is_empty() {
-            return label.to_owned();
+            job.append(label, 0.0, normal.clone());
+            return job;
         }
 
-        label.replace(kw, &format!("【{}】", kw))
+        let mut highlight = egui::TextFormat::default();
+        highlight.color = egui::Color32::from_rgb(255, 196, 0);
+
+        let mut last = 0;
+        for (start, matched) in label.match_indices(kw) {
+            if start > last {
+                job.append(&label[last..start], 0.0, normal.clone());
+            }
+            job.append(matched, 0.0, highlight.clone());
+            last = start + matched.len();
+        }
+
+        if last < label.len() {
+            job.append(&label[last..], 0.0, normal);
+        }
+
+        job
     }
 
     fn selected_terminal_id(&self) -> Option<usize> {
