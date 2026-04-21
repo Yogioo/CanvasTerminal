@@ -1,5 +1,5 @@
 use super::super::GraphApp;
-use eframe::egui::{self, vec2, Pos2, TextEdit};
+use eframe::egui::{self, Pos2, TextEdit};
 
 impl GraphApp {
     fn run_create_action(&mut self, action_id: usize, spawn_pos: Pos2) {
@@ -11,12 +11,6 @@ impl GraphApp {
     }
 
     fn context_menu_spawn_pos(&self) -> Pos2 {
-        if let Some(id) = self.context_menu_node {
-            if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
-                return node.pos + vec2(node.size.x + 40.0, 10.0);
-            }
-        }
-
         self.context_menu_local_pos.unwrap_or(Pos2::new(100.0, 100.0))
     }
 

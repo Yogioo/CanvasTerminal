@@ -69,6 +69,13 @@ pub struct GraphApp {
     cut_snapshot_edges: Option<Vec<(usize, usize)>>,
     undo_stack: Vec<HistoryEntry>,
     change_history: Vec<String>,
+    last_primary_click_time: Option<f64>,
+    last_primary_click_pos: Option<Pos2>,
+    last_canvas_pointer_world_pos: Option<Pos2>,
+    last_drag_hover_world_pos: Option<Pos2>,
+    pending_dropped_files: Vec<egui::DroppedFile>,
+    pending_drop_spawn_world_pos: Option<Pos2>,
+    pending_drop_requested_at: Option<f64>,
 }
 
 impl GraphApp {
@@ -124,6 +131,13 @@ impl GraphApp {
             cut_snapshot_edges: None,
             undo_stack: Vec::new(),
             change_history: Vec::new(),
+            last_primary_click_time: None,
+            last_primary_click_pos: None,
+            last_canvas_pointer_world_pos: None,
+            last_drag_hover_world_pos: None,
+            pending_dropped_files: Vec::new(),
+            pending_drop_spawn_world_pos: None,
+            pending_drop_requested_at: None,
         };
 
         app
@@ -173,8 +187,27 @@ impl GraphApp {
         }
     }
 
+    fn advance_spawn_pos_below_selected(&self, spawn_pos: &mut Pos2) {
+        if let Some(id) = self.selected {
+            if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
+                spawn_pos.y = node.pos.y + node.size.y + 16.0;
+            }
+        }
+    }
+
     fn create_image_node_from_path(&mut self, pos: Pos2, image_path: String) {
         let id = self.alloc_node_id();
+
+        let size = image::image_dimensions(&image_path)
+            .ok()
+            .filter(|(w, h)| *w > 0 && *h > 0)
+            .map(|(w, h)| vec2(w as f32, h as f32))
+            .unwrap_or(vec2(320.0, 220.0));
+
+        if size.y > 0.0 {
+            self.image_aspects.insert(id, size.x / size.y);
+        }
+
         self.nodes.push(Node {
             id,
             title: String::new(),
@@ -184,7 +217,7 @@ impl GraphApp {
             text_body: String::new(),
             image_path,
             pos,
-            size: vec2(320.0, 220.0),
+            size,
             status: "Preview",
         });
         self.selected = Some(id);

@@ -44,18 +44,56 @@ impl GraphApp {
         pointer_pos: Option<Pos2>,
         pointer_in_canvas: bool,
     ) {
-        let fallback_pointer = rect.center();
-        let pointer = pointer_pos.unwrap_or(fallback_pointer);
-        let mut spawn_local = self.screen_to_world_pos(rect, pointer);
-
+        let now = ctx.input(|i| i.time);
         let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
-        if pointer_in_canvas {
-            for file in dropped_files {
+        if !dropped_files.is_empty() {
+            self.pending_dropped_files = dropped_files;
+            self.pending_drop_spawn_world_pos = None;
+            self.pending_drop_requested_at = Some(now);
+        }
+
+        if !self.pending_dropped_files.is_empty() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            ctx.request_repaint();
+
+            let drop_pointer_world_pos = if pointer_in_canvas {
+                pointer_pos.map(|pointer| self.screen_to_world_pos(rect, pointer))
+            } else {
+                None
+            };
+
+            if let Some(world_pos) = drop_pointer_world_pos {
+                self.pending_drop_spawn_world_pos = Some(world_pos);
+            }
+
+            if self.pending_drop_spawn_world_pos.is_none()
+                && self
+                    .pending_drop_requested_at
+                    .is_some_and(|start| now - start > 0.8)
+            {
+                self.pending_dropped_files.clear();
+                self.pending_drop_requested_at = None;
+            }
+        }
+
+        let mut spawn_local = if !self.pending_dropped_files.is_empty() {
+            self.pending_drop_spawn_world_pos
+        } else if pointer_in_canvas {
+            pointer_pos
+                .map(|pointer| self.screen_to_world_pos(rect, pointer))
+                .or(self.last_canvas_pointer_world_pos)
+        } else {
+            self.last_canvas_pointer_world_pos
+        };
+
+        if let Some(mut drop_spawn_local) = self.pending_drop_spawn_world_pos {
+            let pending_files = std::mem::take(&mut self.pending_dropped_files);
+            for file in pending_files {
                 if !Self::is_dropped_image_file(&file) {
                     continue;
                 }
 
-                let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
+                let spawn_pos = drop_spawn_local;
                 if let Some(path) = file.path {
                     self.create_image_node_from_path(spawn_pos, path.to_string_lossy().to_string());
                 } else if let Some(bytes) = file.bytes {
@@ -66,9 +104,17 @@ impl GraphApp {
                     };
                     self.create_image_node_from_bytes(spawn_pos, display_name, bytes.to_vec());
                 }
-                spawn_local.y += 26.0;
+                self.advance_spawn_pos_below_selected(&mut drop_spawn_local);
             }
+            spawn_local = Some(drop_spawn_local);
+            self.last_drag_hover_world_pos = None;
+            self.pending_drop_spawn_world_pos = None;
+            self.pending_drop_requested_at = None;
         }
+
+        let Some(mut spawn_local) = spawn_local else {
+            return;
+        };
 
         let (key_v_pressed, ctrl_down, command_down, paste_event_count, raw_paste_event_count) =
             ctx.input(|i| {
@@ -100,7 +146,7 @@ impl GraphApp {
         if paste_requested && pointer_in_canvas {
             if let Ok(mut clipboard) = Clipboard::new() {
                 if let Ok(image) = clipboard.get_image() {
-                    let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
+                    let spawn_pos = spawn_local;
                     let size = [image.width, image.height];
                     let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &image.bytes);
                     self.create_image_node_from_color_image(
@@ -116,12 +162,12 @@ impl GraphApp {
                     let mut created_from_files = 0usize;
                     for file in files {
                         if Self::is_supported_image_path(&file) {
-                            let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
+                            let spawn_pos = spawn_local;
                             self.create_image_node_from_path(
                                 spawn_pos,
                                 file.to_string_lossy().to_string(),
                             );
-                            spawn_local.y += 26.0;
+                            self.advance_spawn_pos_below_selected(&mut spawn_local);
                             created_from_files += 1;
                         }
                     }
@@ -135,9 +181,9 @@ impl GraphApp {
                     for candidate in Self::parse_pasted_paths(&text) {
                         let path = Path::new(&candidate);
                         if path.exists() && Self::is_supported_image_path(path) {
-                            let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
+                            let spawn_pos = spawn_local;
                             self.create_image_node_from_path(spawn_pos, candidate);
-                            spawn_local.y += 26.0;
+                            self.advance_spawn_pos_below_selected(&mut spawn_local);
                         }
                     }
                 }
@@ -162,9 +208,9 @@ impl GraphApp {
             for candidate in Self::parse_pasted_paths(&pasted) {
                 let path = Path::new(&candidate);
                 if path.exists() && Self::is_supported_image_path(path) {
-                    let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
+                    let spawn_pos = spawn_local;
                     self.create_image_node_from_path(spawn_pos, candidate);
-                    spawn_local.y += 26.0;
+                    self.advance_spawn_pos_below_selected(&mut spawn_local);
                 }
             }
         }
@@ -188,6 +234,23 @@ impl GraphApp {
         let pointer_pos = ctx.input(|i| i.pointer.latest_pos().or_else(|| i.pointer.hover_pos()));
         let pointer_in_canvas = pointer_pos.is_some_and(|p| rect.contains(p));
         let any_popup_open = ctx.memory(|m| m.any_popup_open());
+        let dragging_files = ctx.input(|i| !i.raw.hovered_files.is_empty());
+
+        if dragging_files {
+            ctx.request_repaint();
+        } else {
+            self.last_drag_hover_world_pos = None;
+        }
+
+        if pointer_in_canvas {
+            if let Some(pointer) = pointer_pos {
+                let world_pos = self.screen_to_world_pos(rect, pointer);
+                self.last_canvas_pointer_world_pos = Some(world_pos);
+                if dragging_files {
+                    self.last_drag_hover_world_pos = Some(world_pos);
+                }
+            }
+        }
 
         self.handle_canvas_image_import(ctx, rect, pointer_pos, pointer_in_canvas);
 
@@ -226,8 +289,12 @@ impl GraphApp {
                 .any(|(_, term_rect)| term_rect.contains(p))
         });
 
+        let current_time = ctx.input(|i| i.time);
         let primary_clicked = ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary));
         let primary_pressed = ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
+        let is_panning =
+            (is_space_pan || is_middle_pan) && pointer_in_canvas && !pointer_over_terminal_content;
+        let mut tolerant_double_click = false;
         if primary_clicked {
             if let Some(pointer) = pointer_pos {
                 if let Some((terminal_id, _)) = terminal_content_rects
@@ -240,6 +307,18 @@ impl GraphApp {
                     if self.suspend_terminal_focus == Some(*terminal_id) {
                         self.suspend_terminal_focus = None;
                     }
+                }
+
+                if !any_popup_open && !is_panning && !pointer_over_terminal_content {
+                    if let (Some(last_time), Some(last_pos)) = (
+                        self.last_primary_click_time,
+                        self.last_primary_click_pos,
+                    ) {
+                        tolerant_double_click =
+                            current_time - last_time <= 0.45 && last_pos.distance(pointer) <= 24.0;
+                    }
+                    self.last_primary_click_time = Some(current_time);
+                    self.last_primary_click_pos = Some(pointer);
                 }
             }
         }
@@ -265,9 +344,6 @@ impl GraphApp {
                 None
             }
         });
-
-        let is_panning =
-            (is_space_pan || is_middle_pan) && pointer_in_canvas && !pointer_over_terminal_content;
 
         if is_panning {
             self.dragging = None;
@@ -451,7 +527,10 @@ impl GraphApp {
 
         self.show_canvas_context_menu(&response, ctx);
 
-        if !any_popup_open && !is_panning && !pointer_over_terminal_content && response.double_clicked()
+        if !any_popup_open
+            && !is_panning
+            && !pointer_over_terminal_content
+            && (response.double_clicked() || tolerant_double_click)
         {
             if let Some(pointer_pos) = response.interact_pointer_pos() {
                 let local = self.screen_to_world_pos(rect, pointer_pos);
@@ -468,8 +547,10 @@ impl GraphApp {
                         }
                     }
                 } else {
-                    self.create_text_node((local.to_vec2() - vec2(120.0, 60.0)).to_pos2(), true);
+                    self.create_text_node(local, true);
                 }
+                self.last_primary_click_time = None;
+                self.last_primary_click_pos = None;
             }
         }
 
