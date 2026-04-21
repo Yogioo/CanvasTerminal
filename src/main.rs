@@ -331,13 +331,14 @@ impl GraphApp {
         let is_space_down = ctx.input(|i| i.key_down(egui::Key::Space));
         let is_space_pan = ctx.input(|i| i.key_down(egui::Key::Space) && i.pointer.primary_down());
         let is_middle_pan = ctx.input(|i| i.pointer.middle_down());
+        let pointer_pos = ctx.input(|i| i.pointer.interact_pos().or_else(|| i.pointer.hover_pos()));
+        let pointer_in_canvas = pointer_pos.is_some_and(|p| rect.contains(p));
 
         let terminal_content_rect = self.terminal_content_rect_screen(rect);
-        let pointer_over_terminal_content = response
-            .hover_pos()
+        let pointer_over_terminal_content = pointer_pos
             .is_some_and(|p| terminal_content_rect.is_some_and(|r| r.contains(p)));
 
-        let is_panning = (is_space_pan || is_middle_pan) && response.hovered() && !pointer_over_terminal_content;
+        let is_panning = (is_space_pan || is_middle_pan) && pointer_in_canvas && !pointer_over_terminal_content;
 
         if is_panning {
             self.dragging = None;
@@ -485,8 +486,9 @@ impl GraphApp {
         }
 
         // 在 Terminal 节点内部嵌入真实终端，并裁剪到当前画布可见区域
-        // 关键：终端逻辑尺寸保持为 term_rect.size()，避免超出视口时触发重排挤压。
-        if let Some(term_rect) = terminal_content_rect {
+        // 注意：这里必须重新计算 term_rect（不能复用前面用于 hit-test 的值），
+        // 否则当本帧 pan 已更新时，终端会比节点慢一帧，出现拖拽错位感。
+        if let Some(term_rect) = self.terminal_content_rect_screen(rect) {
             let visible_rect = term_rect.intersect(rect);
             if visible_rect.is_positive() {
                 egui::Area::new(egui::Id::new("terminal_node_embedded_area"))
