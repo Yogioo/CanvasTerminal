@@ -742,6 +742,15 @@ impl GraphApp {
         )
     }
 
+    pub(in crate::app) fn terminal_header_height_screen(&self) -> f32 {
+        let zoom_scale = self.zoom;
+        let title_font_size = (17.0 * zoom_scale).max(9.0);
+        let status_font_size = (13.0 * zoom_scale).max(8.0);
+        let title_required_height = 10.0 * zoom_scale + title_font_size + 2.0 * zoom_scale;
+        let status_required_height = 12.0 * zoom_scale + status_font_size + 2.0 * zoom_scale;
+        (TERMINAL_HEADER_HEIGHT * zoom_scale).max(title_required_height.max(status_required_height))
+    }
+
     fn terminal_content_rect_screen(&self, node_id: usize, canvas_rect: Rect) -> Option<Rect> {
         let n = self.nodes.iter().find(|n| n.id == node_id)?;
         if !matches!(n.kind, NodeKind::Terminal) {
@@ -749,11 +758,17 @@ impl GraphApp {
         }
 
         let outer_world = Rect::from_min_size(n.pos, n.size);
-        let inner_world = Rect::from_min_max(
-            outer_world.min + vec2(2.0, TERMINAL_HEADER_HEIGHT + 2.0),
-            outer_world.max - vec2(2.0, 2.0),
-        );
-        Some(self.world_to_screen_rect(canvas_rect, inner_world))
+        let outer_screen = self.world_to_screen_rect(canvas_rect, outer_world);
+        let border = 2.0 * self.zoom;
+        let header_height = self.terminal_header_height_screen();
+
+        let inner_min = outer_screen.min + vec2(border, header_height + border);
+        let inner_max = outer_screen.max - vec2(border, border);
+        if inner_min.x >= inner_max.x || inner_min.y >= inner_max.y {
+            return None;
+        }
+
+        Some(Rect::from_min_max(inner_min, inner_max))
     }
 
     fn has_edge(&self, from: usize, to: usize) -> bool {

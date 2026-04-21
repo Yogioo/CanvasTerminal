@@ -1,5 +1,4 @@
 use super::super::GraphApp;
-use crate::constants::TERMINAL_HEADER_HEIGHT;
 use crate::model::NodeKind;
 use eframe::egui::{self, vec2, Align2, Color32, FontId, Painter, Pos2, Rect, Stroke};
 
@@ -174,26 +173,29 @@ impl GraphApp {
                         egui::StrokeKind::Outside,
                     );
 
-                    let header_height = TERMINAL_HEADER_HEIGHT * zoom_scale;
+                    let header_height = self.terminal_header_height_screen();
+                    let header_bottom = (node_rect.min.y + header_height).min(node_rect.max.y);
                     let header_rect = Rect::from_min_max(
                         node_rect.min,
-                        Pos2::new(node_rect.max.x, (node_rect.min.y + header_height).min(node_rect.max.y)),
+                        Pos2::new(node_rect.max.x, header_bottom),
                     );
                     painter.rect_filled(header_rect, 8.0 * zoom_scale, fill);
 
                     let is_title_editing = self.editing_title_node == Some(node.id);
                     if !is_title_editing {
                         painter.text(
-                            node_rect.left_top() + vec2(12.0, 10.0) * zoom_scale,
-                            Align2::LEFT_TOP,
+                            Pos2::new(node_rect.min.x + 12.0 * zoom_scale, header_rect.center().y),
+                            Align2::LEFT_CENTER,
                             &node.title,
                             FontId::proportional((17.0 * zoom_scale).max(9.0)),
                             Color32::WHITE,
                         );
                     } else {
                         let rect_min = node_rect.left_top() + vec2(10.0, 6.0) * zoom_scale;
-                        let rect_max = node_rect.right_top()
-                            + vec2(-10.0, TERMINAL_HEADER_HEIGHT - 6.0) * zoom_scale;
+                        let rect_max = Pos2::new(
+                            node_rect.max.x - 10.0 * zoom_scale,
+                            (node_rect.min.y + header_height - 6.0 * zoom_scale).min(node_rect.max.y),
+                        );
                         title_edit_rect = Some((node.id, Rect::from_min_max(rect_min, rect_max)));
                     }
 
@@ -207,8 +209,8 @@ impl GraphApp {
                         };
 
                         painter.text(
-                            node_rect.right_top() - vec2(12.0, -12.0) * zoom_scale,
-                            Align2::RIGHT_TOP,
+                            Pos2::new(node_rect.max.x - 12.0 * zoom_scale, header_rect.center().y),
+                            Align2::RIGHT_CENTER,
                             state_text,
                             FontId::proportional((13.0 * zoom_scale).max(8.0)),
                             Color32::from_rgb(225, 220, 255),
@@ -253,8 +255,8 @@ impl GraphApp {
 
                     painter.line_segment(
                         [
-                            node_rect.left_top() + vec2(0.0, TERMINAL_HEADER_HEIGHT) * zoom_scale,
-                            node_rect.right_top() + vec2(0.0, TERMINAL_HEADER_HEIGHT) * zoom_scale,
+                            Pos2::new(node_rect.min.x, header_bottom),
+                            Pos2::new(node_rect.max.x, header_bottom),
                         ],
                         Stroke::new(
                             1.0 * zoom_scale.clamp(0.6, 1.6),
