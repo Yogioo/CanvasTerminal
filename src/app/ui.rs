@@ -485,6 +485,20 @@ impl GraphApp {
             }
         }
 
+        for node in self.nodes.iter_mut().filter(|n| n.kind == NodeKind::Text) {
+            let visible_text = if node.text_body.trim().is_empty() {
+                "(空文本)"
+            } else {
+                &node.text_body
+            };
+            let galley = painter.layout_no_wrap(
+                visible_text.to_owned(),
+                FontId::proportional(15.0),
+                Color32::from_rgb(250, 240, 210),
+            );
+            node.size = vec2(galley.size().x + 24.0, galley.size().y + 24.0);
+        }
+
         let mut text_edit_rect: Option<(usize, Rect)> = None;
 
         for node in &self.nodes {
@@ -521,13 +535,15 @@ impl GraphApp {
             };
 
             painter.rect(node_rect, 8.0, fill, stroke, egui::StrokeKind::Outside);
-            painter.text(
-                node_rect.left_top() + vec2(12.0, 10.0),
-                Align2::LEFT_TOP,
-                &node.title,
-                FontId::proportional(17.0),
-                Color32::WHITE,
-            );
+            if node.kind != NodeKind::Text {
+                painter.text(
+                    node_rect.left_top() + vec2(12.0, 10.0),
+                    Align2::LEFT_TOP,
+                    &node.title,
+                    FontId::proportional(17.0),
+                    Color32::WHITE,
+                );
+            }
 
             match node.kind {
                 NodeKind::Terminal => {
@@ -556,24 +572,27 @@ impl GraphApp {
                     );
                 }
                 NodeKind::Text => {
-                    let preview = if node.text_body.trim().is_empty() {
-                        "(空文本)"
-                    } else {
-                        &node.text_body
-                    };
+                    let is_editing = self.editing_text_node == Some(node.id);
+                    if !is_editing {
+                        let preview = if node.text_body.trim().is_empty() {
+                            "(空文本)"
+                        } else {
+                            &node.text_body
+                        };
 
-                    painter.text(
-                        node_rect.left_top() + vec2(12.0, 36.0),
-                        Align2::LEFT_TOP,
-                        preview,
-                        FontId::proportional(15.0),
-                        Color32::from_rgb(250, 240, 210),
-                    );
+                        painter.text(
+                            node_rect.left_top() + vec2(12.0, 12.0),
+                            Align2::LEFT_TOP,
+                            preview,
+                            FontId::proportional(15.0),
+                            Color32::from_rgb(250, 240, 210),
+                        );
+                    }
 
-                    if self.editing_text_node == Some(node.id) {
+                    if is_editing {
                         let edit_rect = Rect::from_min_max(
-                            node_rect.min + vec2(8.0, 34.0),
-                            node_rect.max - vec2(8.0, 8.0),
+                            node_rect.min + vec2(12.0, 12.0),
+                            node_rect.max - vec2(12.0, 12.0),
                         );
                         text_edit_rect = Some((node.id, edit_rect));
                     }
@@ -584,25 +603,33 @@ impl GraphApp {
         if let Some((id, edit_rect)) = text_edit_rect {
             if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
                 let text_edit_id = egui::Id::new(("text-node-editor", id));
-                if self.pending_text_focus == Some(id) {
+                let should_focus_and_select_all = self.pending_text_focus == Some(id);
+                if should_focus_and_select_all {
                     ctx.memory_mut(|m| m.request_focus(text_edit_id));
-                    self.pending_text_focus = None;
                 }
 
+                let desired_rows = node.text_body.split('\n').count().max(1);
                 let text_edit = TextEdit::multiline(&mut node.text_body)
                     .id(text_edit_id)
-                    .desired_width(edit_rect.width())
-                    .desired_rows(4)
-                    .frame(true);
+                    .font(FontId::proportional(15.0))
+                    .text_color(Color32::from_rgb(250, 240, 210))
+                    .margin(egui::Margin::ZERO)
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(desired_rows)
+                    .frame(false);
                 let resp = ui.put(edit_rect, text_edit);
 
-                if resp.changed() {
-                    let first_line = node.text_body.lines().next().unwrap_or("文本节点").trim();
-                    if first_line.is_empty() {
-                        node.title = format!("文本节点 {}", node.id);
-                    } else {
-                        node.title = first_line.chars().take(14).collect();
+                if should_focus_and_select_all {
+                    if let Some(mut state) = egui::TextEdit::load_state(ctx, text_edit_id) {
+                        let len = node.text_body.chars().count();
+                        let range = egui::text::CCursorRange::two(
+                            egui::text::CCursor::new(0),
+                            egui::text::CCursor::new(len),
+                        );
+                        state.cursor.set_char_range(Some(range));
+                        state.store(ctx, text_edit_id);
                     }
+                    self.pending_text_focus = None;
                 }
 
                 if resp.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
