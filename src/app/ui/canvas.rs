@@ -1,125 +1,13 @@
-use super::GraphApp;
+use super::super::GraphApp;
 use crate::constants::TERMINAL_HEADER_HEIGHT;
 use crate::model::NodeKind;
 use eframe::egui::{
-    self, vec2, Align2, Color32, FontId, Pos2, Rect, ScrollArea, Sense, Stroke, TextEdit, Ui,
+    self, vec2, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, TextEdit, Ui,
 };
 use egui_term::{TerminalFont, TerminalView};
 
 impl GraphApp {
-    pub(super) fn draw_service_panel(&mut self, ui: &mut Ui) {
-        ui.heading("节点数据面板");
-        ui.separator();
-
-        if let Some(id) = self.selected {
-            if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
-                ui.label(format!("节点名称: {}", node.title));
-                ui.label(format!("节点 ID: {}", node.id));
-                ui.label(format!("节点类型: {}", Self::node_kind_name(&node.kind)));
-                ui.label(format!("分类: {}", node.category));
-                ui.label(format!("状态: {}", node.status));
-
-                if node.kind == NodeKind::Terminal {
-                    ui.separator();
-                    ui.label("节点身份:");
-                    ui.text_edit_singleline(&mut node.identity);
-                    ui.small("terminal 内可直接执行: canvas done \"...\"");
-                }
-
-                if node.kind == NodeKind::Text {
-                    ui.separator();
-                    ui.label("文本内容:");
-                    ui.add_sized(
-                        [ui.available_width(), 120.0],
-                        TextEdit::multiline(&mut node.text_body),
-                    );
-                    if ui.button("进入画布内编辑模式").clicked() {
-                        self.editing_text_node = Some(node.id);
-                        self.pending_text_focus = Some(node.id);
-                    }
-                }
-
-                ui.separator();
-                ui.small("提示：支持节点右键 -> 创建节点（终端/文本）。");
-                ui.small("空白处双击可快速创建文本节点，且自动进入编辑模式。");
-                ui.small("滚轮或触控板双指捏合可缩放画布视图。");
-            }
-        }
-
-        self.draw_history_panel(ui);
-    }
-
-    pub(super) fn draw_terminal_hint_panel(&mut self, ui: &mut Ui, ctx: &egui::Context) {
-        let Some(node_id) = self.selected_terminal_id() else {
-            return;
-        };
-
-        ui.heading("Terminal 节点");
-        ui.separator();
-        let identity = self
-            .nodes
-            .iter()
-            .find(|n| n.id == node_id)
-            .map(|n| n.identity.as_str())
-            .unwrap_or("agent");
-
-        ui.label("终端现在直接嵌入在画布中的 Terminal 节点内部。\n拖拽 Terminal 节点顶部可移动它。");
-        ui.label(format!("Identity: {identity}"));
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
-            ui.label("编辑身份:");
-            ui.text_edit_singleline(&mut node.identity);
-        }
-        ui.small("修改 identity 后，点击“重启终端”使环境变量生效。\n可在终端中执行: canvas done \"已完成...\"");
-
-        if ui.button("重启终端").clicked() {
-            self.restart_terminal(node_id, ctx);
-        }
-
-        ui.separator();
-        if self.terminal_backends.contains_key(&node_id) {
-            ui.label(egui::RichText::new("● Running").color(Color32::LIGHT_GREEN));
-        } else if self.terminal_exited.contains(&node_id) {
-            ui.label(egui::RichText::new("● Exited").color(Color32::LIGHT_RED));
-        } else {
-            ui.label(egui::RichText::new("● Starting...").color(Color32::YELLOW));
-        }
-
-        if let Some(err) = self.terminal_errors.get(&node_id) {
-            ui.colored_label(Color32::LIGHT_RED, err);
-        }
-        if let Some(err) = &self.done_event_error {
-            ui.colored_label(Color32::LIGHT_RED, err);
-        }
-
-        self.draw_history_panel(ui);
-    }
-
-    fn draw_history_panel(&mut self, ui: &mut Ui) {
-        ui.separator();
-        ui.horizontal(|ui| {
-            let can_undo = !self.undo_stack.is_empty();
-            if ui
-                .add_enabled(can_undo, egui::Button::new("撤销 (Ctrl+Z)"))
-                .clicked()
-            {
-                self.undo_last_change();
-            }
-            ui.small(format!("可撤销操作: {}", self.undo_stack.len()));
-        });
-
-        ui.label("修改历史（删除/移动）");
-        ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
-            if self.change_history.is_empty() {
-                ui.small("暂无历史记录");
-            } else {
-                for item in self.change_history.iter().rev().take(30) {
-                    ui.small(item);
-                }
-            }
-        });
-    }
-
-    pub(super) fn draw_canvas(&mut self, ui: &mut Ui, ctx: &egui::Context) {
+    pub(in crate::app) fn draw_canvas(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         let available = ui.available_size();
         let (rect, response) = ui.allocate_exact_size(available, Sense::click_and_drag());
         let painter = ui.painter_at(rect);
@@ -129,9 +17,11 @@ impl GraphApp {
         let is_space_down = ctx.input(|i| i.key_down(egui::Key::Space));
         let is_space_pan = ctx.input(|i| i.key_down(egui::Key::Space) && i.pointer.primary_down());
         let is_middle_pan = ctx.input(|i| i.pointer.middle_down());
-        let secondary_pressed = ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary));
+        let secondary_pressed =
+            ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary));
         let secondary_down = ctx.input(|i| i.pointer.button_down(egui::PointerButton::Secondary));
-        let secondary_released = ctx.input(|i| i.pointer.button_released(egui::PointerButton::Secondary));
+        let secondary_released =
+            ctx.input(|i| i.pointer.button_released(egui::PointerButton::Secondary));
         let pointer_pos = ctx.input(|i| i.pointer.latest_pos().or_else(|| i.pointer.hover_pos()));
         let pointer_in_canvas = pointer_pos.is_some_and(|p| rect.contains(p));
         let any_popup_open = ctx.memory(|m| m.any_popup_open());
@@ -171,10 +61,8 @@ impl GraphApp {
                 .any(|(_, term_rect)| term_rect.contains(p))
         });
 
-        let primary_clicked =
-            ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary));
-        let primary_pressed =
-            ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
+        let primary_clicked = ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary));
+        let primary_pressed = ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
         if primary_clicked {
             if let Some(pointer) = pointer_pos {
                 if let Some((terminal_id, _)) = terminal_content_rects
@@ -198,7 +86,8 @@ impl GraphApp {
                 return None;
             }
 
-            let node_rect = self.world_to_screen_rect(rect, Rect::from_min_size(node.pos, node.size));
+            let node_rect =
+                self.world_to_screen_rect(rect, Rect::from_min_size(node.pos, node.size));
             let handle_size = 18.0 * self.zoom.clamp(0.75, 1.6);
             let handle_rect = Rect::from_min_size(
                 node_rect.right_bottom() - vec2(handle_size + 6.0, handle_size + 6.0),
@@ -419,7 +308,8 @@ impl GraphApp {
                     self.menu_nav_selected = (self.menu_nav_selected + 1) % actions.len();
                 }
                 if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) && self.menu_nav_level >= 1 {
-                    self.menu_nav_selected = (self.menu_nav_selected + actions.len() - 1) % actions.len();
+                    self.menu_nav_selected =
+                        (self.menu_nav_selected + actions.len() - 1) % actions.len();
                 }
                 if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
                     self.menu_nav_level = (self.menu_nav_level + 1).min(1);
@@ -536,7 +426,8 @@ impl GraphApp {
             ui.small("↑/↓ 选择，Enter 创建");
         });
 
-        if !any_popup_open && !is_panning && !pointer_over_terminal_content && response.double_clicked() {
+        if !any_popup_open && !is_panning && !pointer_over_terminal_content && response.double_clicked()
+        {
             if let Some(pointer_pos) = response.interact_pointer_pos() {
                 let local = self.screen_to_world_pos(rect, pointer_pos);
                 if let Some((id, _)) = self.find_node_at(local) {
@@ -580,23 +471,38 @@ impl GraphApp {
                 let start = self.world_to_screen_pos(rect, a.pos + vec2(a.size.x, a.size.y * 0.5));
                 let end = self.world_to_screen_pos(rect, b.pos + vec2(0.0, b.size.y * 0.5));
                 let edge_stroke = 2.0 * self.zoom.clamp(0.6, 1.6);
-                painter.line_segment([start, end], Stroke::new(edge_stroke, Color32::from_rgb(110, 170, 255)));
+                painter.line_segment(
+                    [start, end],
+                    Stroke::new(edge_stroke, Color32::from_rgb(110, 170, 255)),
+                );
 
                 let dir = (end - start).normalized();
-                let left = end - dir * (12.0 * self.zoom) + vec2(-dir.y, dir.x) * (6.0 * self.zoom);
-                let right = end - dir * (12.0 * self.zoom) + vec2(dir.y, -dir.x) * (6.0 * self.zoom);
-                painter.line_segment([left, end], Stroke::new(edge_stroke, Color32::from_rgb(110, 170, 255)));
-                painter.line_segment([right, end], Stroke::new(edge_stroke, Color32::from_rgb(110, 170, 255)));
+                let left =
+                    end - dir * (12.0 * self.zoom) + vec2(-dir.y, dir.x) * (6.0 * self.zoom);
+                let right =
+                    end - dir * (12.0 * self.zoom) + vec2(dir.y, -dir.x) * (6.0 * self.zoom);
+                painter.line_segment(
+                    [left, end],
+                    Stroke::new(edge_stroke, Color32::from_rgb(110, 170, 255)),
+                );
+                painter.line_segment(
+                    [right, end],
+                    Stroke::new(edge_stroke, Color32::from_rgb(110, 170, 255)),
+                );
             }
         }
 
         if let (Some(from), Some(pointer_local)) = (self.linking_from, self.linking_pointer_local) {
             if let Some(node) = self.nodes.iter().find(|n| n.id == from) {
-                let start = self.world_to_screen_pos(rect, node.pos + vec2(node.size.x, node.size.y * 0.5));
+                let start =
+                    self.world_to_screen_pos(rect, node.pos + vec2(node.size.x, node.size.y * 0.5));
                 let end = self.world_to_screen_pos(rect, pointer_local);
                 painter.line_segment(
                     [start, end],
-                    Stroke::new(2.0 * self.zoom.clamp(0.6, 1.6), Color32::from_rgba_premultiplied(130, 195, 255, 220)),
+                    Stroke::new(
+                        2.0 * self.zoom.clamp(0.6, 1.6),
+                        Color32::from_rgba_premultiplied(130, 195, 255, 220),
+                    ),
                 );
             }
         }
@@ -607,7 +513,10 @@ impl GraphApp {
                 let b = self.world_to_screen_pos(rect, pair[1]);
                 painter.line_segment(
                     [a, b],
-                    Stroke::new(2.0 * self.zoom.clamp(0.6, 1.6), Color32::from_rgba_premultiplied(255, 120, 120, 220)),
+                    Stroke::new(
+                        2.0 * self.zoom.clamp(0.6, 1.6),
+                        Color32::from_rgba_premultiplied(255, 120, 120, 220),
+                    ),
                 );
             }
         }
@@ -642,9 +551,15 @@ impl GraphApp {
                         Color32::from_rgb(48, 40, 86)
                     };
                     let stroke = if is_selected {
-                        Stroke::new(2.0 * zoom_scale.clamp(0.6, 1.6), Color32::from_rgb(174, 149, 255))
+                        Stroke::new(
+                            2.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(174, 149, 255),
+                        )
                     } else {
-                        Stroke::new(1.0 * zoom_scale.clamp(0.6, 1.6), Color32::from_rgb(108, 96, 145))
+                        Stroke::new(
+                            1.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(108, 96, 145),
+                        )
                     };
                     (fill, stroke)
                 }
@@ -655,9 +570,15 @@ impl GraphApp {
                         Color32::from_rgb(72, 60, 31)
                     };
                     let stroke = if is_selected {
-                        Stroke::new(2.0 * zoom_scale.clamp(0.6, 1.6), Color32::from_rgb(255, 220, 130))
+                        Stroke::new(
+                            2.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(255, 220, 130),
+                        )
                     } else {
-                        Stroke::new(1.0 * zoom_scale.clamp(0.6, 1.6), Color32::from_rgb(130, 114, 68))
+                        Stroke::new(
+                            1.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(130, 114, 68),
+                        )
                     };
                     (fill, stroke)
                 }
@@ -678,7 +599,8 @@ impl GraphApp {
                         );
                     } else {
                         let rect_min = node_rect.left_top() + vec2(10.0, 6.0) * zoom_scale;
-                        let rect_max = node_rect.right_top() + vec2(-10.0, TERMINAL_HEADER_HEIGHT - 6.0) * zoom_scale;
+                        let rect_max = node_rect.right_top()
+                            + vec2(-10.0, TERMINAL_HEADER_HEIGHT - 6.0) * zoom_scale;
                         title_edit_rect = Some((node.id, Rect::from_min_max(rect_min, rect_max)));
                     }
 
@@ -715,7 +637,10 @@ impl GraphApp {
                             node_rect.left_top() + vec2(0.0, TERMINAL_HEADER_HEIGHT) * zoom_scale,
                             node_rect.right_top() + vec2(0.0, TERMINAL_HEADER_HEIGHT) * zoom_scale,
                         ],
-                        Stroke::new(1.0 * zoom_scale.clamp(0.6, 1.6), Color32::from_rgb(108, 96, 145)),
+                        Stroke::new(
+                            1.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(108, 96, 145),
+                        ),
                     );
 
                     if is_selected {
