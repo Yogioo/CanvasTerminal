@@ -27,6 +27,7 @@ pub struct GraphApp {
     dragging: Option<(usize, egui::Vec2)>,
     drag_start_pos: Option<(usize, Pos2)>,
     pan: egui::Vec2,
+    zoom: f32,
 
     terminal_backends: HashMap<usize, TerminalBackend>,
     pty_rx: mpsc::Receiver<(u64, PtyEvent)>,
@@ -67,6 +68,7 @@ impl GraphApp {
             dragging: None,
             drag_start_pos: None,
             pan: vec2(0.0, 0.0),
+            zoom: 1.0,
             terminal_backends: HashMap::new(),
             pty_rx,
             pty_tx,
@@ -264,17 +266,33 @@ impl GraphApp {
         None
     }
 
+    fn world_to_screen_pos(&self, canvas_rect: Rect, world: Pos2) -> Pos2 {
+        canvas_rect.min + self.pan + world.to_vec2() * self.zoom
+    }
+
+    fn world_to_screen_rect(&self, canvas_rect: Rect, world_rect: Rect) -> Rect {
+        Rect::from_min_size(
+            self.world_to_screen_pos(canvas_rect, world_rect.min),
+            world_rect.size() * self.zoom,
+        )
+    }
+
+    fn screen_to_world_pos(&self, canvas_rect: Rect, screen: Pos2) -> Pos2 {
+        ((screen - canvas_rect.min - self.pan) / self.zoom).to_pos2()
+    }
+
     fn terminal_content_rect_screen(&self, node_id: usize, canvas_rect: Rect) -> Option<Rect> {
         let n = self.nodes.iter().find(|n| n.id == node_id)?;
         if !matches!(n.kind, NodeKind::Terminal) {
             return None;
         }
 
-        let outer = Rect::from_min_size(canvas_rect.min + self.pan + n.pos.to_vec2(), n.size);
-        Some(Rect::from_min_max(
-            outer.min + vec2(2.0, TERMINAL_HEADER_HEIGHT + 2.0),
-            outer.max - vec2(2.0, 2.0),
-        ))
+        let outer_world = Rect::from_min_size(n.pos, n.size);
+        let inner_world = Rect::from_min_max(
+            outer_world.min + vec2(2.0, TERMINAL_HEADER_HEIGHT + 2.0),
+            outer_world.max - vec2(2.0, 2.0),
+        );
+        Some(self.world_to_screen_rect(canvas_rect, inner_world))
     }
 
     fn terminal_content_rects_screen(&self, canvas_rect: Rect) -> Vec<(usize, Rect)> {
@@ -502,8 +520,9 @@ impl GraphApp {
             || (d4.abs() <= EPS && on_segment(b1, b2, a2, EPS))
     }
 
-    fn paint_grid(&self, painter: &egui::Painter, rect: Rect, pan: egui::Vec2) {
-        let spacing = 32.0;
+    fn paint_grid(&self, painter: &egui::Painter, rect: Rect, pan: egui::Vec2, zoom: f32) {
+        let base_spacing = 32.0;
+        let spacing = base_spacing * zoom;
         let color = egui::Color32::from_rgba_premultiplied(100, 110, 130, 25);
 
         let x_offset = pan.x.rem_euclid(spacing);
