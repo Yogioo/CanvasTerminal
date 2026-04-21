@@ -307,14 +307,16 @@ impl GraphApp {
                 let local = self.screen_to_world_pos(rect, pointer_pos);
                 self.context_menu_local_pos = Some(local);
                 self.context_menu_node = self.find_node_at(local).map(|(id, _)| id);
+                self.selected = self.context_menu_node;
+                if self.context_menu_node.is_none() {
+                    self.editing_text_node = None;
+                    self.pending_text_focus = None;
+                }
                 self.menu_search_text.clear();
                 self.menu_search_selected = 0;
                 self.menu_nav_level = 0;
                 self.menu_nav_selected = 0;
                 self.pending_menu_search_focus = true;
-                if let Some(id) = self.context_menu_node {
-                    self.selected = Some(id);
-                }
             }
         }
 
