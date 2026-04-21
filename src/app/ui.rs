@@ -119,6 +119,7 @@ impl GraphApp {
         let secondary_released = ctx.input(|i| i.pointer.button_released(egui::PointerButton::Secondary));
         let pointer_pos = ctx.input(|i| i.pointer.interact_pos().or_else(|| i.pointer.hover_pos()));
         let pointer_in_canvas = pointer_pos.is_some_and(|p| rect.contains(p));
+        let any_popup_open = ctx.memory(|m| m.any_popup_open());
 
         let terminal_content_rects = self.terminal_content_rects_screen(rect);
         let pointer_over_terminal_content = pointer_pos.is_some_and(|p| {
@@ -249,6 +250,9 @@ impl GraphApp {
                 self.context_menu_local_pos = Some(local.to_pos2());
                 self.context_menu_node = self.find_node_at(local.to_pos2()).map(|(id, _)| id);
                 self.menu_search_text.clear();
+                self.menu_search_selected = 0;
+                self.menu_nav_level = 0;
+                self.menu_nav_category_selected = 0;
                 self.pending_menu_search_focus = true;
                 if let Some(id) = self.context_menu_node {
                     self.selected = Some(id);
@@ -260,59 +264,187 @@ impl GraphApp {
             let search_id = egui::Id::new("context_menu_search_input");
             if self.pending_menu_search_focus {
                 ui.memory_mut(|m| m.request_focus(search_id));
-                self.pending_menu_search_focus = false;
             }
 
-            ui.add(
+            let search_resp = ui.add(
                 TextEdit::singleline(&mut self.menu_search_text)
                     .id(search_id)
-                    .hint_text("搜索创建节点..."),
+                    .hint_text("搜索并创建节点..."),
             );
+            let search_has_focus = search_resp.has_focus() || ui.memory(|m| m.has_focus(search_id));
+            if self.pending_menu_search_focus && search_has_focus {
+                self.pending_menu_search_focus = false;
+            }
+            if search_resp.changed() {
+                self.menu_search_selected = 0;
+            }
 
             ui.separator();
 
-            ui.menu_button("创建节点", |ui| {
-                let spawn_pos = if let Some(id) = self.context_menu_node {
-                    if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
-                        node.pos + vec2(node.size.x + 40.0, 10.0)
-                    } else {
-                        self.context_menu_local_pos.unwrap_or(Pos2::new(100.0, 100.0))
-                    }
+            let spawn_pos = if let Some(id) = self.context_menu_node {
+                if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
+                    node.pos + vec2(node.size.x + 40.0, 10.0)
                 } else {
                     self.context_menu_local_pos.unwrap_or(Pos2::new(100.0, 100.0))
-                };
+                }
+            } else {
+                self.context_menu_local_pos.unwrap_or(Pos2::new(100.0, 100.0))
+            };
 
-                let terminal_label = "终端节点";
-                let text_label = "文本节点";
-                let mut has_match = false;
+            if self.menu_search_text.trim().is_empty() {
+                let categories = [("终端", "终端节点", 0usize), ("文本", "文本节点", 1usize)];
+                let col_width = 150.0;
 
-                if self.menu_item_matches(terminal_label) {
-                    has_match = true;
-                    ui.menu_button("终端", |ui| {
-                        if ui.button(terminal_label).clicked() {
-                            self.create_terminal_node(spawn_pos);
-                            ui.close_menu();
-                        }
-                    });
+                if self.menu_nav_category_selected >= categories.len() {
+                    self.menu_nav_category_selected = categories.len().saturating_sub(1);
                 }
 
-                if self.menu_item_matches(text_label) {
-                    has_match = true;
-                    ui.menu_button("文本", |ui| {
-                        if ui.button(text_label).clicked() {
-                            self.create_text_node(spawn_pos, true);
-                            ui.close_menu();
-                        }
-                    });
+                if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown))
+                    && self.menu_nav_level >= 1
+                {
+                    self.menu_nav_category_selected =
+                        (self.menu_nav_category_selected + 1) % categories.len();
+                }
+                if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp))
+                    && self.menu_nav_level >= 1
+                {
+                    self.menu_nav_category_selected =
+                        (self.menu_nav_category_selected + categories.len() - 1) % categories.len();
+                }
+                if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+                    self.menu_nav_level = (self.menu_nav_level + 1).min(2);
+                }
+                if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+                    self.menu_nav_level = self.menu_nav_level.saturating_sub(1);
                 }
 
-                if !has_match {
-                    ui.small("无匹配节点类型");
+                let mut trigger_action = None;
+                if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    match self.menu_nav_level {
+                        0 => self.menu_nav_level = 1,
+                        1 => self.menu_nav_level = 2,
+                        2 => trigger_action = Some(categories[self.menu_nav_category_selected].2),
+                        _ => {}
+                    }
                 }
-            });
+
+                ui.group(|ui| {
+                    if ui
+                        .add_sized(
+                            [col_width, 24.0],
+                            egui::SelectableLabel::new(self.menu_nav_level == 0, "创建节点 ▶"),
+                        )
+                        .clicked()
+                    {
+                        self.menu_nav_level = 1;
+                    }
+
+                    if self.menu_nav_level >= 1 {
+                        ui.indent("menu_level_1", |ui| {
+                            for (idx, (category, leaf_name, action_id)) in categories.iter().enumerate() {
+                                let selected = self.menu_nav_category_selected == idx && self.menu_nav_level >= 1;
+                                if ui
+                                    .add_sized(
+                                        [col_width, 24.0],
+                                        egui::SelectableLabel::new(selected, format!("{} ▶", category)),
+                                    )
+                                    .clicked()
+                                {
+                                    self.menu_nav_category_selected = idx;
+                                    self.menu_nav_level = 2;
+                                }
+
+                                if self.menu_nav_level >= 2 && self.menu_nav_category_selected == idx {
+                                    ui.indent("menu_level_2", |ui| {
+                                        if ui
+                                            .add_sized(
+                                                [col_width, 24.0],
+                                                egui::SelectableLabel::new(
+                                                    self.menu_nav_level == 2,
+                                                    *leaf_name,
+                                                ),
+                                            )
+                                            .clicked()
+                                        {
+                                            trigger_action = Some(*action_id);
+                                        }
+                                    });
+                                }
+                            }
+                        });
+                    }
+                });
+
+                if let Some(action_id) = trigger_action {
+                    match action_id {
+                        0 => self.create_terminal_node(spawn_pos),
+                        1 => self.create_text_node(spawn_pos, true),
+                        _ => {}
+                    }
+                    ui.close_menu();
+                }
+
+                ui.separator();
+                ui.small("←/→ 进入或返回子菜单，↑/↓ 同级选择，Enter 确认");
+                return;
+            }
+
+            let items = [
+                ("创建节点/终端/终端节点", 0usize),
+                ("创建节点/文本/文本节点", 1usize),
+            ];
+
+            let mut matched = Vec::new();
+            for (path, action_id) in items {
+                if self.menu_item_matches(path) {
+                    matched.push((path, action_id));
+                }
+            }
+
+            if matched.is_empty() {
+                ui.small("无匹配节点类型");
+                return;
+            }
+
+            if self.menu_search_selected >= matched.len() {
+                self.menu_search_selected = matched.len().saturating_sub(1);
+            }
+
+            if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+                self.menu_search_selected = (self.menu_search_selected + 1) % matched.len();
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+                self.menu_search_selected =
+                    (self.menu_search_selected + matched.len() - 1) % matched.len();
+            }
+
+            let mut trigger_action = None;
+            for (row, (path, action_id)) in matched.iter().enumerate() {
+                let selected = row == self.menu_search_selected;
+                let resp = ui.selectable_label(selected, self.menu_item_highlighted_label(path));
+                if resp.clicked() {
+                    trigger_action = Some(*action_id);
+                }
+            }
+
+            if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+                trigger_action = Some(matched[self.menu_search_selected].1);
+            }
+
+            if let Some(action_id) = trigger_action {
+                match action_id {
+                    0 => self.create_terminal_node(spawn_pos),
+                    1 => self.create_text_node(spawn_pos, true),
+                    _ => {}
+                }
+                ui.close_menu();
+            }
+
+            ui.separator();
+            ui.small("↑/↓ 选择，Enter 创建");
         });
 
-        if !is_panning && !pointer_over_terminal_content && response.double_clicked() {
+        if !any_popup_open && !is_panning && !pointer_over_terminal_content && response.double_clicked() {
             if let Some(pointer_pos) = response.interact_pointer_pos() {
                 let local = pointer_pos - rect.min - self.pan;
                 if let Some((id, _)) = self.find_node_at(local.to_pos2()) {
@@ -329,7 +461,7 @@ impl GraphApp {
             }
         }
 
-        if !is_panning && !pointer_over_terminal_content && response.clicked() {
+        if !any_popup_open && !is_panning && !pointer_over_terminal_content && response.clicked() {
             if let Some(pointer_pos) = response.interact_pointer_pos() {
                 let local = pointer_pos - rect.min - self.pan;
                 if let Some((id, _)) = self.find_node_at(local.to_pos2()) {

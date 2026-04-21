@@ -36,6 +36,9 @@ pub struct GraphApp {
 
     next_node_id: usize,
     menu_search_text: String,
+    menu_search_selected: usize,
+    menu_nav_level: u8,
+    menu_nav_category_selected: usize,
     pending_menu_search_focus: bool,
     editing_text_node: Option<usize>,
     pending_text_focus: Option<usize>,
@@ -150,6 +153,9 @@ impl GraphApp {
             terminal_errors: HashMap::new(),
             next_node_id: TERMINAL_NODE_ID + 1,
             menu_search_text: String::new(),
+            menu_search_selected: 0,
+            menu_nav_level: 0,
+            menu_nav_category_selected: 0,
             pending_menu_search_focus: false,
             editing_text_node: None,
             pending_text_focus: None,
@@ -230,6 +236,15 @@ impl GraphApp {
         }
 
         label.contains(kw)
+    }
+
+    fn menu_item_highlighted_label(&self, label: &str) -> String {
+        let kw = self.menu_search_text.trim();
+        if kw.is_empty() {
+            return label.to_owned();
+        }
+
+        label.replace(kw, &format!("【{}】", kw))
     }
 
     fn selected_terminal_id(&self) -> Option<usize> {
