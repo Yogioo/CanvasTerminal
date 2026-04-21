@@ -2,7 +2,6 @@ use eframe::egui::{self, Pos2};
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum NodeKind {
-    Service,
     Terminal,
     Text,
 }
@@ -17,7 +16,4 @@ pub struct Node {
     pub pos: Pos2,
     pub size: egui::Vec2,
     pub status: &'static str,
-    pub latency_ms: u32,
-    pub qps: f32,
-    pub errors: f32,
 }

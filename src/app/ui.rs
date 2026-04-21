@@ -19,24 +19,16 @@ impl GraphApp {
                 ui.label(format!("分类: {}", node.category));
                 ui.label(format!("状态: {}", node.status));
 
-                match node.kind {
-                    NodeKind::Text => {
-                        ui.separator();
-                        ui.label("文本内容:");
-                        ui.add_sized(
-                            [ui.available_width(), 120.0],
-                            TextEdit::multiline(&mut node.text_body),
-                        );
-                        if ui.button("进入画布内编辑模式").clicked() {
-                            self.editing_text_node = Some(node.id);
-                            self.pending_text_focus = Some(node.id);
-                        }
-                    }
-                    _ => {
-                        ui.separator();
-                        ui.label(format!("平均延迟: {} ms", node.latency_ms));
-                        ui.label(format!("吞吐量: {:.0} qps", node.qps));
-                        ui.label(format!("错误率: {:.2}%", node.errors));
+                if node.kind == NodeKind::Text {
+                    ui.separator();
+                    ui.label("文本内容:");
+                    ui.add_sized(
+                        [ui.available_width(), 120.0],
+                        TextEdit::multiline(&mut node.text_body),
+                    );
+                    if ui.button("进入画布内编辑模式").clicked() {
+                        self.editing_text_node = Some(node.id);
+                        self.pending_text_focus = Some(node.id);
                     }
                 }
 
@@ -252,7 +244,7 @@ impl GraphApp {
                 self.menu_search_text.clear();
                 self.menu_search_selected = 0;
                 self.menu_nav_level = 0;
-                self.menu_nav_category_selected = 0;
+                self.menu_nav_selected = 0;
                 self.pending_menu_search_focus = true;
                 if let Some(id) = self.context_menu_node {
                     self.selected = Some(id);
@@ -277,6 +269,10 @@ impl GraphApp {
             }
             if search_resp.changed() {
                 self.menu_search_selected = 0;
+                if self.menu_search_text.trim().is_empty() {
+                    self.menu_nav_level = 0;
+                    self.menu_nav_selected = 0;
+                }
             }
 
             ui.separator();
@@ -292,27 +288,19 @@ impl GraphApp {
             };
 
             if self.menu_search_text.trim().is_empty() {
-                let categories = [("终端", "终端节点", 0usize), ("文本", "文本节点", 1usize)];
-                let col_width = 150.0;
-
-                if self.menu_nav_category_selected >= categories.len() {
-                    self.menu_nav_category_selected = categories.len().saturating_sub(1);
+                let actions = [("终端节点", 0usize), ("文本节点", 1usize)];
+                if self.menu_nav_selected >= actions.len() {
+                    self.menu_nav_selected = actions.len().saturating_sub(1);
                 }
 
-                if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown))
-                    && self.menu_nav_level >= 1
-                {
-                    self.menu_nav_category_selected =
-                        (self.menu_nav_category_selected + 1) % categories.len();
+                if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) && self.menu_nav_level >= 1 {
+                    self.menu_nav_selected = (self.menu_nav_selected + 1) % actions.len();
                 }
-                if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp))
-                    && self.menu_nav_level >= 1
-                {
-                    self.menu_nav_category_selected =
-                        (self.menu_nav_category_selected + categories.len() - 1) % categories.len();
+                if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) && self.menu_nav_level >= 1 {
+                    self.menu_nav_selected = (self.menu_nav_selected + actions.len() - 1) % actions.len();
                 }
                 if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
-                    self.menu_nav_level = (self.menu_nav_level + 1).min(2);
+                    self.menu_nav_level = (self.menu_nav_level + 1).min(1);
                 }
                 if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
                     self.menu_nav_level = self.menu_nav_level.saturating_sub(1);
@@ -322,8 +310,7 @@ impl GraphApp {
                 if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
                     match self.menu_nav_level {
                         0 => self.menu_nav_level = 1,
-                        1 => self.menu_nav_level = 2,
-                        2 => trigger_action = Some(categories[self.menu_nav_category_selected].2),
+                        1 => trigger_action = Some(actions[self.menu_nav_selected].1),
                         _ => {}
                     }
                 }
@@ -331,7 +318,7 @@ impl GraphApp {
                 ui.group(|ui| {
                     if ui
                         .add_sized(
-                            [col_width, 24.0],
+                            [170.0, 24.0],
                             egui::SelectableLabel::new(self.menu_nav_level == 0, "创建节点 ▶"),
                         )
                         .clicked()
@@ -341,34 +328,17 @@ impl GraphApp {
 
                     if self.menu_nav_level >= 1 {
                         ui.indent("menu_level_1", |ui| {
-                            for (idx, (category, leaf_name, action_id)) in categories.iter().enumerate() {
-                                let selected = self.menu_nav_category_selected == idx && self.menu_nav_level >= 1;
+                            for (idx, (label, action_id)) in actions.iter().enumerate() {
+                                let selected = self.menu_nav_selected == idx;
                                 if ui
                                     .add_sized(
-                                        [col_width, 24.0],
-                                        egui::SelectableLabel::new(selected, format!("{} ▶", category)),
+                                        [170.0, 24.0],
+                                        egui::SelectableLabel::new(selected, *label),
                                     )
                                     .clicked()
                                 {
-                                    self.menu_nav_category_selected = idx;
-                                    self.menu_nav_level = 2;
-                                }
-
-                                if self.menu_nav_level >= 2 && self.menu_nav_category_selected == idx {
-                                    ui.indent("menu_level_2", |ui| {
-                                        if ui
-                                            .add_sized(
-                                                [col_width, 24.0],
-                                                egui::SelectableLabel::new(
-                                                    self.menu_nav_level == 2,
-                                                    *leaf_name,
-                                                ),
-                                            )
-                                            .clicked()
-                                        {
-                                            trigger_action = Some(*action_id);
-                                        }
-                                    });
+                                    self.menu_nav_selected = idx;
+                                    trigger_action = Some(*action_id);
                                 }
                             }
                         });
@@ -385,19 +355,19 @@ impl GraphApp {
                 }
 
                 ui.separator();
-                ui.small("←/→ 进入或返回子菜单，↑/↓ 同级选择，Enter 确认");
+                ui.small("←/→ 进入或返回，↑/↓ 选择，Enter 创建");
                 return;
             }
 
             let items = [
-                ("创建节点/终端/终端节点", 0usize),
-                ("创建节点/文本/文本节点", 1usize),
+                ("创建节点/终端节点", "终端节点", 0usize),
+                ("创建节点/文本节点", "文本节点", 1usize),
             ];
 
             let mut matched = Vec::new();
-            for (path, action_id) in items {
-                if self.menu_item_matches(path) {
-                    matched.push((path, action_id));
+            for (path, label, action_id) in items {
+                if self.menu_item_matches(path) || self.menu_item_matches(label) {
+                    matched.push((label, action_id));
                 }
             }
 
@@ -522,19 +492,6 @@ impl GraphApp {
             let is_selected = self.selected == Some(node.id);
 
             let (fill, stroke) = match node.kind {
-                NodeKind::Service => {
-                    let fill = if is_selected {
-                        Color32::from_rgb(40, 75, 130)
-                    } else {
-                        Color32::from_rgb(38, 43, 52)
-                    };
-                    let stroke = if is_selected {
-                        Stroke::new(2.0, Color32::from_rgb(120, 180, 255))
-                    } else {
-                        Stroke::new(1.0, Color32::from_rgb(80, 90, 105))
-                    };
-                    (fill, stroke)
-                }
                 NodeKind::Terminal => {
                     let fill = if is_selected {
                         Color32::from_rgb(64, 52, 120)
@@ -573,21 +530,6 @@ impl GraphApp {
             );
 
             match node.kind {
-                NodeKind::Service => {
-                    let status_color = match node.status {
-                        "Healthy" => Color32::from_rgb(96, 212, 125),
-                        "Warning" => Color32::from_rgb(255, 193, 88),
-                        _ => Color32::from_rgb(255, 111, 111),
-                    };
-                    painter.circle_filled(node_rect.right_top() - vec2(14.0, -14.0), 5.0, status_color);
-                    painter.text(
-                        node_rect.left_bottom() - vec2(-12.0, 12.0),
-                        Align2::LEFT_BOTTOM,
-                        format!("{} ms", node.latency_ms),
-                        FontId::proportional(14.0),
-                        Color32::from_gray(210),
-                    );
-                }
                 NodeKind::Terminal => {
                     let state_text = if self.terminal_backends.contains_key(&node.id) {
                         "状态: Running"

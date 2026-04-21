@@ -1,6 +1,6 @@
 mod ui;
 
-use crate::constants::{TERMINAL_HEADER_HEIGHT, TERMINAL_NODE_ID};
+use crate::constants::TERMINAL_HEADER_HEIGHT;
 use crate::model::{Node, NodeKind};
 use crate::shell::system_shell;
 use eframe::egui::{self, vec2, Pos2, Rect, SidePanel, Stroke};
@@ -38,7 +38,7 @@ pub struct GraphApp {
     menu_search_text: String,
     menu_search_selected: usize,
     menu_nav_level: u8,
-    menu_nav_category_selected: usize,
+    menu_nav_selected: usize,
     pending_menu_search_focus: bool,
     editing_text_node: Option<usize>,
     pending_text_focus: Option<usize>,
@@ -55,94 +55,15 @@ pub struct GraphApp {
 }
 
 impl GraphApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let (pty_tx, pty_rx) = mpsc::channel();
 
-        let nodes = vec![
-            Node {
-                id: 1,
-                title: "API Gateway".to_owned(),
-                kind: NodeKind::Service,
-                category: "服务".to_owned(),
-                text_body: String::new(),
-                pos: Pos2::new(80.0, 120.0),
-                size: vec2(180.0, 90.0),
-                status: "Healthy",
-                latency_ms: 22,
-                qps: 2350.0,
-                errors: 0.10,
-            },
-            Node {
-                id: 2,
-                title: "Auth Service".to_owned(),
-                kind: NodeKind::Service,
-                category: "服务".to_owned(),
-                text_body: String::new(),
-                pos: Pos2::new(360.0, 70.0),
-                size: vec2(180.0, 90.0),
-                status: "Healthy",
-                latency_ms: 38,
-                qps: 980.0,
-                errors: 0.08,
-            },
-            Node {
-                id: 3,
-                title: "Order Service".to_owned(),
-                kind: NodeKind::Service,
-                category: "服务".to_owned(),
-                text_body: String::new(),
-                pos: Pos2::new(360.0, 240.0),
-                size: vec2(180.0, 90.0),
-                status: "Warning",
-                latency_ms: 85,
-                qps: 1240.0,
-                errors: 0.52,
-            },
-            Node {
-                id: 4,
-                title: "Redis Cache".to_owned(),
-                kind: NodeKind::Service,
-                category: "服务".to_owned(),
-                text_body: String::new(),
-                pos: Pos2::new(660.0, 70.0),
-                size: vec2(180.0, 90.0),
-                status: "Healthy",
-                latency_ms: 6,
-                qps: 7120.0,
-                errors: 0.02,
-            },
-            Node {
-                id: 5,
-                title: "MySQL".to_owned(),
-                kind: NodeKind::Service,
-                category: "服务".to_owned(),
-                text_body: String::new(),
-                pos: Pos2::new(660.0, 240.0),
-                size: vec2(180.0, 90.0),
-                status: "Degraded",
-                latency_ms: 140,
-                qps: 845.0,
-                errors: 1.74,
-            },
-            Node {
-                id: TERMINAL_NODE_ID,
-                title: "Terminal".to_owned(),
-                kind: NodeKind::Terminal,
-                category: "终端".to_owned(),
-                text_body: String::new(),
-                pos: Pos2::new(900.0, 120.0),
-                size: vec2(760.0, 360.0),
-                status: "Running",
-                latency_ms: 0,
-                qps: 0.0,
-                errors: 0.0,
-            },
-        ];
+        let nodes = Vec::new();
 
-        let mut app = Self {
+        let app = Self {
             nodes,
-            edges: vec![(1, 2), (1, 3), (2, 4), (3, 4), (3, 5), (1, TERMINAL_NODE_ID)],
-            selected: Some(TERMINAL_NODE_ID),
+            edges: Vec::new(),
+            selected: None,
             dragging: None,
             drag_start_pos: None,
             pan: vec2(0.0, 0.0),
@@ -151,11 +72,11 @@ impl GraphApp {
             pty_tx,
             terminal_exited: HashSet::new(),
             terminal_errors: HashMap::new(),
-            next_node_id: TERMINAL_NODE_ID + 1,
+            next_node_id: 1,
             menu_search_text: String::new(),
             menu_search_selected: 0,
             menu_nav_level: 0,
-            menu_nav_category_selected: 0,
+            menu_nav_selected: 0,
             pending_menu_search_focus: false,
             editing_text_node: None,
             pending_text_focus: None,
@@ -171,7 +92,6 @@ impl GraphApp {
             change_history: Vec::new(),
         };
 
-        app.ensure_terminal(TERMINAL_NODE_ID, &cc.egui_ctx);
         app
     }
 
@@ -192,9 +112,6 @@ impl GraphApp {
             pos,
             size: vec2(420.0, 220.0),
             status: "Running",
-            latency_ms: 0,
-            qps: 0.0,
-            errors: 0.0,
         });
         self.selected = Some(id);
     }
@@ -210,9 +127,6 @@ impl GraphApp {
             pos,
             size: vec2(260.0, 140.0),
             status: "Editable",
-            latency_ms: 0,
-            qps: 0.0,
-            errors: 0.0,
         });
         self.selected = Some(id);
         if edit_now {
@@ -223,7 +137,6 @@ impl GraphApp {
 
     fn node_kind_name(kind: &NodeKind) -> &'static str {
         match kind {
-            NodeKind::Service => "服务",
             NodeKind::Terminal => "终端",
             NodeKind::Text => "文本",
         }
@@ -342,7 +255,7 @@ impl GraphApp {
             }
 
             let can_drag = match n.kind {
-                NodeKind::Service | NodeKind::Text => true,
+                NodeKind::Text => true,
                 NodeKind::Terminal => local.y <= n.pos.y + TERMINAL_HEADER_HEIGHT,
             };
 
