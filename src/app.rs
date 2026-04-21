@@ -26,6 +26,17 @@ enum HistoryEntry {
     MoveNodes {
         nodes: Vec<(usize, Pos2, Pos2)>,
     },
+    ReorderNodes {
+        before: Vec<usize>,
+    },
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::app) enum NodeOrderAction {
+    BringToFront,
+    BringForwardOne,
+    SendBackwardOne,
+    SendToBack,
 }
 
 pub struct GraphApp {
@@ -177,7 +188,6 @@ impl GraphApp {
         self.selected = Some(node_id);
         self.selected_nodes.clear();
         self.selected_nodes.insert(node_id);
-        self.bring_node_to_front(node_id);
     }
 
     fn clear_selection(&mut self) {
@@ -202,7 +212,6 @@ impl GraphApp {
         } else {
             self.selected_nodes.insert(node_id);
             self.selected = Some(node_id);
-            self.bring_node_to_front(node_id);
         }
     }
 
@@ -747,14 +756,6 @@ impl GraphApp {
         Some(self.world_to_screen_rect(canvas_rect, inner_world))
     }
 
-    fn terminal_content_rects_screen(&self, canvas_rect: Rect) -> Vec<(usize, Rect)> {
-        self.nodes
-            .iter()
-            .filter(|n| matches!(n.kind, NodeKind::Terminal))
-            .filter_map(|n| self.terminal_content_rect_screen(n.id, canvas_rect).map(|r| (n.id, r)))
-            .collect()
-    }
-
     fn has_edge(&self, from: usize, to: usize) -> bool {
         self.edges.iter().any(|(a, b)| *a == from && *b == to)
     }
@@ -801,13 +802,123 @@ impl GraphApp {
         }
     }
 
-    fn bring_node_to_front(&mut self, node_id: usize) {
-        if let Some(index) = self.nodes.iter().position(|n| n.id == node_id) {
-            if index + 1 == self.nodes.len() {
-                return;
+    fn ordered_selected_ids(&self) -> Vec<usize> {
+        self.nodes
+            .iter()
+            .filter(|n| self.selected_nodes.contains(&n.id))
+            .map(|n| n.id)
+            .collect()
+    }
+
+    fn selection_or_single(&self, node_id: usize) -> HashSet<usize> {
+        if self.selected_nodes.contains(&node_id) && !self.selected_nodes.is_empty() {
+            self.selected_nodes.clone()
+        } else {
+            let mut picked = HashSet::new();
+            picked.insert(node_id);
+            picked
+        }
+    }
+
+    fn apply_node_order(&mut self, order: &[usize]) {
+        let mut map: HashMap<usize, Node> = std::mem::take(&mut self.nodes)
+            .into_iter()
+            .map(|node| (node.id, node))
+            .collect();
+
+        let mut reordered = Vec::with_capacity(map.len());
+        for id in order {
+            if let Some(node) = map.remove(id) {
+                reordered.push(node);
             }
-            let node = self.nodes.remove(index);
-            self.nodes.push(node);
+        }
+        reordered.extend(map.into_values());
+        self.nodes = reordered;
+    }
+
+    fn record_reorder_history(&mut self, before: Vec<usize>, action_name: &str) {
+        let after: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
+        if before == after {
+            return;
+        }
+
+        self.push_history(
+            HistoryEntry::ReorderNodes { before },
+            action_name.to_owned(),
+        );
+    }
+
+    fn bring_selection_to_front(&mut self) {
+        let selected = self.selected_nodes.clone();
+        if selected.is_empty() {
+            return;
+        }
+
+        let before: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
+        self.nodes
+            .sort_by_key(|node| usize::from(selected.contains(&node.id)));
+        self.record_reorder_history(before, "调整层级: 置于顶层");
+        self.selected = self.ordered_selected_ids().last().copied();
+    }
+
+    fn send_selection_to_back(&mut self) {
+        let selected = self.selected_nodes.clone();
+        if selected.is_empty() {
+            return;
+        }
+
+        let before: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
+        self.nodes
+            .sort_by_key(|node| usize::from(!selected.contains(&node.id)));
+        self.record_reorder_history(before, "调整层级: 置于底层");
+        self.selected = self.ordered_selected_ids().last().copied();
+    }
+
+    fn bring_selection_forward_one(&mut self) {
+        if self.selected_nodes.is_empty() {
+            return;
+        }
+
+        let before: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
+        for idx in (0..self.nodes.len().saturating_sub(1)).rev() {
+            let current_selected = self.selected_nodes.contains(&self.nodes[idx].id);
+            let next_selected = self.selected_nodes.contains(&self.nodes[idx + 1].id);
+            if current_selected && !next_selected {
+                self.nodes.swap(idx, idx + 1);
+            }
+        }
+
+        self.record_reorder_history(before, "调整层级: 上移一层");
+        self.selected = self.ordered_selected_ids().last().copied();
+    }
+
+    fn send_selection_backward_one(&mut self) {
+        if self.selected_nodes.is_empty() {
+            return;
+        }
+
+        let before: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
+        for idx in 1..self.nodes.len() {
+            let current_selected = self.selected_nodes.contains(&self.nodes[idx].id);
+            let prev_selected = self.selected_nodes.contains(&self.nodes[idx - 1].id);
+            if current_selected && !prev_selected {
+                self.nodes.swap(idx - 1, idx);
+            }
+        }
+
+        self.record_reorder_history(before, "调整层级: 下移一层");
+        self.selected = self.ordered_selected_ids().last().copied();
+    }
+
+    fn reorder_from_context(&mut self, node_id: usize, mode: NodeOrderAction) {
+        let target_selection = self.selection_or_single(node_id);
+        self.selected_nodes = target_selection;
+
+        match mode {
+            NodeOrderAction::BringToFront => self.bring_selection_to_front(),
+            NodeOrderAction::BringForwardOne => self.bring_selection_forward_one(),
+            NodeOrderAction::SendBackwardOne => self.send_selection_backward_one(),
+            NodeOrderAction::SendToBack => self.send_selection_to_back(),
         }
     }
 
@@ -988,6 +1099,10 @@ impl GraphApp {
                     }
                 }
                 self.change_history.push(format!("撤销移动节点 {} 个", moved_count));
+            }
+            HistoryEntry::ReorderNodes { before } => {
+                self.apply_node_order(&before);
+                self.change_history.push("撤销层级调整".to_owned());
             }
         }
     }

@@ -1,4 +1,4 @@
-use super::super::GraphApp;
+use super::super::{GraphApp, NodeOrderAction};
 use crate::constants::TERMINAL_HEADER_HEIGHT;
 use crate::model::NodeKind;
 use arboard::Clipboard;
@@ -309,7 +309,6 @@ impl GraphApp {
 
         self.paint_grid(&painter, rect, self.pan, self.zoom);
 
-        let terminal_content_rects = self.terminal_content_rects_screen(rect);
         let pointer_over_terminal_content = pointer_pos.is_some_and(|p| {
             let local = self.screen_to_world_pos(rect, p);
             let Some((node_id, _)) = self.find_node_at(local) else {
@@ -330,6 +329,50 @@ impl GraphApp {
         let primary_pressed = ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
         let is_panning =
             (is_space_pan || is_middle_pan) && pointer_in_canvas && !pointer_over_terminal_content;
+
+        let keyboard_has_focus = ctx.wants_keyboard_input();
+        let can_run_layer_shortcuts = pointer_in_canvas
+            && !is_panning
+            && !pointer_over_terminal_content
+            && !any_popup_open
+            && self.editing_text_node.is_none()
+            && self.editing_title_node.is_none()
+            && self.editing_identity_node.is_none()
+            && !self.selected_nodes.is_empty()
+            && !keyboard_has_focus;
+
+        if can_run_layer_shortcuts {
+            let layer_action = ctx.input(|i| {
+                let ctrl_or_cmd = i.modifiers.ctrl || i.modifiers.command;
+                let no_extra_modifiers = !i.modifiers.alt && !i.modifiers.shift;
+
+                if i.key_pressed(egui::Key::CloseBracket) && no_extra_modifiers {
+                    if ctrl_or_cmd {
+                        Some(NodeOrderAction::BringToFront)
+                    } else {
+                        Some(NodeOrderAction::BringForwardOne)
+                    }
+                } else if i.key_pressed(egui::Key::OpenBracket) && no_extra_modifiers {
+                    if ctrl_or_cmd {
+                        Some(NodeOrderAction::SendToBack)
+                    } else {
+                        Some(NodeOrderAction::SendBackwardOne)
+                    }
+                } else {
+                    None
+                }
+            });
+
+            if let Some(action) = layer_action {
+                match action {
+                    NodeOrderAction::BringToFront => self.bring_selection_to_front(),
+                    NodeOrderAction::BringForwardOne => self.bring_selection_forward_one(),
+                    NodeOrderAction::SendBackwardOne => self.send_selection_backward_one(),
+                    NodeOrderAction::SendToBack => self.send_selection_to_back(),
+                }
+            }
+        }
+
         let mut tolerant_double_click = false;
         if primary_clicked {
             if let Some(pointer) = pointer_pos {
@@ -773,9 +816,9 @@ impl GraphApp {
 
         self.autosize_text_nodes(&painter);
         self.ensure_image_textures(ctx);
-        self.draw_embedded_terminals(ui, ctx, rect, &terminal_content_rects);
 
-        let (text_edit_rect, title_edit_rect, identity_edit_rect) = self.draw_nodes(&painter, rect);
+        let (text_edit_rect, title_edit_rect, identity_edit_rect) =
+            self.draw_nodes(ui, ctx, &painter, rect);
         self.handle_text_node_editor(ui, ctx, text_edit_rect);
         self.handle_title_editor(ui, ctx, title_edit_rect, primary_clicked, pointer_pos);
         self.handle_identity_editor(ui, ctx, identity_edit_rect, primary_clicked, pointer_pos);

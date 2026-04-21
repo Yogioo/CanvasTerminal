@@ -85,7 +85,9 @@ impl GraphApp {
     }
 
     pub(in crate::app::ui) fn draw_nodes(
-        &self,
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
         painter: &Painter,
         rect: Rect,
     ) -> (Option<(usize, Rect)>, Option<(usize, Rect)>, Option<(usize, Rect)>) {
@@ -93,7 +95,8 @@ impl GraphApp {
         let mut title_edit_rect: Option<(usize, Rect)> = None;
         let mut identity_edit_rect: Option<(usize, Rect)> = None;
 
-        for node in &self.nodes {
+        let render_nodes = self.nodes.clone();
+        for node in &render_nodes {
             let node_rect = self.world_to_screen_rect(rect, Rect::from_min_size(node.pos, node.size));
             let is_selected = self.selected_nodes.contains(&node.id);
             let zoom_scale = self.zoom;
@@ -258,6 +261,10 @@ impl GraphApp {
                             Color32::from_rgb(108, 96, 145),
                         ),
                     );
+
+                    if let Some(term_rect) = self.terminal_content_rect_screen(node.id, rect) {
+                        self.draw_embedded_terminal_for_rect(ui, ctx, rect, node.id, term_rect);
+                    }
 
                     if is_selected {
                         let handle_size = 12.0 * zoom_scale.clamp(0.75, 1.6);

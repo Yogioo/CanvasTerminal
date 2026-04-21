@@ -1,4 +1,4 @@
-use super::super::GraphApp;
+use super::super::{GraphApp, NodeOrderAction};
 use eframe::egui::{self, Pos2, TextEdit};
 
 impl GraphApp {
@@ -14,8 +14,35 @@ impl GraphApp {
         self.context_menu_local_pos.unwrap_or(Pos2::new(100.0, 100.0))
     }
 
+    fn run_node_order_action(&mut self, node_id: usize, action: NodeOrderAction) {
+        self.reorder_from_context(node_id, action);
+    }
+
     pub(in crate::app::ui) fn show_canvas_context_menu(&mut self, response: &egui::Response, ctx: &egui::Context) {
         response.context_menu(|ui| {
+            if let Some(node_id) = self.context_menu_node {
+                ui.label(format!("节点 #{node_id}"));
+                ui.separator();
+
+                if ui.button("置于顶层").clicked() {
+                    self.run_node_order_action(node_id, NodeOrderAction::BringToFront);
+                    ui.close_menu();
+                }
+                if ui.button("上移一层").clicked() {
+                    self.run_node_order_action(node_id, NodeOrderAction::BringForwardOne);
+                    ui.close_menu();
+                }
+                if ui.button("下移一层").clicked() {
+                    self.run_node_order_action(node_id, NodeOrderAction::SendBackwardOne);
+                    ui.close_menu();
+                }
+                if ui.button("置于底层").clicked() {
+                    self.run_node_order_action(node_id, NodeOrderAction::SendToBack);
+                    ui.close_menu();
+                }
+                return;
+            }
+
             let search_id = egui::Id::new("context_menu_search_input");
             if self.pending_menu_search_focus {
                 ui.memory_mut(|m| m.request_focus(search_id));

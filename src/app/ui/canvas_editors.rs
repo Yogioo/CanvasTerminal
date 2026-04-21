@@ -158,54 +158,54 @@ impl GraphApp {
         }
     }
 
-    pub(in crate::app::ui) fn draw_embedded_terminals(
+    pub(in crate::app::ui) fn draw_embedded_terminal_for_rect(
         &mut self,
         ui: &mut Ui,
         ctx: &egui::Context,
         canvas_rect: Rect,
-        terminal_content_rects: &[(usize, Rect)],
+        node_id: usize,
+        term_rect: Rect,
     ) {
-        for (node_id, term_rect) in terminal_content_rects {
-            let visible_rect = term_rect.intersect(canvas_rect);
-            if !visible_rect.is_positive() {
-                continue;
-            }
+        let visible_rect = term_rect.intersect(canvas_rect);
+        if !visible_rect.is_positive() {
+            return;
+        }
 
-            if !self.terminal_backends.contains_key(node_id)
-                && !self.terminal_errors.contains_key(node_id)
-                && !self.terminal_exited.contains(node_id)
-            {
-                self.ensure_terminal(*node_id, ctx);
-            }
+        if !self.terminal_backends.contains_key(&node_id)
+            && !self.terminal_errors.contains_key(&node_id)
+            && !self.terminal_exited.contains(&node_id)
+        {
+            self.ensure_terminal(node_id, ctx);
+        }
 
-            let full_screen_rect = Rect::from_min_size(term_rect.min, term_rect.size());
-            let mut term_ui = ui.new_child(
-                egui::UiBuilder::new()
-                    .max_rect(full_screen_rect)
-                    .layout(*ui.layout()),
-            );
-            term_ui.set_clip_rect(visible_rect);
+        let full_screen_rect = Rect::from_min_size(term_rect.min, term_rect.size());
+        let mut term_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(full_screen_rect)
+                .layout(*ui.layout()),
+        );
+        term_ui.set_clip_rect(visible_rect);
 
-            if let Some(err) = self.terminal_errors.get(node_id) {
-                term_ui.colored_label(Color32::LIGHT_RED, err);
-            } else if let Some(backend) = self.terminal_backends.get_mut(node_id) {
-                let term_font_size = (14.0 * self.zoom).min(36.0);
-                let term_font = TerminalFont::new(egui_term::FontSettings {
-                    font_type: FontId::monospace(term_font_size),
-                });
-                let term = TerminalView::new(&mut term_ui, backend)
-                    .set_focus(
-                        self.selected == Some(*node_id)
-                            && self.editing_title_node != Some(*node_id)
-                            && self.editing_identity_node != Some(*node_id)
-                            && self.suspend_terminal_focus != Some(*node_id),
-                    )
-                    .set_font(term_font)
-                    .set_size(term_rect.size());
-                term_ui.add(term);
-            } else {
-                term_ui.label("终端未启动，请在右侧点击“重启终端”。");
-            }
+        if let Some(err) = self.terminal_errors.get(&node_id) {
+            term_ui.colored_label(Color32::LIGHT_RED, err);
+        } else if let Some(backend) = self.terminal_backends.get_mut(&node_id) {
+            let term_font_size = (14.0 * self.zoom).min(36.0);
+            let term_font = TerminalFont::new(egui_term::FontSettings {
+                font_type: FontId::monospace(term_font_size),
+            });
+            let term = TerminalView::new(&mut term_ui, backend)
+                .set_focus(
+                    self.selected == Some(node_id)
+                        && self.editing_title_node != Some(node_id)
+                        && self.editing_identity_node != Some(node_id)
+                        && self.suspend_terminal_focus != Some(node_id),
+                )
+                .set_font(term_font)
+                .set_size(term_rect.size());
+            term_ui.add(term);
+        } else {
+            term_ui.label("终端未启动，请在右侧点击“重启终端”。");
         }
     }
+
 }
