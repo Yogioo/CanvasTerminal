@@ -1,9 +1,27 @@
 use crate::event_protocol::DEFAULT_CANVAS_API;
 
+#[cfg(windows)]
+fn windows_shell() -> String {
+    if is_in_path("pwsh.exe") {
+        "pwsh.exe".to_owned()
+    } else {
+        "powershell.exe".to_owned()
+    }
+}
+
+#[cfg(windows)]
+fn is_in_path(exe: &str) -> bool {
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+
+    std::env::split_paths(&path).any(|dir| dir.join(exe).is_file())
+}
+
 pub fn system_shell() -> String {
     #[cfg(windows)]
     {
-        "cmd.exe".to_owned()
+        windows_shell()
     }
 
     #[cfg(not(windows))]
@@ -15,12 +33,17 @@ pub fn system_shell() -> String {
 pub fn terminal_shell_args(node_id: usize, identity: &str) -> Vec<String> {
     #[cfg(windows)]
     {
-        let identity = identity.replace('"', "");
+        let escaped_identity = identity.replace('\'', "''");
+        let escaped_api = DEFAULT_CANVAS_API.replace('\'', "''");
+        let escaped_cwd = std::env::current_dir()
+            .ok()
+            .map(|p| p.to_string_lossy().replace('\'', "''"))
+            .unwrap_or_default();
         vec![
-            "/D".to_owned(),
-            "/K".to_owned(),
+            "-NoExit".to_owned(),
+            "-Command".to_owned(),
             format!(
-                "set \"CANVAS_NODE_ID={node_id}\" && set \"CANVAS_IDENTITY={identity}\" && set \"CANVAS_API={DEFAULT_CANVAS_API}\""
+                "$env:CANVAS_NODE_ID='{node_id}'; $env:CANVAS_IDENTITY='{escaped_identity}'; $env:CANVAS_API='{escaped_api}'; $canvasRoot='{escaped_cwd}'; if ($canvasRoot -and (Test-Path (Join-Path $canvasRoot 'canvas.cmd'))) {{ $env:PATH=\"$canvasRoot;$env:PATH\" }}; $canvasCandidates=@((Join-Path $canvasRoot 'target\\debug\\canvas.exe'), (Join-Path $canvasRoot 'target\\release\\canvas.exe'), (Join-Path $canvasRoot 'dist\\canvas_skills\\canvas-agent-events\\bin\\canvas.exe'), (Join-Path $canvasRoot 'bin\\canvas.exe')); $canvasExe=$canvasCandidates | Where-Object {{ Test-Path $_ }} | Select-Object -First 1; if ($canvasExe) {{ function global:canvas {{ & $canvasExe @args }} }}"
             ),
         ]
     }

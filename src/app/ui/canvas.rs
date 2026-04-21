@@ -264,7 +264,7 @@ impl GraphApp {
         if pointer_in_canvas && !pointer_over_terminal_before_zoom {
             let zoom_change = ctx.input(|i| {
                 let pinch = i.zoom_delta();
-                let wheel = (-i.raw_scroll_delta.y * 0.0015).exp();
+                let wheel = (i.raw_scroll_delta.y * 0.0015).exp();
                 pinch * wheel
             });
             if (zoom_change - 1.0).abs() > f32::EPSILON {

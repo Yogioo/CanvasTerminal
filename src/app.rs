@@ -160,7 +160,7 @@ impl GraphApp {
             text_body: String::new(),
             image_path: String::new(),
             pos,
-            size: vec2(420.0, 220.0),
+            size: vec2(840.0, 660.0),
             status: "Running",
         });
         self.selected = Some(id);
