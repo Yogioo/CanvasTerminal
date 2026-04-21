@@ -22,14 +22,19 @@ enum HistoryEntry {
         from: Pos2,
         to: Pos2,
     },
+    MoveNodes {
+        nodes: Vec<(usize, Pos2, Pos2)>,
+    },
 }
 
 pub struct GraphApp {
     nodes: Vec<Node>,
     edges: Vec<(usize, usize)>,
     selected: Option<usize>,
+    selected_nodes: HashSet<usize>,
     dragging: Option<(usize, egui::Vec2)>,
     drag_start_pos: Option<(usize, Pos2)>,
+    drag_group_start: Option<(Pos2, Vec<(usize, Pos2)>)>,
     pan: egui::Vec2,
     zoom: f32,
 
@@ -76,6 +81,11 @@ pub struct GraphApp {
     pending_dropped_files: Vec<egui::DroppedFile>,
     pending_drop_spawn_world_pos: Option<Pos2>,
     pending_drop_requested_at: Option<f64>,
+    box_select_start: Option<Pos2>,
+    box_select_current: Option<Pos2>,
+    box_select_additive: bool,
+    box_select_subtractive: bool,
+    box_select_base_selection: HashSet<usize>,
 }
 
 impl GraphApp {
@@ -92,8 +102,10 @@ impl GraphApp {
             nodes,
             edges: Vec::new(),
             selected: None,
+            selected_nodes: HashSet::new(),
             dragging: None,
             drag_start_pos: None,
+            drag_group_start: None,
             pan: vec2(0.0, 0.0),
             zoom: 1.0,
             terminal_backends: HashMap::new(),
@@ -138,6 +150,11 @@ impl GraphApp {
             pending_dropped_files: Vec::new(),
             pending_drop_spawn_world_pos: None,
             pending_drop_requested_at: None,
+            box_select_start: None,
+            box_select_current: None,
+            box_select_additive: false,
+            box_select_subtractive: false,
+            box_select_base_selection: HashSet::new(),
         };
 
         app
@@ -147,6 +164,44 @@ impl GraphApp {
         let id = self.next_node_id;
         self.next_node_id += 1;
         id
+    }
+
+    fn set_single_selection(&mut self, node_id: usize) {
+        self.selected = Some(node_id);
+        self.selected_nodes.clear();
+        self.selected_nodes.insert(node_id);
+    }
+
+    fn clear_selection(&mut self) {
+        self.selected = None;
+        self.selected_nodes.clear();
+    }
+
+    fn set_selection_from_option(&mut self, node_id: Option<usize>) {
+        if let Some(id) = node_id {
+            self.set_single_selection(id);
+        } else {
+            self.clear_selection();
+        }
+    }
+
+    fn toggle_selection(&mut self, node_id: usize) {
+        if self.selected_nodes.contains(&node_id) {
+            self.selected_nodes.remove(&node_id);
+            if self.selected == Some(node_id) {
+                self.selected = self.selected_nodes.iter().copied().next();
+            }
+        } else {
+            self.selected_nodes.insert(node_id);
+            self.selected = Some(node_id);
+        }
+    }
+
+    fn remove_from_selection(&mut self, node_id: usize) {
+        self.selected_nodes.remove(&node_id);
+        if self.selected == Some(node_id) {
+            self.selected = self.selected_nodes.iter().copied().next();
+        }
     }
 
     fn create_terminal_node(&mut self, pos: Pos2) {
@@ -163,7 +218,7 @@ impl GraphApp {
             size: vec2(840.0, 660.0),
             status: "Running",
         });
-        self.selected = Some(id);
+        self.set_single_selection(id);
     }
 
     fn create_text_node(&mut self, pos: Pos2, edit_now: bool) {
@@ -180,7 +235,7 @@ impl GraphApp {
             size: vec2(260.0, 140.0),
             status: "Editable",
         });
-        self.selected = Some(id);
+        self.set_single_selection(id);
         if edit_now {
             self.editing_text_node = Some(id);
             self.pending_text_focus = Some(id);
@@ -220,7 +275,7 @@ impl GraphApp {
             size,
             status: "Preview",
         });
-        self.selected = Some(id);
+        self.set_single_selection(id);
     }
 
     fn create_image_node_from_bytes(&mut self, pos: Pos2, display_name: String, bytes: Vec<u8>) {
@@ -247,7 +302,7 @@ impl GraphApp {
             status: "Preview",
         });
         self.image_bytes.insert(id, bytes);
-        self.selected = Some(id);
+        self.set_single_selection(id);
     }
 
     fn create_image_node_from_color_image(
@@ -287,7 +342,7 @@ impl GraphApp {
         self.image_errors.remove(&id);
         self.image_bytes.remove(&id);
         self.image_aspects.insert(id, aspect);
-        self.selected = Some(id);
+        self.set_single_selection(id);
     }
 
     fn node_kind_name(kind: &NodeKind) -> &'static str {
@@ -596,6 +651,58 @@ impl GraphApp {
         ((screen - canvas_rect.min - self.pan) / self.zoom).to_pos2()
     }
 
+    fn node_world_rect(node: &Node) -> Rect {
+        Rect::from_min_size(node.pos, node.size)
+    }
+
+    fn all_nodes_world_rect(&self) -> Option<Rect> {
+        let mut iter = self.nodes.iter();
+        let first = iter.next()?;
+        let mut bounds = Self::node_world_rect(first);
+        for node in iter {
+            bounds = bounds.union(Self::node_world_rect(node));
+        }
+        Some(bounds)
+    }
+
+    fn focus_rect(&mut self, canvas_rect: Rect, target_world_rect: Rect) {
+        let viewport_padding = 64.0;
+        let view_w = (canvas_rect.width() - viewport_padding * 2.0).max(1.0);
+        let view_h = (canvas_rect.height() - viewport_padding * 2.0).max(1.0);
+
+        let target_w = target_world_rect.width().max(1.0);
+        let target_h = target_world_rect.height().max(1.0);
+
+        self.zoom = (view_w / target_w).min(view_h / target_h).clamp(0.35, 2.5);
+
+        let target_center = target_world_rect.center();
+        self.pan = canvas_rect.center() - canvas_rect.min - target_center.to_vec2() * self.zoom;
+    }
+
+    fn selected_nodes_world_rect(&self) -> Option<Rect> {
+        let mut selected_nodes = self
+            .nodes
+            .iter()
+            .filter(|n| self.selected_nodes.contains(&n.id));
+
+        let first = selected_nodes.next()?;
+        let mut bounds = Self::node_world_rect(first);
+        for node in selected_nodes {
+            bounds = bounds.union(Self::node_world_rect(node));
+        }
+        Some(bounds)
+    }
+
+    fn focus_selected_or_all(&mut self, canvas_rect: Rect) {
+        let target = self
+            .selected_nodes_world_rect()
+            .or_else(|| self.all_nodes_world_rect());
+
+        if let Some(target_world_rect) = target {
+            self.focus_rect(canvas_rect, target_world_rect);
+        }
+    }
+
     fn terminal_content_rect_screen(&self, node_id: usize, canvas_rect: Rect) -> Option<Rect> {
         let n = self.nodes.iter().find(|n| n.id == node_id)?;
         if !matches!(n.kind, NodeKind::Terminal) {
@@ -676,12 +783,23 @@ impl GraphApp {
         self.image_bytes.remove(&node_id);
         self.image_aspects.remove(&node_id);
 
+        self.selected_nodes.remove(&node_id);
         if self.selected == Some(node_id) {
-            self.selected = None;
+            self.selected = self.selected_nodes.iter().copied().next();
         }
         if self.dragging.is_some_and(|(id, _)| id == node_id) {
             self.dragging = None;
             self.drag_start_pos = None;
+            self.drag_group_start = None;
+        }
+        if self
+            .drag_group_start
+            .as_ref()
+            .is_some_and(|(_, nodes)| nodes.iter().any(|(id, _)| *id == node_id))
+        {
+            self.dragging = None;
+            self.drag_start_pos = None;
+            self.drag_group_start = None;
         }
         if self.resizing.is_some_and(|(id, _, _)| id == node_id) {
             self.resizing = None;
@@ -723,6 +841,23 @@ impl GraphApp {
                 "移动节点 #{node_id}: ({:.0}, {:.0}) -> ({:.0}, {:.0})",
                 from.x, from.y, to.x, to.y
             ),
+        );
+    }
+
+    fn record_nodes_move_history(&mut self, nodes: Vec<(usize, Pos2, Pos2)>) {
+        let moved_nodes: Vec<(usize, Pos2, Pos2)> = nodes
+            .into_iter()
+            .filter(|(_, from, to)| from.distance(*to) > 0.1)
+            .collect();
+
+        if moved_nodes.is_empty() {
+            return;
+        }
+
+        let moved_count = moved_nodes.len();
+        self.push_history(
+            HistoryEntry::MoveNodes { nodes: moved_nodes },
+            format!("移动节点 {} 个", moved_count),
         );
     }
 
@@ -800,6 +935,15 @@ impl GraphApp {
                     ));
                 }
             }
+            HistoryEntry::MoveNodes { nodes } => {
+                let moved_count = nodes.len();
+                for (node_id, from, _) in nodes {
+                    if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+                        node.pos = from;
+                    }
+                }
+                self.change_history.push(format!("撤销移动节点 {} 个", moved_count));
+            }
         }
     }
 
@@ -852,17 +996,25 @@ impl GraphApp {
     }
 
     fn start_title_edit(&mut self, node_id: usize) {
-        if let Some(node) = self.nodes.iter().find(|n| n.id == node_id) {
-            self.selected = Some(node_id);
-            self.dragging = None;
-            self.drag_start_pos = None;
-            self.resizing = None;
-            self.editing_text_node = None;
-            self.pending_text_focus = None;
-            self.editing_title_node = Some(node_id);
-            self.pending_title_focus = Some(node_id);
-            self.title_edit_buffer = node.title.clone();
-        }
+        let Some(title) = self
+            .nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .map(|n| n.title.clone())
+        else {
+            return;
+        };
+
+        self.set_single_selection(node_id);
+        self.dragging = None;
+        self.drag_start_pos = None;
+        self.drag_group_start = None;
+        self.resizing = None;
+        self.editing_text_node = None;
+        self.pending_text_focus = None;
+        self.editing_title_node = Some(node_id);
+        self.pending_title_focus = Some(node_id);
+        self.title_edit_buffer = title;
     }
 
     fn commit_title_edit(&mut self, node_id: usize) {

@@ -90,7 +90,7 @@ impl GraphApp {
 
         for node in &self.nodes {
             let node_rect = self.world_to_screen_rect(rect, Rect::from_min_size(node.pos, node.size));
-            let is_selected = self.selected == Some(node.id);
+            let is_selected = self.selected_nodes.contains(&node.id);
             let zoom_scale = self.zoom;
 
             let (fill, stroke) = match node.kind {
