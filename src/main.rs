@@ -484,25 +484,39 @@ impl GraphApp {
             }
         }
 
-        // 在 Terminal 节点内部嵌入真实终端
+        // 在 Terminal 节点内部嵌入真实终端，并裁剪到当前画布可见区域
+        // 关键：终端逻辑尺寸保持为 term_rect.size()，避免超出视口时触发重排挤压。
         if let Some(term_rect) = terminal_content_rect {
-            egui::Area::new(egui::Id::new("terminal_node_embedded_area"))
-                .order(egui::Order::Foreground)
-                .fixed_pos(term_rect.min)
-                .show(ctx, |ui| {
-                    ui.set_min_size(term_rect.size());
-                    if let Some(err) = &self.terminal_error {
-                        ui.colored_label(Color32::LIGHT_RED, err);
-                    } else if let Some(backend) = self.terminal_backend.as_mut() {
-                        let term = TerminalView::new(ui, backend)
-                            .set_focus(self.selected == Some(TERMINAL_NODE_ID))
-                            .set_font(TerminalFont::default())
-                            .set_size(ui.available_size());
-                        ui.add(term);
-                    } else {
-                        ui.label("终端未启动，请在右侧点击“重启终端”。");
-                    }
-                });
+            let visible_rect = term_rect.intersect(rect);
+            if visible_rect.is_positive() {
+                egui::Area::new(egui::Id::new("terminal_node_embedded_area"))
+                    .order(egui::Order::Foreground)
+                    .constrain(false)
+                    .fixed_pos(term_rect.min)
+                    .show(ctx, |ui| {
+                        // 注意：UiBuilder::max_rect / set_clip_rect 都使用屏幕坐标。
+                        // 之前使用了本地坐标(0,0)导致终端被布局到左上角。
+                        let full_screen_rect = Rect::from_min_size(term_rect.min, term_rect.size());
+                        let mut term_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(full_screen_rect)
+                                .layout(*ui.layout()),
+                        );
+                        term_ui.set_clip_rect(visible_rect);
+
+                        if let Some(err) = &self.terminal_error {
+                            term_ui.colored_label(Color32::LIGHT_RED, err);
+                        } else if let Some(backend) = self.terminal_backend.as_mut() {
+                            let term = TerminalView::new(&mut term_ui, backend)
+                                .set_focus(self.selected == Some(TERMINAL_NODE_ID))
+                                .set_font(TerminalFont::default())
+                                .set_size(term_rect.size());
+                            term_ui.add(term);
+                        } else {
+                            term_ui.label("终端未启动，请在右侧点击“重启终端”。");
+                        }
+                    });
+            }
         }
 
         if !is_panning {
