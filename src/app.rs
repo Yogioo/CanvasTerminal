@@ -192,6 +192,15 @@ impl GraphApp {
 
     fn create_image_node_from_bytes(&mut self, pos: Pos2, display_name: String, bytes: Vec<u8>) {
         let id = self.alloc_node_id();
+
+        let mut size = vec2(320.0, 220.0);
+        if let Ok(color_image) = Self::decode_image_bytes(&bytes) {
+            let [w, h] = color_image.size;
+            if w > 0 && h > 0 {
+                size = vec2(w as f32, h as f32);
+            }
+        }
+
         self.nodes.push(Node {
             id,
             title: String::new(),
@@ -201,7 +210,7 @@ impl GraphApp {
             text_body: String::new(),
             image_path: display_name,
             pos,
-            size: vec2(320.0, 220.0),
+            size,
             status: "Preview",
         });
         self.image_bytes.insert(id, bytes);
@@ -233,7 +242,7 @@ impl GraphApp {
         let aspect = if h == 0 { 1.0 } else { w as f32 / h as f32 };
 
         if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
-            node.size = vec2(320.0, (320.0 / aspect).max(90.0));
+            node.size = vec2(w as f32, h as f32);
         }
 
         let texture = ctx.load_texture(
@@ -325,8 +334,7 @@ impl GraphApp {
                 self.image_aspects.insert(node_id, aspect);
 
                 if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
-                    let h = (node.size.x / aspect).max(90.0);
-                    node.size.y = h;
+                    node.size = vec2(w as f32, h as f32);
                 }
             }
             Err(err) => {

@@ -17,3 +17,4 @@ arboard = "3"
 
 [patch.crates-io]
 egui_term = { path = "vendor/egui_term" }
+egui-winit = { path = "vendor/egui-winit" }

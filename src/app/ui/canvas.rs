@@ -52,13 +52,11 @@ impl GraphApp {
         if pointer_in_canvas {
             for file in dropped_files {
                 if !Self::is_dropped_image_file(&file) {
-                    eprintln!("[image-import] ignore dropped non-image: name='{}' mime='{}'", file.name, file.mime);
                     continue;
                 }
 
                 let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
                 if let Some(path) = file.path {
-                    eprintln!("[image-import] dropped image path: {}", path.to_string_lossy());
                     self.create_image_node_from_path(spawn_pos, path.to_string_lossy().to_string());
                 } else if let Some(bytes) = file.bytes {
                     let display_name = if file.name.trim().is_empty() {
@@ -66,235 +64,82 @@ impl GraphApp {
                     } else {
                         file.name
                     };
-                    eprintln!("[image-import] dropped image bytes: name='{}' bytes={}", display_name, bytes.len());
                     self.create_image_node_from_bytes(spawn_pos, display_name, bytes.to_vec());
-                } else {
-                    eprintln!("[image-import] dropped image has neither path nor bytes");
                 }
                 spawn_local.y += 26.0;
             }
         }
 
-        let (
-            key_v_pressed,
-            key_v_down,
-            key_f6_pressed,
-            ctrl_down,
-            command_down,
-            paste_event_count,
-            raw_paste_event_count,
-            raw_ctrl_v_event_count,
-            raw_v_event_count,
-            ctrl_v_text_event_count,
-            raw_ctrl_v_text_event_count,
-        ) = ctx.input(|i| {
-            let paste_events = i
-                .events
-                .iter()
-                .filter(|event| matches!(event, egui::Event::Paste(_)))
-                .count();
+        let (key_v_pressed, ctrl_down, command_down, paste_event_count, raw_paste_event_count) =
+            ctx.input(|i| {
+                let paste_events = i
+                    .events
+                    .iter()
+                    .filter(|event| matches!(event, egui::Event::Paste(_)))
+                    .count();
 
-            let raw_paste_events = i
-                .raw
-                .events
-                .iter()
-                .filter(|event| matches!(event, egui::Event::Paste(_)))
-                .count();
+                let raw_paste_events = i
+                    .raw
+                    .events
+                    .iter()
+                    .filter(|event| matches!(event, egui::Event::Paste(_)))
+                    .count();
 
-            let raw_ctrl_v_events = i
-                .raw
-                .events
-                .iter()
-                .filter(|event| {
-                    matches!(
-                        event,
-                        egui::Event::Key {
-                            key: egui::Key::V,
-                            pressed: true,
-                            modifiers,
-                            ..
-                        } if modifiers.ctrl || modifiers.command
-                    )
-                })
-                .count();
-
-            let raw_v_events = i
-                .raw
-                .events
-                .iter()
-                .filter(|event| {
-                    matches!(
-                        event,
-                        egui::Event::Key {
-                            key: egui::Key::V,
-                            ..
-                        }
-                    )
-                })
-                .count();
-
-            let ctrl_v_text_events = i
-                .events
-                .iter()
-                .filter(|event| matches!(event, egui::Event::Text(text) if text.contains('\u{16}')))
-                .count();
-
-            let raw_ctrl_v_text_events = i
-                .raw
-                .events
-                .iter()
-                .filter(|event| matches!(event, egui::Event::Text(text) if text.contains('\u{16}')))
-                .count();
-
-            (
-                i.key_pressed(egui::Key::V),
-                i.key_down(egui::Key::V),
-                i.key_pressed(egui::Key::F6),
-                i.modifiers.ctrl,
-                i.modifiers.command,
-                paste_events,
-                raw_paste_events,
-                raw_ctrl_v_events,
-                raw_v_events,
-                ctrl_v_text_events,
-                raw_ctrl_v_text_events,
-            )
-        });
-
-        if key_v_pressed
-            || (key_v_down && (ctrl_down || command_down))
-            || paste_event_count > 0
-            || raw_paste_event_count > 0
-            || raw_ctrl_v_event_count > 0
-            || raw_v_event_count > 0
-            || ctrl_v_text_event_count > 0
-            || raw_ctrl_v_text_event_count > 0
-            || key_f6_pressed
-        {
-            eprintln!(
-                "[image-paste] key_v_pressed={} key_v_down={} key_f6_pressed={} ctrl_down={} command_down={} paste_events={} raw_paste_events={} raw_ctrl_v_events={} raw_v_events={} ctrl_v_text_events={} raw_ctrl_v_text_events={} pointer_in_canvas={} pointer={:?}",
-                key_v_pressed,
-                key_v_down,
-                key_f6_pressed,
-                ctrl_down,
-                command_down,
-                paste_event_count,
-                raw_paste_event_count,
-                raw_ctrl_v_event_count,
-                raw_v_event_count,
-                ctrl_v_text_event_count,
-                raw_ctrl_v_text_event_count,
-                pointer_in_canvas,
-                pointer_pos
-            );
-        }
+                (
+                    i.key_pressed(egui::Key::V),
+                    i.modifiers.ctrl,
+                    i.modifiers.command,
+                    paste_events,
+                    raw_paste_events,
+                )
+            });
 
         let paste_shortcut = key_v_pressed && (command_down || ctrl_down);
-        let manual_import_key =
-            key_v_pressed && !command_down && !ctrl_down && pointer_in_canvas && !ctx.wants_keyboard_input();
-        if manual_import_key {
-            eprintln!("[image-paste] manual import key accepted (V)");
-        }
-
-        let paste_requested = key_f6_pressed
-            || paste_shortcut
-            || manual_import_key
-            || paste_event_count > 0
-            || raw_paste_event_count > 0
-            || raw_ctrl_v_event_count > 0
-            || ctrl_v_text_event_count > 0
-            || raw_ctrl_v_text_event_count > 0;
-
-        if paste_requested && !pointer_in_canvas {
-            eprintln!("[image-paste] paste requested but pointer not in canvas");
-        }
+        let paste_requested = paste_shortcut || paste_event_count > 0 || raw_paste_event_count > 0;
 
         if paste_requested && pointer_in_canvas {
-            match Clipboard::new() {
-                Ok(mut clipboard) => {
-                    match clipboard.get_image() {
-                        Ok(image) => {
-                            eprintln!(
-                                "[image-paste] clipboard image found: {}x{}, bytes={}",
-                                image.width,
-                                image.height,
-                                image.bytes.len()
-                            );
-                            let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
-                            let size = [image.width, image.height];
-                            let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &image.bytes);
-                            self.create_image_node_from_color_image(
-                                spawn_pos,
-                                "粘贴图片".to_owned(),
-                                color_image,
-                                ctx,
-                            );
-                            return;
-                        }
-                        Err(err) => {
-                            eprintln!("[image-paste] clipboard image unavailable: {err}");
-                        }
-                    }
+            if let Ok(mut clipboard) = Clipboard::new() {
+                if let Ok(image) = clipboard.get_image() {
+                    let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
+                    let size = [image.width, image.height];
+                    let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &image.bytes);
+                    self.create_image_node_from_color_image(
+                        spawn_pos,
+                        "粘贴图片".to_owned(),
+                        color_image,
+                        ctx,
+                    );
+                    return;
+                }
 
+                if let Ok(files) = clipboard.get().file_list() {
                     let mut created_from_files = 0usize;
-                    match clipboard.get().file_list() {
-                        Ok(files) => {
-                            eprintln!("[image-paste] clipboard file_list count={}", files.len());
-                            for file in files {
-                                let supported = Self::is_supported_image_path(&file);
-                                eprintln!(
-                                    "[image-paste] file_list path='{}' supported_image={}",
-                                    file.to_string_lossy(),
-                                    supported
-                                );
-                                if supported {
-                                    let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
-                                    self.create_image_node_from_path(
-                                        spawn_pos,
-                                        file.to_string_lossy().to_string(),
-                                    );
-                                    spawn_local.y += 26.0;
-                                    created_from_files += 1;
-                                }
-                            }
-                        }
-                        Err(err) => {
-                            eprintln!("[image-paste] clipboard file_list unavailable: {err}");
+                    for file in files {
+                        if Self::is_supported_image_path(&file) {
+                            let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
+                            self.create_image_node_from_path(
+                                spawn_pos,
+                                file.to_string_lossy().to_string(),
+                            );
+                            spawn_local.y += 26.0;
+                            created_from_files += 1;
                         }
                     }
 
-                    if created_from_files == 0 {
-                        match clipboard.get_text() {
-                            Ok(text) => {
-                                eprintln!("[image-paste] clipboard text len={}", text.len());
-                                let mut created = 0usize;
-                                for candidate in Self::parse_pasted_paths(&text) {
-                                    let path = Path::new(&candidate);
-                                    let exists = path.exists();
-                                    let supported = Self::is_supported_image_path(path);
-                                    eprintln!(
-                                        "[image-paste] candidate='{}' exists={} supported_image={}",
-                                        candidate, exists, supported
-                                    );
-                                    if exists && supported {
-                                        let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
-                                        self.create_image_node_from_path(spawn_pos, candidate);
-                                        spawn_local.y += 26.0;
-                                        created += 1;
-                                    }
-                                }
-                                if created == 0 {
-                                    eprintln!("[image-paste] no valid image path found in clipboard text");
-                                }
-                            }
-                            Err(err) => {
-                                eprintln!("[image-paste] clipboard text unavailable: {err}");
-                            }
-                        }
+                    if created_from_files > 0 {
+                        return;
                     }
                 }
-                Err(err) => {
-                    eprintln!("[image-paste] failed to open clipboard: {err}");
+
+                if let Ok(text) = clipboard.get_text() {
+                    for candidate in Self::parse_pasted_paths(&text) {
+                        let path = Path::new(&candidate);
+                        if path.exists() && Self::is_supported_image_path(path) {
+                            let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
+                            self.create_image_node_from_path(spawn_pos, candidate);
+                            spawn_local.y += 26.0;
+                        }
+                    }
                 }
             }
         }
@@ -313,30 +158,14 @@ impl GraphApp {
                 .collect()
         });
 
-        if !pasted_texts.is_empty() {
-            eprintln!("[image-paste] egui paste events: {}", pasted_texts.len());
-        }
-
         for pasted in pasted_texts {
-            eprintln!("[image-paste] egui pasted text len={}", pasted.len());
-            let mut created = 0usize;
             for candidate in Self::parse_pasted_paths(&pasted) {
                 let path = Path::new(&candidate);
-                let exists = path.exists();
-                let supported = Self::is_supported_image_path(path);
-                eprintln!(
-                    "[image-paste] egui candidate='{}' exists={} supported_image={}",
-                    candidate, exists, supported
-                );
-                if exists && supported {
+                if path.exists() && Self::is_supported_image_path(path) {
                     let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
                     self.create_image_node_from_path(spawn_pos, candidate);
                     spawn_local.y += 26.0;
-                    created += 1;
                 }
-            }
-            if created == 0 {
-                eprintln!("[image-paste] egui paste text produced no image node");
             }
         }
     }
