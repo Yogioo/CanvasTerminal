@@ -132,7 +132,7 @@ impl GraphApp {
         let secondary_pressed = ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary));
         let secondary_down = ctx.input(|i| i.pointer.button_down(egui::PointerButton::Secondary));
         let secondary_released = ctx.input(|i| i.pointer.button_released(egui::PointerButton::Secondary));
-        let pointer_pos = ctx.input(|i| i.pointer.interact_pos().or_else(|| i.pointer.hover_pos()));
+        let pointer_pos = ctx.input(|i| i.pointer.latest_pos().or_else(|| i.pointer.hover_pos()));
         let pointer_in_canvas = pointer_pos.is_some_and(|p| rect.contains(p));
         let any_popup_open = ctx.memory(|m| m.any_popup_open());
 
@@ -173,6 +173,8 @@ impl GraphApp {
 
         let primary_clicked =
             ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary));
+        let primary_pressed =
+            ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
         if primary_clicked {
             if let Some(pointer) = pointer_pos {
                 if let Some((terminal_id, _)) = terminal_content_rects
@@ -182,9 +184,33 @@ impl GraphApp {
                 {
                     self.selected = Some(*terminal_id);
                     self.editing_text_node = None;
+                    if self.suspend_terminal_focus == Some(*terminal_id) {
+                        self.suspend_terminal_focus = None;
+                    }
                 }
             }
         }
+
+        let resize_handle_hit = pointer_pos.and_then(|pointer| {
+            let selected_id = self.selected?;
+            let node = self.nodes.iter().find(|n| n.id == selected_id)?;
+            if node.kind != NodeKind::Terminal {
+                return None;
+            }
+
+            let node_rect = self.world_to_screen_rect(rect, Rect::from_min_size(node.pos, node.size));
+            let handle_size = 18.0 * self.zoom.clamp(0.75, 1.6);
+            let handle_rect = Rect::from_min_size(
+                node_rect.right_bottom() - vec2(handle_size + 6.0, handle_size + 6.0),
+                vec2(handle_size + 6.0, handle_size + 6.0),
+            );
+            if handle_rect.contains(pointer) {
+                let local = self.screen_to_world_pos(rect, pointer);
+                Some((selected_id, local, node.size))
+            } else {
+                None
+            }
+        });
 
         let is_panning =
             (is_space_pan || is_middle_pan) && pointer_in_canvas && !pointer_over_terminal_content;
@@ -192,21 +218,49 @@ impl GraphApp {
         if is_panning {
             self.dragging = None;
             self.drag_start_pos = None;
+            self.resizing = None;
             let delta = ctx.input(|i| i.pointer.delta());
             self.pan += delta;
             ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
         }
 
-        if !is_panning && !pointer_over_terminal_content && response.drag_started() {
-            if let Some(pointer_pos) = response.interact_pointer_pos() {
-                let local = self.screen_to_world_pos(rect, pointer_pos);
-                if let Some((id, node_pos, can_drag)) = self.find_node_hit(local) {
-                    self.selected = Some(id);
-                    if can_drag {
-                        self.dragging = Some((id, local.to_vec2() - node_pos));
-                        self.drag_start_pos = Some((id, node_pos.to_pos2()));
+        if self.resizing.is_none() && resize_handle_hit.is_some() {
+            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::ResizeNwSe);
+        }
+
+        if !is_panning && self.editing_title_node.is_none() && primary_pressed {
+            if let Some((id, local, size)) = resize_handle_hit {
+                self.resizing = Some((id, local, size));
+                self.dragging = None;
+                self.drag_start_pos = None;
+                self.selected = Some(id);
+            } else if !pointer_over_terminal_content {
+                if let Some(pointer) = pointer_pos {
+                    let local = self.screen_to_world_pos(rect, pointer);
+                    if let Some((id, node_pos, can_drag)) = self.find_node_hit(local) {
+                        self.selected = Some(id);
+                        if can_drag {
+                            self.dragging = Some((id, local.to_vec2() - node_pos));
+                            self.drag_start_pos = Some((id, node_pos.to_pos2()));
+                        }
                     }
                 }
+            }
+        }
+
+        if let Some((resize_id, start_pointer, start_size)) = self.resizing {
+            if ctx.input(|i| i.pointer.primary_down()) && !ctx.input(|i| i.key_down(egui::Key::Space)) {
+                if let Some(pointer) = pointer_pos {
+                    let local = self.screen_to_world_pos(rect, pointer);
+                    if let Some(node) = self.nodes.iter_mut().find(|n| n.id == resize_id) {
+                        let delta = local - start_pointer;
+                        let width = (start_size.x + delta.x).max(320.0);
+                        let height = (start_size.y + delta.y).max(170.0);
+                        node.size = vec2(width, height);
+                    }
+                }
+            } else {
+                self.resizing = None;
             }
         }
 
@@ -491,6 +545,10 @@ impl GraphApp {
                         if node.kind == NodeKind::Text {
                             self.editing_text_node = Some(id);
                             self.pending_text_focus = Some(id);
+                        } else if node.kind == NodeKind::Terminal
+                            && local.y <= node.pos.y + TERMINAL_HEADER_HEIGHT
+                        {
+                            self.start_title_edit(id);
                         }
                     }
                 } else {
@@ -569,6 +627,7 @@ impl GraphApp {
         }
 
         let mut text_edit_rect: Option<(usize, Rect)> = None;
+        let mut title_edit_rect: Option<(usize, Rect)> = None;
 
         for node in &self.nodes {
             let node_rect = self.world_to_screen_rect(rect, Rect::from_min_size(node.pos, node.size));
@@ -605,33 +664,41 @@ impl GraphApp {
             };
 
             painter.rect(node_rect, 8.0 * zoom_scale, fill, stroke, egui::StrokeKind::Outside);
-            if node.kind != NodeKind::Text {
-                painter.text(
-                    node_rect.left_top() + vec2(12.0, 10.0) * zoom_scale,
-                    Align2::LEFT_TOP,
-                    &node.title,
-                    FontId::proportional((17.0 * zoom_scale).max(9.0)),
-                    Color32::WHITE,
-                );
-            }
 
             match node.kind {
                 NodeKind::Terminal => {
-                    let state_text = if self.terminal_backends.contains_key(&node.id) {
-                        "状态: Running"
-                    } else if self.terminal_exited.contains(&node.id) {
-                        "状态: Exited"
+                    let is_title_editing = self.editing_title_node == Some(node.id);
+                    if !is_title_editing {
+                        painter.text(
+                            node_rect.left_top() + vec2(12.0, 10.0) * zoom_scale,
+                            Align2::LEFT_TOP,
+                            &node.title,
+                            FontId::proportional((17.0 * zoom_scale).max(9.0)),
+                            Color32::WHITE,
+                        );
                     } else {
-                        "状态: Starting"
-                    };
+                        let rect_min = node_rect.left_top() + vec2(10.0, 6.0) * zoom_scale;
+                        let rect_max = node_rect.right_top() + vec2(-10.0, TERMINAL_HEADER_HEIGHT - 6.0) * zoom_scale;
+                        title_edit_rect = Some((node.id, Rect::from_min_max(rect_min, rect_max)));
+                    }
 
-                    painter.text(
-                        node_rect.right_top() - vec2(12.0, -12.0) * zoom_scale,
-                        Align2::RIGHT_TOP,
-                        state_text,
-                        FontId::proportional((13.0 * zoom_scale).max(8.0)),
-                        Color32::from_rgb(225, 220, 255),
-                    );
+                    if !is_title_editing {
+                        let state_text = if self.terminal_backends.contains_key(&node.id) {
+                            "状态: Running"
+                        } else if self.terminal_exited.contains(&node.id) {
+                            "状态: Exited"
+                        } else {
+                            "状态: Starting"
+                        };
+
+                        painter.text(
+                            node_rect.right_top() - vec2(12.0, -12.0) * zoom_scale,
+                            Align2::RIGHT_TOP,
+                            state_text,
+                            FontId::proportional((13.0 * zoom_scale).max(8.0)),
+                            Color32::from_rgb(225, 220, 255),
+                        );
+                    }
 
                     if !node.identity.trim().is_empty() {
                         painter.text(
@@ -650,6 +717,15 @@ impl GraphApp {
                         ],
                         Stroke::new(1.0 * zoom_scale.clamp(0.6, 1.6), Color32::from_rgb(108, 96, 145)),
                     );
+
+                    if is_selected {
+                        let handle_size = 12.0 * zoom_scale.clamp(0.75, 1.6);
+                        let handle_rect = Rect::from_min_size(
+                            node_rect.right_bottom() - vec2(handle_size + 6.0, handle_size + 6.0),
+                            vec2(handle_size, handle_size),
+                        );
+                        painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(205, 195, 255));
+                    }
                 }
                 NodeKind::Text => {
                     let is_editing = self.editing_text_node == Some(node.id);
@@ -718,6 +794,49 @@ impl GraphApp {
             }
         }
 
+        if let Some((id, edit_rect)) = title_edit_rect {
+            let title_edit_id = egui::Id::new(("terminal-title-editor", id));
+            let should_focus_and_select_all = self.pending_title_focus == Some(id);
+            if should_focus_and_select_all {
+                ctx.memory_mut(|m| m.request_focus(title_edit_id));
+            }
+
+            let text_edit = TextEdit::singleline(&mut self.title_edit_buffer)
+                .id(title_edit_id)
+                .font(FontId::proportional((16.0 * self.zoom).max(9.0)))
+                .text_color(Color32::WHITE)
+                .desired_width(f32::INFINITY)
+                .frame(false);
+            let resp = ui.put(edit_rect, text_edit);
+
+            if should_focus_and_select_all {
+                if let Some(mut state) = egui::TextEdit::load_state(ctx, title_edit_id) {
+                    let len = self.title_edit_buffer.chars().count();
+                    let range = egui::text::CCursorRange::two(
+                        egui::text::CCursor::new(0),
+                        egui::text::CCursor::new(len),
+                    );
+                    state.cursor.set_char_range(Some(range));
+                    state.store(ctx, title_edit_id);
+                }
+                self.pending_title_focus = None;
+            }
+
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.cancel_title_edit();
+            } else if ctx.input(|i| i.key_pressed(egui::Key::Enter))
+                || (resp.lost_focus() && !ctx.input(|i| i.pointer.primary_down()))
+            {
+                self.commit_title_edit(id);
+            } else if primary_clicked {
+                if let Some(pointer) = pointer_pos {
+                    if !edit_rect.contains(pointer) {
+                        self.commit_title_edit(id);
+                    }
+                }
+            }
+        }
+
         for (node_id, term_rect) in terminal_content_rects {
             let visible_rect = term_rect.intersect(rect);
             if !visible_rect.is_positive() {
@@ -752,7 +871,11 @@ impl GraphApp {
                             font_type: FontId::monospace(term_font_size),
                         });
                         let term = TerminalView::new(&mut term_ui, backend)
-                            .set_focus(self.selected == Some(node_id))
+                            .set_focus(
+                                self.selected == Some(node_id)
+                                    && self.editing_title_node != Some(node_id)
+                                    && self.suspend_terminal_focus != Some(node_id),
+                            )
                             .set_font(term_font)
                             .set_size(term_rect.size());
                         term_ui.add(term);
@@ -762,7 +885,7 @@ impl GraphApp {
                 });
         }
 
-        if !is_panning {
+        if !is_panning && self.resizing.is_none() && resize_handle_hit.is_none() {
             if let Some(pos) = response.hover_pos() {
                 let local = self.screen_to_world_pos(rect, pos);
                 if is_space_down && response.hovered() {

@@ -48,6 +48,11 @@ pub struct GraphApp {
     pending_menu_search_focus: bool,
     editing_text_node: Option<usize>,
     pending_text_focus: Option<usize>,
+    editing_title_node: Option<usize>,
+    pending_title_focus: Option<usize>,
+    title_edit_buffer: String,
+    suspend_terminal_focus: Option<usize>,
+    resizing: Option<(usize, Pos2, egui::Vec2)>,
     context_menu_node: Option<usize>,
     context_menu_local_pos: Option<Pos2>,
     linking_from: Option<usize>,
@@ -94,6 +99,11 @@ impl GraphApp {
             pending_menu_search_focus: false,
             editing_text_node: None,
             pending_text_focus: None,
+            editing_title_node: None,
+            pending_title_focus: None,
+            title_edit_buffer: String::new(),
+            suspend_terminal_focus: None,
+            resizing: None,
             context_menu_node: None,
             context_menu_local_pos: None,
             linking_from: None,
@@ -441,9 +451,20 @@ impl GraphApp {
             self.dragging = None;
             self.drag_start_pos = None;
         }
+        if self.resizing.is_some_and(|(id, _, _)| id == node_id) {
+            self.resizing = None;
+        }
         if self.editing_text_node == Some(node_id) {
             self.editing_text_node = None;
             self.pending_text_focus = None;
+        }
+        if self.editing_title_node == Some(node_id) {
+            self.editing_title_node = None;
+            self.pending_title_focus = None;
+            self.title_edit_buffer.clear();
+        }
+        if self.suspend_terminal_focus == Some(node_id) {
+            self.suspend_terminal_focus = None;
         }
         if self.linking_from == Some(node_id) {
             self.linking_from = None;
@@ -596,6 +617,41 @@ impl GraphApp {
             || (d2.abs() <= EPS && on_segment(a1, a2, b2, EPS))
             || (d3.abs() <= EPS && on_segment(b1, b2, a1, EPS))
             || (d4.abs() <= EPS && on_segment(b1, b2, a2, EPS))
+    }
+
+    fn start_title_edit(&mut self, node_id: usize) {
+        if let Some(node) = self.nodes.iter().find(|n| n.id == node_id) {
+            self.selected = Some(node_id);
+            self.dragging = None;
+            self.drag_start_pos = None;
+            self.resizing = None;
+            self.editing_text_node = None;
+            self.pending_text_focus = None;
+            self.editing_title_node = Some(node_id);
+            self.pending_title_focus = Some(node_id);
+            self.title_edit_buffer = node.title.clone();
+        }
+    }
+
+    fn commit_title_edit(&mut self, node_id: usize) {
+        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+            let trimmed = self.title_edit_buffer.trim();
+            if !trimmed.is_empty() {
+                node.title = trimmed.to_owned();
+            }
+        }
+        self.editing_title_node = None;
+        self.pending_title_focus = None;
+        self.title_edit_buffer.clear();
+        self.suspend_terminal_focus = Some(node_id);
+    }
+
+    fn cancel_title_edit(&mut self) {
+        let node_id = self.editing_title_node;
+        self.editing_title_node = None;
+        self.pending_title_focus = None;
+        self.title_edit_buffer.clear();
+        self.suspend_terminal_focus = node_id;
     }
 
     fn paint_grid(&self, painter: &egui::Painter, rect: Rect, pan: egui::Vec2, zoom: f32) {
