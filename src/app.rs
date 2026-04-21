@@ -8,11 +8,24 @@ use egui_term::{BackendSettings, PtyEvent, TerminalBackend};
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc;
 
+enum HistoryEntry {
+    DeleteBatch {
+        nodes: Vec<Node>,
+        edges: Vec<(usize, usize)>,
+    },
+    MoveNode {
+        node_id: usize,
+        from: Pos2,
+        to: Pos2,
+    },
+}
+
 pub struct GraphApp {
     nodes: Vec<Node>,
     edges: Vec<(usize, usize)>,
     selected: Option<usize>,
     dragging: Option<(usize, egui::Vec2)>,
+    drag_start_pos: Option<(usize, Pos2)>,
     pan: egui::Vec2,
 
     terminal_backends: HashMap<usize, TerminalBackend>,
@@ -28,6 +41,14 @@ pub struct GraphApp {
     pending_text_focus: Option<usize>,
     context_menu_node: Option<usize>,
     context_menu_local_pos: Option<Pos2>,
+    linking_from: Option<usize>,
+    linking_pointer_local: Option<Pos2>,
+    cutting_path_local: Vec<Pos2>,
+    right_drag_moved: bool,
+    cut_snapshot_nodes: Option<Vec<Node>>,
+    cut_snapshot_edges: Option<Vec<(usize, usize)>>,
+    undo_stack: Vec<HistoryEntry>,
+    change_history: Vec<String>,
 }
 
 impl GraphApp {
@@ -120,6 +141,7 @@ impl GraphApp {
             edges: vec![(1, 2), (1, 3), (2, 4), (3, 4), (3, 5), (1, TERMINAL_NODE_ID)],
             selected: Some(TERMINAL_NODE_ID),
             dragging: None,
+            drag_start_pos: None,
             pan: vec2(0.0, 0.0),
             terminal_backends: HashMap::new(),
             pty_rx,
@@ -133,6 +155,14 @@ impl GraphApp {
             pending_text_focus: None,
             context_menu_node: None,
             context_menu_local_pos: None,
+            linking_from: None,
+            linking_pointer_local: None,
+            cutting_path_local: Vec::new(),
+            right_drag_moved: false,
+            cut_snapshot_nodes: None,
+            cut_snapshot_edges: None,
+            undo_stack: Vec::new(),
+            change_history: Vec::new(),
         };
 
         app.ensure_terminal(TERMINAL_NODE_ID, &cc.egui_ctx);
@@ -305,6 +335,223 @@ impl GraphApp {
             .collect()
     }
 
+    fn has_edge(&self, from: usize, to: usize) -> bool {
+        self.edges.iter().any(|(a, b)| *a == from && *b == to)
+    }
+
+    fn edge_segment_local(&self, from: usize, to: usize) -> Option<(Pos2, Pos2)> {
+        let a = self.nodes.iter().find(|n| n.id == from)?;
+        let b = self.nodes.iter().find(|n| n.id == to)?;
+        let start = a.pos + vec2(a.size.x, a.size.y * 0.5);
+        let end = b.pos + vec2(0.0, b.size.y * 0.5);
+        Some((start, end))
+    }
+
+    fn cut_edges_intersecting_segment(&mut self, cut_a: Pos2, cut_b: Pos2) {
+        let hit: Vec<bool> = self
+            .edges
+            .iter()
+            .map(|(from, to)| {
+                self.edge_segment_local(*from, *to)
+                    .is_some_and(|(a, b)| Self::segments_intersect(cut_a, cut_b, a, b))
+            })
+            .collect();
+
+        let mut idx = 0usize;
+        self.edges.retain(|_| {
+            let keep = !hit[idx];
+            idx += 1;
+            keep
+        });
+    }
+
+    fn cut_nodes_intersecting_segment(&mut self, cut_a: Pos2, cut_b: Pos2) {
+        let hit_ids: Vec<usize> = self
+            .nodes
+            .iter()
+            .filter(|n| {
+                let rect = Rect::from_min_size(n.pos, n.size);
+                Self::segment_intersects_rect(cut_a, cut_b, rect)
+            })
+            .map(|n| n.id)
+            .collect();
+
+        for id in hit_ids {
+            self.remove_node(id);
+        }
+    }
+
+    fn remove_node(&mut self, node_id: usize) {
+        self.nodes.retain(|n| n.id != node_id);
+        self.edges.retain(|(from, to)| *from != node_id && *to != node_id);
+        self.terminal_backends.remove(&node_id);
+        self.terminal_exited.remove(&node_id);
+        self.terminal_errors.remove(&node_id);
+
+        if self.selected == Some(node_id) {
+            self.selected = None;
+        }
+        if self.dragging.is_some_and(|(id, _)| id == node_id) {
+            self.dragging = None;
+            self.drag_start_pos = None;
+        }
+        if self.editing_text_node == Some(node_id) {
+            self.editing_text_node = None;
+            self.pending_text_focus = None;
+        }
+        if self.linking_from == Some(node_id) {
+            self.linking_from = None;
+            self.linking_pointer_local = None;
+        }
+        if self.context_menu_node == Some(node_id) {
+            self.context_menu_node = None;
+        }
+    }
+
+    fn push_history(&mut self, entry: HistoryEntry, text: String) {
+        self.undo_stack.push(entry);
+        self.change_history.push(text);
+    }
+
+    fn record_move_history(&mut self, node_id: usize, from: Pos2, to: Pos2) {
+        if from.distance(to) <= 0.1 {
+            return;
+        }
+
+        self.push_history(
+            HistoryEntry::MoveNode { node_id, from, to },
+            format!(
+                "移动节点 #{node_id}: ({:.0}, {:.0}) -> ({:.0}, {:.0})",
+                from.x, from.y, to.x, to.y
+            ),
+        );
+    }
+
+    fn record_cut_history(&mut self, before_nodes: Vec<Node>, before_edges: Vec<(usize, usize)>) {
+        let removed_nodes: Vec<Node> = before_nodes
+            .into_iter()
+            .filter(|old_node| !self.nodes.iter().any(|n| n.id == old_node.id))
+            .collect();
+
+        let removed_edges: Vec<(usize, usize)> = before_edges
+            .into_iter()
+            .filter(|old_edge| !self.edges.contains(old_edge))
+            .collect();
+
+        if removed_nodes.is_empty() && removed_edges.is_empty() {
+            return;
+        }
+
+        let removed_node_count = removed_nodes.len();
+        let removed_edge_count = removed_edges.len();
+
+        self.push_history(
+            HistoryEntry::DeleteBatch {
+                nodes: removed_nodes,
+                edges: removed_edges,
+            },
+            format!("删除内容: 节点 {} 个, 连线 {} 条", removed_node_count, removed_edge_count),
+        );
+    }
+
+    fn undo_last_change(&mut self) {
+        let Some(entry) = self.undo_stack.pop() else {
+            return;
+        };
+
+        match entry {
+            HistoryEntry::DeleteBatch { nodes, edges } => {
+                let restored_nodes = nodes.len();
+                let restored_edges = edges.len();
+
+                for node in nodes {
+                    if self.nodes.iter().any(|n| n.id == node.id) {
+                        continue;
+                    }
+                    if node.id >= self.next_node_id {
+                        self.next_node_id = node.id + 1;
+                    }
+                    self.nodes.push(node);
+                }
+
+                self.nodes.sort_by_key(|n| n.id);
+
+                for (from, to) in edges {
+                    if self.has_edge(from, to) {
+                        continue;
+                    }
+                    let has_from = self.nodes.iter().any(|n| n.id == from);
+                    let has_to = self.nodes.iter().any(|n| n.id == to);
+                    if has_from && has_to {
+                        self.edges.push((from, to));
+                    }
+                }
+
+                self.change_history.push(format!(
+                    "撤销删除: 恢复节点 {} 个, 连线 {} 条",
+                    restored_nodes, restored_edges
+                ));
+            }
+            HistoryEntry::MoveNode { node_id, from, to } => {
+                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+                    node.pos = from;
+                    self.change_history.push(format!(
+                        "撤销移动节点 #{node_id}: ({:.0}, {:.0}) <- ({:.0}, {:.0})",
+                        from.x, from.y, to.x, to.y
+                    ));
+                }
+            }
+        }
+    }
+
+    fn segment_intersects_rect(a: Pos2, b: Pos2, rect: Rect) -> bool {
+        if rect.contains(a) || rect.contains(b) {
+            return true;
+        }
+
+        let lt = rect.left_top();
+        let rt = rect.right_top();
+        let rb = rect.right_bottom();
+        let lb = rect.left_bottom();
+
+        Self::segments_intersect(a, b, lt, rt)
+            || Self::segments_intersect(a, b, rt, rb)
+            || Self::segments_intersect(a, b, rb, lb)
+            || Self::segments_intersect(a, b, lb, lt)
+    }
+
+    fn segments_intersect(a1: Pos2, a2: Pos2, b1: Pos2, b2: Pos2) -> bool {
+        const EPS: f32 = 0.0001;
+
+        fn cross(a: Pos2, b: Pos2, c: Pos2) -> f32 {
+            (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+        }
+
+        fn within(a: f32, b: f32, x: f32, eps: f32) -> bool {
+            x >= a.min(b) - eps && x <= a.max(b) + eps
+        }
+
+        fn on_segment(a: Pos2, b: Pos2, p: Pos2, eps: f32) -> bool {
+            within(a.x, b.x, p.x, eps) && within(a.y, b.y, p.y, eps)
+        }
+
+        let d1 = cross(a1, a2, b1);
+        let d2 = cross(a1, a2, b2);
+        let d3 = cross(b1, b2, a1);
+        let d4 = cross(b1, b2, a2);
+
+        if (d1 > EPS && d2 < -EPS || d1 < -EPS && d2 > EPS)
+            && (d3 > EPS && d4 < -EPS || d3 < -EPS && d4 > EPS)
+        {
+            return true;
+        }
+
+        (d1.abs() <= EPS && on_segment(a1, a2, b1, EPS))
+            || (d2.abs() <= EPS && on_segment(a1, a2, b2, EPS))
+            || (d3.abs() <= EPS && on_segment(b1, b2, a1, EPS))
+            || (d4.abs() <= EPS && on_segment(b1, b2, a2, EPS))
+    }
+
     fn paint_grid(&self, painter: &egui::Painter, rect: Rect, pan: egui::Vec2) {
         let spacing = 32.0;
         let color = egui::Color32::from_rgba_premultiplied(100, 110, 130, 25);
@@ -335,6 +582,10 @@ impl GraphApp {
 impl eframe::App for GraphApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_terminal_events();
+
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) {
+            self.undo_last_change();
+        }
 
         if let Some(terminal_id) = self.selected_terminal_id() {
             self.ensure_terminal(terminal_id, ctx);

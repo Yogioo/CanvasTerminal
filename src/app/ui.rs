@@ -2,7 +2,7 @@ use super::GraphApp;
 use crate::constants::TERMINAL_HEADER_HEIGHT;
 use crate::model::NodeKind;
 use eframe::egui::{
-    self, vec2, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, TextEdit, Ui,
+    self, vec2, Align2, Color32, FontId, Pos2, Rect, ScrollArea, Sense, Stroke, TextEdit, Ui,
 };
 use egui_term::{TerminalFont, TerminalView};
 
@@ -45,6 +45,8 @@ impl GraphApp {
                 ui.small("空白处双击可快速创建文本节点，且自动进入编辑模式。");
             }
         }
+
+        self.draw_history_panel(ui);
     }
 
     pub(super) fn draw_terminal_hint_panel(&mut self, ui: &mut Ui, ctx: &egui::Context) {
@@ -72,6 +74,33 @@ impl GraphApp {
         if let Some(err) = self.terminal_errors.get(&node_id) {
             ui.colored_label(Color32::LIGHT_RED, err);
         }
+
+        self.draw_history_panel(ui);
+    }
+
+    fn draw_history_panel(&mut self, ui: &mut Ui) {
+        ui.separator();
+        ui.horizontal(|ui| {
+            let can_undo = !self.undo_stack.is_empty();
+            if ui
+                .add_enabled(can_undo, egui::Button::new("撤销 (Ctrl+Z)"))
+                .clicked()
+            {
+                self.undo_last_change();
+            }
+            ui.small(format!("可撤销操作: {}", self.undo_stack.len()));
+        });
+
+        ui.label("修改历史（删除/移动）");
+        ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+            if self.change_history.is_empty() {
+                ui.small("暂无历史记录");
+            } else {
+                for item in self.change_history.iter().rev().take(30) {
+                    ui.small(item);
+                }
+            }
+        });
     }
 
     pub(super) fn draw_canvas(&mut self, ui: &mut Ui, ctx: &egui::Context) {
@@ -85,6 +114,9 @@ impl GraphApp {
         let is_space_down = ctx.input(|i| i.key_down(egui::Key::Space));
         let is_space_pan = ctx.input(|i| i.key_down(egui::Key::Space) && i.pointer.primary_down());
         let is_middle_pan = ctx.input(|i| i.pointer.middle_down());
+        let secondary_pressed = ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary));
+        let secondary_down = ctx.input(|i| i.pointer.button_down(egui::PointerButton::Secondary));
+        let secondary_released = ctx.input(|i| i.pointer.button_released(egui::PointerButton::Secondary));
         let pointer_pos = ctx.input(|i| i.pointer.interact_pos().or_else(|| i.pointer.hover_pos()));
         let pointer_in_canvas = pointer_pos.is_some_and(|p| rect.contains(p));
 
@@ -100,6 +132,7 @@ impl GraphApp {
 
         if is_panning {
             self.dragging = None;
+            self.drag_start_pos = None;
             let delta = ctx.input(|i| i.pointer.delta());
             self.pan += delta;
             ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
@@ -112,6 +145,7 @@ impl GraphApp {
                     self.selected = Some(id);
                     if can_drag {
                         self.dragging = Some((id, local - node_pos));
+                        self.drag_start_pos = Some((id, node_pos.to_pos2()));
                     }
                 }
             }
@@ -126,11 +160,90 @@ impl GraphApp {
                     }
                 }
             } else {
+                if let Some((start_id, start_pos)) = self.drag_start_pos.take() {
+                    if start_id == drag_id {
+                        if let Some(node) = self.nodes.iter().find(|n| n.id == drag_id) {
+                            self.record_move_history(drag_id, start_pos, node.pos);
+                        }
+                    }
+                }
                 self.dragging = None;
             }
         }
 
-        if !is_panning && !pointer_over_terminal_content && response.secondary_clicked() {
+        if !is_panning && !pointer_over_terminal_content && secondary_pressed {
+            self.right_drag_moved = false;
+            self.cutting_path_local.clear();
+            self.linking_from = None;
+            self.linking_pointer_local = None;
+            self.cut_snapshot_nodes = None;
+            self.cut_snapshot_edges = None;
+
+            if let Some(pointer_pos) = response.interact_pointer_pos() {
+                let local = (pointer_pos - rect.min - self.pan).to_pos2();
+                if let Some((id, _)) = self.find_node_at(local) {
+                    self.linking_from = Some(id);
+                    self.linking_pointer_local = Some(local);
+                    self.selected = Some(id);
+                } else {
+                    self.cutting_path_local.push(local);
+                    self.cut_snapshot_nodes = Some(self.nodes.clone());
+                    self.cut_snapshot_edges = Some(self.edges.clone());
+                }
+            }
+        }
+
+        if secondary_down {
+            if let Some(pointer_pos) = response.interact_pointer_pos() {
+                let local = (pointer_pos - rect.min - self.pan).to_pos2();
+
+                if self.linking_from.is_some() {
+                    self.linking_pointer_local = Some(local);
+                } else if let Some(prev) = self.cutting_path_local.last().copied() {
+                    if prev.distance(local) > 0.8 {
+                        self.right_drag_moved = true;
+                        self.cut_edges_intersecting_segment(prev, local);
+                        self.cut_nodes_intersecting_segment(prev, local);
+                        self.cutting_path_local.push(local);
+                    }
+                }
+            }
+        }
+
+        if secondary_released {
+            if let Some(from) = self.linking_from {
+                if let Some(pointer_pos) = response.interact_pointer_pos() {
+                    let local = (pointer_pos - rect.min - self.pan).to_pos2();
+                    if let Some((to, _)) = self.find_node_at(local) {
+                        if to != from && !self.has_edge(from, to) {
+                            self.edges.push((from, to));
+                        }
+                    }
+                }
+                self.linking_from = None;
+                self.linking_pointer_local = None;
+            }
+
+            if self.right_drag_moved {
+                if let (Some(before_nodes), Some(before_edges)) =
+                    (self.cut_snapshot_nodes.take(), self.cut_snapshot_edges.take())
+                {
+                    self.record_cut_history(before_nodes, before_edges);
+                }
+            } else {
+                self.cut_snapshot_nodes = None;
+                self.cut_snapshot_edges = None;
+            }
+
+            self.cutting_path_local.clear();
+        }
+
+        if !is_panning
+            && !pointer_over_terminal_content
+            && response.secondary_clicked()
+            && self.linking_from.is_none()
+            && !self.right_drag_moved
+        {
             if let Some(pointer_pos) = response.interact_pointer_pos() {
                 let local = pointer_pos - rect.min - self.pan;
                 self.context_menu_local_pos = Some(local.to_pos2());
@@ -245,6 +358,28 @@ impl GraphApp {
                 let right = end - dir * 12.0 + vec2(dir.y, -dir.x) * 6.0;
                 painter.line_segment([left, end], Stroke::new(2.0, Color32::from_rgb(110, 170, 255)));
                 painter.line_segment([right, end], Stroke::new(2.0, Color32::from_rgb(110, 170, 255)));
+            }
+        }
+
+        if let (Some(from), Some(pointer_local)) = (self.linking_from, self.linking_pointer_local) {
+            if let Some(node) = self.nodes.iter().find(|n| n.id == from) {
+                let start = rect.min + self.pan + node.pos.to_vec2() + vec2(node.size.x, node.size.y * 0.5);
+                let end = rect.min + self.pan + pointer_local.to_vec2();
+                painter.line_segment(
+                    [start, end],
+                    Stroke::new(2.0, Color32::from_rgba_premultiplied(130, 195, 255, 220)),
+                );
+            }
+        }
+
+        if self.cutting_path_local.len() >= 2 {
+            for pair in self.cutting_path_local.windows(2) {
+                let a = rect.min + self.pan + pair[0].to_vec2();
+                let b = rect.min + self.pan + pair[1].to_vec2();
+                painter.line_segment(
+                    [a, b],
+                    Stroke::new(2.0, Color32::from_rgba_premultiplied(255, 120, 120, 220)),
+                );
             }
         }
 
