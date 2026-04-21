@@ -1,0 +1,161 @@
+use super::super::GraphApp;
+use eframe::egui::{self, Color32, FontId, Pos2, Rect, TextEdit, Ui};
+use egui_term::{TerminalFont, TerminalView};
+
+impl GraphApp {
+    pub(in crate::app::ui) fn handle_text_node_editor(
+        &mut self,
+        ui: &mut Ui,
+        ctx: &egui::Context,
+        text_edit_rect: Option<(usize, Rect)>,
+    ) {
+        let Some((id, edit_rect)) = text_edit_rect else {
+            return;
+        };
+
+        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
+            let text_edit_id = egui::Id::new(("text-node-editor", id));
+            let should_focus_and_select_all = self.pending_text_focus == Some(id);
+            if should_focus_and_select_all {
+                ctx.memory_mut(|m| m.request_focus(text_edit_id));
+            }
+
+            let desired_rows = node.text_body.split('\n').count().max(1);
+            let text_edit = TextEdit::multiline(&mut node.text_body)
+                .id(text_edit_id)
+                .font(FontId::proportional(15.0 * self.zoom))
+                .text_color(Color32::from_rgb(250, 240, 210))
+                .margin(egui::Margin::ZERO)
+                .desired_width(f32::INFINITY)
+                .desired_rows(desired_rows)
+                .frame(false);
+            let resp = ui.put(edit_rect, text_edit);
+
+            if should_focus_and_select_all {
+                if let Some(mut state) = egui::TextEdit::load_state(ctx, text_edit_id) {
+                    let len = node.text_body.chars().count();
+                    let range = egui::text::CCursorRange::two(
+                        egui::text::CCursor::new(0),
+                        egui::text::CCursor::new(len),
+                    );
+                    state.cursor.set_char_range(Some(range));
+                    state.store(ctx, text_edit_id);
+                }
+                self.pending_text_focus = None;
+            }
+
+            if resp.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.editing_text_node = None;
+            }
+        }
+    }
+
+    pub(in crate::app::ui) fn handle_title_editor(
+        &mut self,
+        ui: &mut Ui,
+        ctx: &egui::Context,
+        title_edit_rect: Option<(usize, Rect)>,
+        primary_clicked: bool,
+        pointer_pos: Option<Pos2>,
+    ) {
+        let Some((id, edit_rect)) = title_edit_rect else {
+            return;
+        };
+
+        let title_edit_id = egui::Id::new(("terminal-title-editor", id));
+        let should_focus_and_select_all = self.pending_title_focus == Some(id);
+        if should_focus_and_select_all {
+            ctx.memory_mut(|m| m.request_focus(title_edit_id));
+        }
+
+        let text_edit = TextEdit::singleline(&mut self.title_edit_buffer)
+            .id(title_edit_id)
+            .font(FontId::proportional((16.0 * self.zoom).max(9.0)))
+            .text_color(Color32::WHITE)
+            .desired_width(f32::INFINITY)
+            .frame(false);
+        let resp = ui.put(edit_rect, text_edit);
+
+        if should_focus_and_select_all {
+            if let Some(mut state) = egui::TextEdit::load_state(ctx, title_edit_id) {
+                let len = self.title_edit_buffer.chars().count();
+                let range = egui::text::CCursorRange::two(
+                    egui::text::CCursor::new(0),
+                    egui::text::CCursor::new(len),
+                );
+                state.cursor.set_char_range(Some(range));
+                state.store(ctx, title_edit_id);
+            }
+            self.pending_title_focus = None;
+        }
+
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.cancel_title_edit();
+        } else if ctx.input(|i| i.key_pressed(egui::Key::Enter))
+            || (resp.lost_focus() && !ctx.input(|i| i.pointer.primary_down()))
+        {
+            self.commit_title_edit(id);
+        } else if primary_clicked {
+            if let Some(pointer) = pointer_pos {
+                if !edit_rect.contains(pointer) {
+                    self.commit_title_edit(id);
+                }
+            }
+        }
+    }
+
+    pub(in crate::app::ui) fn draw_embedded_terminals(
+        &mut self,
+        ctx: &egui::Context,
+        canvas_rect: Rect,
+        terminal_content_rects: &[(usize, Rect)],
+    ) {
+        for (node_id, term_rect) in terminal_content_rects {
+            let visible_rect = term_rect.intersect(canvas_rect);
+            if !visible_rect.is_positive() {
+                continue;
+            }
+
+            if !self.terminal_backends.contains_key(node_id)
+                && !self.terminal_errors.contains_key(node_id)
+                && !self.terminal_exited.contains(node_id)
+            {
+                self.ensure_terminal(*node_id, ctx);
+            }
+
+            egui::Area::new(egui::Id::new(("terminal_node_embedded_area", node_id)))
+                .order(egui::Order::Foreground)
+                .constrain(false)
+                .fixed_pos(term_rect.min)
+                .show(ctx, |ui| {
+                    let full_screen_rect = Rect::from_min_size(term_rect.min, term_rect.size());
+                    let mut term_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(full_screen_rect)
+                            .layout(*ui.layout()),
+                    );
+                    term_ui.set_clip_rect(visible_rect);
+
+                    if let Some(err) = self.terminal_errors.get(node_id) {
+                        term_ui.colored_label(Color32::LIGHT_RED, err);
+                    } else if let Some(backend) = self.terminal_backends.get_mut(node_id) {
+                        let term_font_size = (14.0 * self.zoom).min(36.0);
+                        let term_font = TerminalFont::new(egui_term::FontSettings {
+                            font_type: FontId::monospace(term_font_size),
+                        });
+                        let term = TerminalView::new(&mut term_ui, backend)
+                            .set_focus(
+                                self.selected == Some(*node_id)
+                                    && self.editing_title_node != Some(*node_id)
+                                    && self.suspend_terminal_focus != Some(*node_id),
+                            )
+                            .set_font(term_font)
+                            .set_size(term_rect.size());
+                        term_ui.add(term);
+                    } else {
+                        term_ui.label("终端未启动，请在右侧点击“重启终端”。");
+                    }
+                });
+        }
+    }
+}

@@ -4,6 +4,7 @@ use eframe::egui::{self, Pos2};
 pub enum NodeKind {
     Terminal,
     Text,
+    Image,
 }
 
 #[derive(Clone)]
@@ -14,6 +15,7 @@ pub struct Node {
     pub category: String,
     pub identity: String,
     pub text_body: String,
+    pub image_path: String,
     pub pos: Pos2,
     pub size: egui::Vec2,
     pub status: &'static str,

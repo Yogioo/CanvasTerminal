@@ -5,9 +5,11 @@ use crate::event_protocol::DoneEvent;
 use crate::event_server::start_done_event_server;
 use crate::model::{Node, NodeKind};
 use crate::shell::{system_shell, terminal_shell_args};
-use eframe::egui::{self, vec2, Pos2, Rect, SidePanel, Stroke};
+use eframe::egui::{self, vec2, ColorImage, Pos2, Rect, SidePanel, Stroke, TextureHandle, TextureOptions};
 use egui_term::{BackendCommand, BackendSettings, PtyEvent, TerminalBackend};
+use image::ImageReader;
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::mpsc;
 
 enum HistoryEntry {
@@ -37,6 +39,10 @@ pub struct GraphApp {
     terminal_exited: HashSet<usize>,
     terminal_errors: HashMap<usize, String>,
     pending_terminal_injections: HashMap<usize, Vec<String>>,
+    image_textures: HashMap<usize, TextureHandle>,
+    image_errors: HashMap<usize, String>,
+    image_bytes: HashMap<usize, Vec<u8>>,
+    image_aspects: HashMap<usize, f32>,
     done_event_rx: Option<mpsc::Receiver<DoneEvent>>,
     done_event_error: Option<String>,
 
@@ -89,6 +95,10 @@ impl GraphApp {
             terminal_exited: HashSet::new(),
             terminal_errors: HashMap::new(),
             pending_terminal_injections: HashMap::new(),
+            image_textures: HashMap::new(),
+            image_errors: HashMap::new(),
+            image_bytes: HashMap::new(),
+            image_aspects: HashMap::new(),
             done_event_rx,
             done_event_error,
             next_node_id: 1,
@@ -134,6 +144,7 @@ impl GraphApp {
             category: "终端".to_owned(),
             identity: format!("agent-{id}"),
             text_body: String::new(),
+            image_path: String::new(),
             pos,
             size: vec2(420.0, 220.0),
             status: "Running",
@@ -150,6 +161,7 @@ impl GraphApp {
             category: "文本".to_owned(),
             identity: String::new(),
             text_body: "双击继续编辑".to_owned(),
+            image_path: String::new(),
             pos,
             size: vec2(260.0, 140.0),
             status: "Editable",
@@ -161,11 +173,186 @@ impl GraphApp {
         }
     }
 
+    fn create_image_node_from_path(&mut self, pos: Pos2, image_path: String) {
+        let id = self.alloc_node_id();
+        self.nodes.push(Node {
+            id,
+            title: String::new(),
+            kind: NodeKind::Image,
+            category: "图片".to_owned(),
+            identity: String::new(),
+            text_body: String::new(),
+            image_path,
+            pos,
+            size: vec2(320.0, 220.0),
+            status: "Preview",
+        });
+        self.selected = Some(id);
+    }
+
+    fn create_image_node_from_bytes(&mut self, pos: Pos2, display_name: String, bytes: Vec<u8>) {
+        let id = self.alloc_node_id();
+        self.nodes.push(Node {
+            id,
+            title: String::new(),
+            kind: NodeKind::Image,
+            category: "图片".to_owned(),
+            identity: String::new(),
+            text_body: String::new(),
+            image_path: display_name,
+            pos,
+            size: vec2(320.0, 220.0),
+            status: "Preview",
+        });
+        self.image_bytes.insert(id, bytes);
+        self.selected = Some(id);
+    }
+
+    fn create_image_node_from_color_image(
+        &mut self,
+        pos: Pos2,
+        display_name: String,
+        color_image: ColorImage,
+        ctx: &egui::Context,
+    ) {
+        let id = self.alloc_node_id();
+        self.nodes.push(Node {
+            id,
+            title: String::new(),
+            kind: NodeKind::Image,
+            category: "图片".to_owned(),
+            identity: String::new(),
+            text_body: String::new(),
+            image_path: display_name,
+            pos,
+            size: vec2(320.0, 220.0),
+            status: "Preview",
+        });
+
+        let [w, h] = color_image.size;
+        let aspect = if h == 0 { 1.0 } else { w as f32 / h as f32 };
+
+        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
+            node.size = vec2(320.0, (320.0 / aspect).max(90.0));
+        }
+
+        let texture = ctx.load_texture(
+            format!("image-node-{id}"),
+            color_image,
+            TextureOptions::LINEAR,
+        );
+        self.image_textures.insert(id, texture);
+        self.image_errors.remove(&id);
+        self.image_bytes.remove(&id);
+        self.image_aspects.insert(id, aspect);
+        self.selected = Some(id);
+    }
+
     fn node_kind_name(kind: &NodeKind) -> &'static str {
         match kind {
             NodeKind::Terminal => "终端",
             NodeKind::Text => "文本",
+            NodeKind::Image => "图片",
         }
+    }
+
+    fn is_supported_image_path(path: &Path) -> bool {
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| {
+                matches!(
+                    ext.to_ascii_lowercase().as_str(),
+                    "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp"
+                )
+            })
+            .unwrap_or(false)
+    }
+
+    fn decode_image_bytes(bytes: &[u8]) -> Result<ColorImage, String> {
+        let image = image::load_from_memory(bytes).map_err(|e| format!("图片解码失败: {e}"))?;
+        let rgba = image.to_rgba8();
+        let size = [rgba.width() as usize, rgba.height() as usize];
+        let pixels = rgba.into_vec();
+        Ok(ColorImage::from_rgba_unmultiplied(size, &pixels))
+    }
+
+    fn load_image_from_path(path: &str) -> Result<ColorImage, String> {
+        let reader = ImageReader::open(path).map_err(|e| format!("无法读取图片: {e}"))?;
+        let image = reader.decode().map_err(|e| format!("图片解码失败: {e}"))?;
+        let rgba = image.to_rgba8();
+        let size = [rgba.width() as usize, rgba.height() as usize];
+        let pixels = rgba.into_vec();
+        Ok(ColorImage::from_rgba_unmultiplied(size, &pixels))
+    }
+
+    pub(in crate::app) fn image_aspect(&self, node_id: usize) -> Option<f32> {
+        self.image_aspects.get(&node_id).copied()
+    }
+
+    fn ensure_image_texture(&mut self, node_id: usize, ctx: &egui::Context) {
+        if self.image_textures.contains_key(&node_id) || self.image_errors.contains_key(&node_id) {
+            return;
+        }
+
+        let Some(node) = self
+            .nodes
+            .iter()
+            .find(|n| n.id == node_id && n.kind == NodeKind::Image)
+        else {
+            return;
+        };
+
+        let image_path = node.image_path.clone();
+        let image = if let Some(bytes) = self.image_bytes.get(&node_id) {
+            Self::decode_image_bytes(bytes)
+        } else if image_path.trim().is_empty() {
+            return;
+        } else {
+            Self::load_image_from_path(&image_path)
+        };
+
+        match image {
+            Ok(color_image) => {
+                let [w, h] = color_image.size;
+                let aspect = if h == 0 { 1.0 } else { w as f32 / h as f32 };
+                let texture = ctx.load_texture(
+                    format!("image-node-{node_id}"),
+                    color_image,
+                    TextureOptions::LINEAR,
+                );
+                self.image_textures.insert(node_id, texture);
+                self.image_errors.remove(&node_id);
+                self.image_aspects.insert(node_id, aspect);
+
+                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+                    let h = (node.size.x / aspect).max(90.0);
+                    node.size.y = h;
+                }
+            }
+            Err(err) => {
+                self.image_errors.insert(node_id, err);
+            }
+        }
+    }
+
+    pub(in crate::app) fn ensure_image_textures(&mut self, ctx: &egui::Context) {
+        let image_ids: Vec<usize> = self
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Image)
+            .map(|n| n.id)
+            .collect();
+        for node_id in image_ids {
+            self.ensure_image_texture(node_id, ctx);
+        }
+    }
+
+    pub(in crate::app) fn image_texture(&self, node_id: usize) -> Option<&TextureHandle> {
+        self.image_textures.get(&node_id)
+    }
+
+    pub(in crate::app) fn image_error(&self, node_id: usize) -> Option<&str> {
+        self.image_errors.get(&node_id).map(String::as_str)
     }
 
     fn menu_item_matches(&self, label: &str) -> bool {
@@ -344,7 +531,7 @@ impl GraphApp {
             }
 
             let can_drag = match n.kind {
-                NodeKind::Text => true,
+                NodeKind::Text | NodeKind::Image => true,
                 NodeKind::Terminal => local.y <= n.pos.y + TERMINAL_HEADER_HEIGHT,
             };
 
@@ -443,6 +630,10 @@ impl GraphApp {
         self.terminal_exited.remove(&node_id);
         self.terminal_errors.remove(&node_id);
         self.pending_terminal_injections.remove(&node_id);
+        self.image_textures.remove(&node_id);
+        self.image_errors.remove(&node_id);
+        self.image_bytes.remove(&node_id);
+        self.image_aspects.remove(&node_id);
 
         if self.selected == Some(node_id) {
             self.selected = None;

@@ -1,12 +1,346 @@
 use super::super::GraphApp;
 use crate::constants::TERMINAL_HEADER_HEIGHT;
 use crate::model::NodeKind;
-use eframe::egui::{
-    self, vec2, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, TextEdit, Ui,
-};
-use egui_term::{TerminalFont, TerminalView};
+use arboard::Clipboard;
+use eframe::egui::{self, vec2, Color32, Pos2, Rect, Sense, Ui};
+use std::path::Path;
 
 impl GraphApp {
+    fn is_dropped_image_file(file: &egui::DroppedFile) -> bool {
+        if !file.mime.is_empty() && file.mime.starts_with("image/") {
+            return true;
+        }
+
+        if let Some(path) = &file.path {
+            return Self::is_supported_image_path(path);
+        }
+
+        Path::new(&file.name)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| {
+                matches!(
+                    ext.to_ascii_lowercase().as_str(),
+                    "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp"
+                )
+            })
+            .unwrap_or(false)
+    }
+
+    fn parse_pasted_paths(text: &str) -> Vec<String> {
+        text.lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(|line| line.trim_matches('"'))
+            .map(|line| line.strip_prefix("file://").unwrap_or(line))
+            .map(ToOwned::to_owned)
+            .collect()
+    }
+
+    fn handle_canvas_image_import(
+        &mut self,
+        ctx: &egui::Context,
+        rect: Rect,
+        pointer_pos: Option<Pos2>,
+        pointer_in_canvas: bool,
+    ) {
+        let fallback_pointer = rect.center();
+        let pointer = pointer_pos.unwrap_or(fallback_pointer);
+        let mut spawn_local = self.screen_to_world_pos(rect, pointer);
+
+        let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
+        if pointer_in_canvas {
+            for file in dropped_files {
+                if !Self::is_dropped_image_file(&file) {
+                    eprintln!("[image-import] ignore dropped non-image: name='{}' mime='{}'", file.name, file.mime);
+                    continue;
+                }
+
+                let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
+                if let Some(path) = file.path {
+                    eprintln!("[image-import] dropped image path: {}", path.to_string_lossy());
+                    self.create_image_node_from_path(spawn_pos, path.to_string_lossy().to_string());
+                } else if let Some(bytes) = file.bytes {
+                    let display_name = if file.name.trim().is_empty() {
+                        "粘贴图片".to_owned()
+                    } else {
+                        file.name
+                    };
+                    eprintln!("[image-import] dropped image bytes: name='{}' bytes={}", display_name, bytes.len());
+                    self.create_image_node_from_bytes(spawn_pos, display_name, bytes.to_vec());
+                } else {
+                    eprintln!("[image-import] dropped image has neither path nor bytes");
+                }
+                spawn_local.y += 26.0;
+            }
+        }
+
+        let (
+            key_v_pressed,
+            key_v_down,
+            key_f6_pressed,
+            ctrl_down,
+            command_down,
+            paste_event_count,
+            raw_paste_event_count,
+            raw_ctrl_v_event_count,
+            raw_v_event_count,
+            ctrl_v_text_event_count,
+            raw_ctrl_v_text_event_count,
+        ) = ctx.input(|i| {
+            let paste_events = i
+                .events
+                .iter()
+                .filter(|event| matches!(event, egui::Event::Paste(_)))
+                .count();
+
+            let raw_paste_events = i
+                .raw
+                .events
+                .iter()
+                .filter(|event| matches!(event, egui::Event::Paste(_)))
+                .count();
+
+            let raw_ctrl_v_events = i
+                .raw
+                .events
+                .iter()
+                .filter(|event| {
+                    matches!(
+                        event,
+                        egui::Event::Key {
+                            key: egui::Key::V,
+                            pressed: true,
+                            modifiers,
+                            ..
+                        } if modifiers.ctrl || modifiers.command
+                    )
+                })
+                .count();
+
+            let raw_v_events = i
+                .raw
+                .events
+                .iter()
+                .filter(|event| {
+                    matches!(
+                        event,
+                        egui::Event::Key {
+                            key: egui::Key::V,
+                            ..
+                        }
+                    )
+                })
+                .count();
+
+            let ctrl_v_text_events = i
+                .events
+                .iter()
+                .filter(|event| matches!(event, egui::Event::Text(text) if text.contains('\u{16}')))
+                .count();
+
+            let raw_ctrl_v_text_events = i
+                .raw
+                .events
+                .iter()
+                .filter(|event| matches!(event, egui::Event::Text(text) if text.contains('\u{16}')))
+                .count();
+
+            (
+                i.key_pressed(egui::Key::V),
+                i.key_down(egui::Key::V),
+                i.key_pressed(egui::Key::F6),
+                i.modifiers.ctrl,
+                i.modifiers.command,
+                paste_events,
+                raw_paste_events,
+                raw_ctrl_v_events,
+                raw_v_events,
+                ctrl_v_text_events,
+                raw_ctrl_v_text_events,
+            )
+        });
+
+        if key_v_pressed
+            || (key_v_down && (ctrl_down || command_down))
+            || paste_event_count > 0
+            || raw_paste_event_count > 0
+            || raw_ctrl_v_event_count > 0
+            || raw_v_event_count > 0
+            || ctrl_v_text_event_count > 0
+            || raw_ctrl_v_text_event_count > 0
+            || key_f6_pressed
+        {
+            eprintln!(
+                "[image-paste] key_v_pressed={} key_v_down={} key_f6_pressed={} ctrl_down={} command_down={} paste_events={} raw_paste_events={} raw_ctrl_v_events={} raw_v_events={} ctrl_v_text_events={} raw_ctrl_v_text_events={} pointer_in_canvas={} pointer={:?}",
+                key_v_pressed,
+                key_v_down,
+                key_f6_pressed,
+                ctrl_down,
+                command_down,
+                paste_event_count,
+                raw_paste_event_count,
+                raw_ctrl_v_event_count,
+                raw_v_event_count,
+                ctrl_v_text_event_count,
+                raw_ctrl_v_text_event_count,
+                pointer_in_canvas,
+                pointer_pos
+            );
+        }
+
+        let paste_shortcut = key_v_pressed && (command_down || ctrl_down);
+        let manual_import_key =
+            key_v_pressed && !command_down && !ctrl_down && pointer_in_canvas && !ctx.wants_keyboard_input();
+        if manual_import_key {
+            eprintln!("[image-paste] manual import key accepted (V)");
+        }
+
+        let paste_requested = key_f6_pressed
+            || paste_shortcut
+            || manual_import_key
+            || paste_event_count > 0
+            || raw_paste_event_count > 0
+            || raw_ctrl_v_event_count > 0
+            || ctrl_v_text_event_count > 0
+            || raw_ctrl_v_text_event_count > 0;
+
+        if paste_requested && !pointer_in_canvas {
+            eprintln!("[image-paste] paste requested but pointer not in canvas");
+        }
+
+        if paste_requested && pointer_in_canvas {
+            match Clipboard::new() {
+                Ok(mut clipboard) => {
+                    match clipboard.get_image() {
+                        Ok(image) => {
+                            eprintln!(
+                                "[image-paste] clipboard image found: {}x{}, bytes={}",
+                                image.width,
+                                image.height,
+                                image.bytes.len()
+                            );
+                            let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
+                            let size = [image.width, image.height];
+                            let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &image.bytes);
+                            self.create_image_node_from_color_image(
+                                spawn_pos,
+                                "粘贴图片".to_owned(),
+                                color_image,
+                                ctx,
+                            );
+                            return;
+                        }
+                        Err(err) => {
+                            eprintln!("[image-paste] clipboard image unavailable: {err}");
+                        }
+                    }
+
+                    let mut created_from_files = 0usize;
+                    match clipboard.get().file_list() {
+                        Ok(files) => {
+                            eprintln!("[image-paste] clipboard file_list count={}", files.len());
+                            for file in files {
+                                let supported = Self::is_supported_image_path(&file);
+                                eprintln!(
+                                    "[image-paste] file_list path='{}' supported_image={}",
+                                    file.to_string_lossy(),
+                                    supported
+                                );
+                                if supported {
+                                    let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
+                                    self.create_image_node_from_path(
+                                        spawn_pos,
+                                        file.to_string_lossy().to_string(),
+                                    );
+                                    spawn_local.y += 26.0;
+                                    created_from_files += 1;
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!("[image-paste] clipboard file_list unavailable: {err}");
+                        }
+                    }
+
+                    if created_from_files == 0 {
+                        match clipboard.get_text() {
+                            Ok(text) => {
+                                eprintln!("[image-paste] clipboard text len={}", text.len());
+                                let mut created = 0usize;
+                                for candidate in Self::parse_pasted_paths(&text) {
+                                    let path = Path::new(&candidate);
+                                    let exists = path.exists();
+                                    let supported = Self::is_supported_image_path(path);
+                                    eprintln!(
+                                        "[image-paste] candidate='{}' exists={} supported_image={}",
+                                        candidate, exists, supported
+                                    );
+                                    if exists && supported {
+                                        let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
+                                        self.create_image_node_from_path(spawn_pos, candidate);
+                                        spawn_local.y += 26.0;
+                                        created += 1;
+                                    }
+                                }
+                                if created == 0 {
+                                    eprintln!("[image-paste] no valid image path found in clipboard text");
+                                }
+                            }
+                            Err(err) => {
+                                eprintln!("[image-paste] clipboard text unavailable: {err}");
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    eprintln!("[image-paste] failed to open clipboard: {err}");
+                }
+            }
+        }
+
+        if !pointer_in_canvas {
+            return;
+        }
+
+        let pasted_texts: Vec<String> = ctx.input(|i| {
+            i.events
+                .iter()
+                .filter_map(|event| match event {
+                    egui::Event::Paste(text) => Some(text.clone()),
+                    _ => None,
+                })
+                .collect()
+        });
+
+        if !pasted_texts.is_empty() {
+            eprintln!("[image-paste] egui paste events: {}", pasted_texts.len());
+        }
+
+        for pasted in pasted_texts {
+            eprintln!("[image-paste] egui pasted text len={}", pasted.len());
+            let mut created = 0usize;
+            for candidate in Self::parse_pasted_paths(&pasted) {
+                let path = Path::new(&candidate);
+                let exists = path.exists();
+                let supported = Self::is_supported_image_path(path);
+                eprintln!(
+                    "[image-paste] egui candidate='{}' exists={} supported_image={}",
+                    candidate, exists, supported
+                );
+                if exists && supported {
+                    let spawn_pos = (spawn_local.to_vec2() - vec2(160.0, 110.0)).to_pos2();
+                    self.create_image_node_from_path(spawn_pos, candidate);
+                    spawn_local.y += 26.0;
+                    created += 1;
+                }
+            }
+            if created == 0 {
+                eprintln!("[image-paste] egui paste text produced no image node");
+            }
+        }
+    }
+
     pub(in crate::app) fn draw_canvas(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         let available = ui.available_size();
         let (rect, response) = ui.allocate_exact_size(available, Sense::click_and_drag());
@@ -25,6 +359,8 @@ impl GraphApp {
         let pointer_pos = ctx.input(|i| i.pointer.latest_pos().or_else(|| i.pointer.hover_pos()));
         let pointer_in_canvas = pointer_pos.is_some_and(|p| rect.contains(p));
         let any_popup_open = ctx.memory(|m| m.any_popup_open());
+
+        self.handle_canvas_image_import(ctx, rect, pointer_pos, pointer_in_canvas);
 
         let terminal_rects_before_zoom = self.terminal_content_rects_screen(rect);
         let pointer_over_terminal_before_zoom = pointer_pos.is_some_and(|p| {
@@ -82,7 +418,7 @@ impl GraphApp {
         let resize_handle_hit = pointer_pos.and_then(|pointer| {
             let selected_id = self.selected?;
             let node = self.nodes.iter().find(|n| n.id == selected_id)?;
-            if node.kind != NodeKind::Terminal {
+            if !matches!(node.kind, NodeKind::Terminal | NodeKind::Image) {
                 return None;
             }
 
@@ -141,11 +477,32 @@ impl GraphApp {
             if ctx.input(|i| i.pointer.primary_down()) && !ctx.input(|i| i.key_down(egui::Key::Space)) {
                 if let Some(pointer) = pointer_pos {
                     let local = self.screen_to_world_pos(rect, pointer);
+                    let image_aspect = self
+                        .image_aspect(resize_id)
+                        .filter(|a| *a > 0.0)
+                        .unwrap_or((start_size.x / start_size.y).max(0.1));
                     if let Some(node) = self.nodes.iter_mut().find(|n| n.id == resize_id) {
                         let delta = local - start_pointer;
-                        let width = (start_size.x + delta.x).max(320.0);
-                        let height = (start_size.y + delta.y).max(170.0);
-                        node.size = vec2(width, height);
+                        match node.kind {
+                            NodeKind::Image => {
+                                let sx = (start_size.x + delta.x) / start_size.x.max(1.0);
+                                let sy = (start_size.y + delta.y) / start_size.y.max(1.0);
+                                let scale = sx.max(sy).max(120.0 / start_size.x.max(1.0));
+                                let width = (start_size.x * scale).max(120.0);
+                                let height = (width / image_aspect).max(90.0);
+                                node.size = vec2(width, height);
+                            }
+                            NodeKind::Terminal => {
+                                let width = (start_size.x + delta.x).max(320.0);
+                                let height = (start_size.y + delta.y).max(170.0);
+                                node.size = vec2(width, height);
+                            }
+                            NodeKind::Text => {
+                                let width = (start_size.x + delta.x).max(120.0);
+                                let height = (start_size.y + delta.y).max(60.0);
+                                node.size = vec2(width, height);
+                            }
+                        }
                     }
                 }
             } else {
@@ -263,168 +620,7 @@ impl GraphApp {
             }
         }
 
-        response.context_menu(|ui| {
-            let search_id = egui::Id::new("context_menu_search_input");
-            if self.pending_menu_search_focus {
-                ui.memory_mut(|m| m.request_focus(search_id));
-            }
-
-            let search_resp = ui.add(
-                TextEdit::singleline(&mut self.menu_search_text)
-                    .id(search_id)
-                    .hint_text("搜索并创建节点..."),
-            );
-            let search_has_focus = search_resp.has_focus() || ui.memory(|m| m.has_focus(search_id));
-            if self.pending_menu_search_focus && search_has_focus {
-                self.pending_menu_search_focus = false;
-            }
-            if search_resp.changed() {
-                self.menu_search_selected = 0;
-                if self.menu_search_text.trim().is_empty() {
-                    self.menu_nav_level = 0;
-                    self.menu_nav_selected = 0;
-                }
-            }
-
-            ui.separator();
-
-            let spawn_pos = if let Some(id) = self.context_menu_node {
-                if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
-                    node.pos + vec2(node.size.x + 40.0, 10.0)
-                } else {
-                    self.context_menu_local_pos.unwrap_or(Pos2::new(100.0, 100.0))
-                }
-            } else {
-                self.context_menu_local_pos.unwrap_or(Pos2::new(100.0, 100.0))
-            };
-
-            if self.menu_search_text.trim().is_empty() {
-                let actions = [("终端节点", 0usize), ("文本节点", 1usize)];
-                if self.menu_nav_selected >= actions.len() {
-                    self.menu_nav_selected = actions.len().saturating_sub(1);
-                }
-
-                if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) && self.menu_nav_level >= 1 {
-                    self.menu_nav_selected = (self.menu_nav_selected + 1) % actions.len();
-                }
-                if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) && self.menu_nav_level >= 1 {
-                    self.menu_nav_selected =
-                        (self.menu_nav_selected + actions.len() - 1) % actions.len();
-                }
-                if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
-                    self.menu_nav_level = (self.menu_nav_level + 1).min(1);
-                }
-                if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
-                    self.menu_nav_level = self.menu_nav_level.saturating_sub(1);
-                }
-
-                let mut trigger_action = None;
-                if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    match self.menu_nav_level {
-                        0 => self.menu_nav_level = 1,
-                        1 => trigger_action = Some(actions[self.menu_nav_selected].1),
-                        _ => {}
-                    }
-                }
-
-                ui.group(|ui| {
-                    if ui
-                        .add_sized(
-                            [170.0, 24.0],
-                            egui::SelectableLabel::new(self.menu_nav_level == 0, "创建节点 ▶"),
-                        )
-                        .clicked()
-                    {
-                        self.menu_nav_level = 1;
-                    }
-
-                    if self.menu_nav_level >= 1 {
-                        ui.indent("menu_level_1", |ui| {
-                            for (idx, (label, action_id)) in actions.iter().enumerate() {
-                                let selected = self.menu_nav_selected == idx;
-                                if ui
-                                    .add_sized(
-                                        [170.0, 24.0],
-                                        egui::SelectableLabel::new(selected, *label),
-                                    )
-                                    .clicked()
-                                {
-                                    self.menu_nav_selected = idx;
-                                    trigger_action = Some(*action_id);
-                                }
-                            }
-                        });
-                    }
-                });
-
-                if let Some(action_id) = trigger_action {
-                    match action_id {
-                        0 => self.create_terminal_node(spawn_pos),
-                        1 => self.create_text_node(spawn_pos, true),
-                        _ => {}
-                    }
-                    ui.close_menu();
-                }
-
-                ui.separator();
-                ui.small("←/→ 进入或返回，↑/↓ 选择，Enter 创建");
-                return;
-            }
-
-            let items = [
-                ("创建节点/终端节点", "终端节点", 0usize),
-                ("创建节点/文本节点", "文本节点", 1usize),
-            ];
-
-            let mut matched = Vec::new();
-            for (path, label, action_id) in items {
-                if self.menu_item_matches(path) || self.menu_item_matches(label) {
-                    matched.push((label, action_id));
-                }
-            }
-
-            if matched.is_empty() {
-                ui.small("无匹配节点类型");
-                return;
-            }
-
-            if self.menu_search_selected >= matched.len() {
-                self.menu_search_selected = matched.len().saturating_sub(1);
-            }
-
-            if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
-                self.menu_search_selected = (self.menu_search_selected + 1) % matched.len();
-            }
-            if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
-                self.menu_search_selected =
-                    (self.menu_search_selected + matched.len() - 1) % matched.len();
-            }
-
-            let mut trigger_action = None;
-            for (row, (path, action_id)) in matched.iter().enumerate() {
-                let selected = row == self.menu_search_selected;
-                let resp = ui.selectable_label(selected, self.menu_item_highlighted_label(path));
-                if resp.clicked() {
-                    trigger_action = Some(*action_id);
-                }
-            }
-
-            if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-                trigger_action = Some(matched[self.menu_search_selected].1);
-            }
-
-            if let Some(action_id) = trigger_action {
-                match action_id {
-                    0 => self.create_terminal_node(spawn_pos),
-                    1 => self.create_text_node(spawn_pos, true),
-                    _ => {}
-                }
-                ui.close_menu();
-            }
-
-            ui.separator();
-            ui.small("↑/↓ 选择，Enter 创建");
-        });
+        self.show_canvas_context_menu(&response, ctx);
 
         if !any_popup_open && !is_panning && !pointer_over_terminal_content && response.double_clicked()
         {
@@ -463,352 +659,17 @@ impl GraphApp {
             }
         }
 
-        for (from, to) in &self.edges {
-            if let (Some(a), Some(b)) = (
-                self.nodes.iter().find(|n| n.id == *from),
-                self.nodes.iter().find(|n| n.id == *to),
-            ) {
-                let start = self.world_to_screen_pos(rect, a.pos + vec2(a.size.x, a.size.y * 0.5));
-                let end = self.world_to_screen_pos(rect, b.pos + vec2(0.0, b.size.y * 0.5));
-                let edge_stroke = 2.0 * self.zoom.clamp(0.6, 1.6);
-                painter.line_segment(
-                    [start, end],
-                    Stroke::new(edge_stroke, Color32::from_rgb(110, 170, 255)),
-                );
+        self.draw_edges(&painter, rect);
+        self.draw_link_preview(&painter, rect);
+        self.draw_cut_path(&painter, rect);
 
-                let dir = (end - start).normalized();
-                let left =
-                    end - dir * (12.0 * self.zoom) + vec2(-dir.y, dir.x) * (6.0 * self.zoom);
-                let right =
-                    end - dir * (12.0 * self.zoom) + vec2(dir.y, -dir.x) * (6.0 * self.zoom);
-                painter.line_segment(
-                    [left, end],
-                    Stroke::new(edge_stroke, Color32::from_rgb(110, 170, 255)),
-                );
-                painter.line_segment(
-                    [right, end],
-                    Stroke::new(edge_stroke, Color32::from_rgb(110, 170, 255)),
-                );
-            }
-        }
+        self.autosize_text_nodes(&painter);
+        self.ensure_image_textures(ctx);
+        let (text_edit_rect, title_edit_rect) = self.draw_nodes(&painter, rect);
+        self.handle_text_node_editor(ui, ctx, text_edit_rect);
+        self.handle_title_editor(ui, ctx, title_edit_rect, primary_clicked, pointer_pos);
 
-        if let (Some(from), Some(pointer_local)) = (self.linking_from, self.linking_pointer_local) {
-            if let Some(node) = self.nodes.iter().find(|n| n.id == from) {
-                let start =
-                    self.world_to_screen_pos(rect, node.pos + vec2(node.size.x, node.size.y * 0.5));
-                let end = self.world_to_screen_pos(rect, pointer_local);
-                painter.line_segment(
-                    [start, end],
-                    Stroke::new(
-                        2.0 * self.zoom.clamp(0.6, 1.6),
-                        Color32::from_rgba_premultiplied(130, 195, 255, 220),
-                    ),
-                );
-            }
-        }
-
-        if self.cutting_path_local.len() >= 2 {
-            for pair in self.cutting_path_local.windows(2) {
-                let a = self.world_to_screen_pos(rect, pair[0]);
-                let b = self.world_to_screen_pos(rect, pair[1]);
-                painter.line_segment(
-                    [a, b],
-                    Stroke::new(
-                        2.0 * self.zoom.clamp(0.6, 1.6),
-                        Color32::from_rgba_premultiplied(255, 120, 120, 220),
-                    ),
-                );
-            }
-        }
-
-        for node in self.nodes.iter_mut().filter(|n| n.kind == NodeKind::Text) {
-            let visible_text = if node.text_body.trim().is_empty() {
-                "(空文本)"
-            } else {
-                &node.text_body
-            };
-            let galley = painter.layout_no_wrap(
-                visible_text.to_owned(),
-                FontId::proportional(15.0),
-                Color32::from_rgb(250, 240, 210),
-            );
-            node.size = vec2(galley.size().x + 24.0, galley.size().y + 24.0);
-        }
-
-        let mut text_edit_rect: Option<(usize, Rect)> = None;
-        let mut title_edit_rect: Option<(usize, Rect)> = None;
-
-        for node in &self.nodes {
-            let node_rect = self.world_to_screen_rect(rect, Rect::from_min_size(node.pos, node.size));
-            let is_selected = self.selected == Some(node.id);
-            let zoom_scale = self.zoom;
-
-            let (fill, stroke) = match node.kind {
-                NodeKind::Terminal => {
-                    let fill = if is_selected {
-                        Color32::from_rgb(64, 52, 120)
-                    } else {
-                        Color32::from_rgb(48, 40, 86)
-                    };
-                    let stroke = if is_selected {
-                        Stroke::new(
-                            2.0 * zoom_scale.clamp(0.6, 1.6),
-                            Color32::from_rgb(174, 149, 255),
-                        )
-                    } else {
-                        Stroke::new(
-                            1.0 * zoom_scale.clamp(0.6, 1.6),
-                            Color32::from_rgb(108, 96, 145),
-                        )
-                    };
-                    (fill, stroke)
-                }
-                NodeKind::Text => {
-                    let fill = if is_selected {
-                        Color32::from_rgb(90, 73, 34)
-                    } else {
-                        Color32::from_rgb(72, 60, 31)
-                    };
-                    let stroke = if is_selected {
-                        Stroke::new(
-                            2.0 * zoom_scale.clamp(0.6, 1.6),
-                            Color32::from_rgb(255, 220, 130),
-                        )
-                    } else {
-                        Stroke::new(
-                            1.0 * zoom_scale.clamp(0.6, 1.6),
-                            Color32::from_rgb(130, 114, 68),
-                        )
-                    };
-                    (fill, stroke)
-                }
-            };
-
-            painter.rect(node_rect, 8.0 * zoom_scale, fill, stroke, egui::StrokeKind::Outside);
-
-            match node.kind {
-                NodeKind::Terminal => {
-                    let is_title_editing = self.editing_title_node == Some(node.id);
-                    if !is_title_editing {
-                        painter.text(
-                            node_rect.left_top() + vec2(12.0, 10.0) * zoom_scale,
-                            Align2::LEFT_TOP,
-                            &node.title,
-                            FontId::proportional((17.0 * zoom_scale).max(9.0)),
-                            Color32::WHITE,
-                        );
-                    } else {
-                        let rect_min = node_rect.left_top() + vec2(10.0, 6.0) * zoom_scale;
-                        let rect_max = node_rect.right_top()
-                            + vec2(-10.0, TERMINAL_HEADER_HEIGHT - 6.0) * zoom_scale;
-                        title_edit_rect = Some((node.id, Rect::from_min_max(rect_min, rect_max)));
-                    }
-
-                    if !is_title_editing {
-                        let state_text = if self.terminal_backends.contains_key(&node.id) {
-                            "状态: Running"
-                        } else if self.terminal_exited.contains(&node.id) {
-                            "状态: Exited"
-                        } else {
-                            "状态: Starting"
-                        };
-
-                        painter.text(
-                            node_rect.right_top() - vec2(12.0, -12.0) * zoom_scale,
-                            Align2::RIGHT_TOP,
-                            state_text,
-                            FontId::proportional((13.0 * zoom_scale).max(8.0)),
-                            Color32::from_rgb(225, 220, 255),
-                        );
-                    }
-
-                    if !node.identity.trim().is_empty() {
-                        painter.text(
-                            node_rect.left_top() + vec2(12.0, 30.0) * zoom_scale,
-                            Align2::LEFT_TOP,
-                            format!("@{}", node.identity),
-                            FontId::proportional((13.0 * zoom_scale).max(8.0)),
-                            Color32::from_rgb(214, 205, 255),
-                        );
-                    }
-
-                    painter.line_segment(
-                        [
-                            node_rect.left_top() + vec2(0.0, TERMINAL_HEADER_HEIGHT) * zoom_scale,
-                            node_rect.right_top() + vec2(0.0, TERMINAL_HEADER_HEIGHT) * zoom_scale,
-                        ],
-                        Stroke::new(
-                            1.0 * zoom_scale.clamp(0.6, 1.6),
-                            Color32::from_rgb(108, 96, 145),
-                        ),
-                    );
-
-                    if is_selected {
-                        let handle_size = 12.0 * zoom_scale.clamp(0.75, 1.6);
-                        let handle_rect = Rect::from_min_size(
-                            node_rect.right_bottom() - vec2(handle_size + 6.0, handle_size + 6.0),
-                            vec2(handle_size, handle_size),
-                        );
-                        painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(205, 195, 255));
-                    }
-                }
-                NodeKind::Text => {
-                    let is_editing = self.editing_text_node == Some(node.id);
-                    if !is_editing {
-                        let preview = if node.text_body.trim().is_empty() {
-                            "(空文本)"
-                        } else {
-                            &node.text_body
-                        };
-
-                        painter.text(
-                            node_rect.center(),
-                            Align2::CENTER_CENTER,
-                            preview,
-                            FontId::proportional(15.0 * zoom_scale),
-                            Color32::from_rgb(250, 240, 210),
-                        );
-                    }
-
-                    if is_editing {
-                        let edit_rect = Rect::from_min_max(
-                            node_rect.min + vec2(12.0, 12.0) * zoom_scale,
-                            node_rect.max - vec2(12.0, 12.0) * zoom_scale,
-                        );
-                        text_edit_rect = Some((node.id, edit_rect));
-                    }
-                }
-            }
-        }
-
-        if let Some((id, edit_rect)) = text_edit_rect {
-            if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
-                let text_edit_id = egui::Id::new(("text-node-editor", id));
-                let should_focus_and_select_all = self.pending_text_focus == Some(id);
-                if should_focus_and_select_all {
-                    ctx.memory_mut(|m| m.request_focus(text_edit_id));
-                }
-
-                let desired_rows = node.text_body.split('\n').count().max(1);
-                let text_edit = TextEdit::multiline(&mut node.text_body)
-                    .id(text_edit_id)
-                    .font(FontId::proportional(15.0 * self.zoom))
-                    .text_color(Color32::from_rgb(250, 240, 210))
-                    .margin(egui::Margin::ZERO)
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(desired_rows)
-                    .frame(false);
-                let resp = ui.put(edit_rect, text_edit);
-
-                if should_focus_and_select_all {
-                    if let Some(mut state) = egui::TextEdit::load_state(ctx, text_edit_id) {
-                        let len = node.text_body.chars().count();
-                        let range = egui::text::CCursorRange::two(
-                            egui::text::CCursor::new(0),
-                            egui::text::CCursor::new(len),
-                        );
-                        state.cursor.set_char_range(Some(range));
-                        state.store(ctx, text_edit_id);
-                    }
-                    self.pending_text_focus = None;
-                }
-
-                if resp.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                    self.editing_text_node = None;
-                }
-            }
-        }
-
-        if let Some((id, edit_rect)) = title_edit_rect {
-            let title_edit_id = egui::Id::new(("terminal-title-editor", id));
-            let should_focus_and_select_all = self.pending_title_focus == Some(id);
-            if should_focus_and_select_all {
-                ctx.memory_mut(|m| m.request_focus(title_edit_id));
-            }
-
-            let text_edit = TextEdit::singleline(&mut self.title_edit_buffer)
-                .id(title_edit_id)
-                .font(FontId::proportional((16.0 * self.zoom).max(9.0)))
-                .text_color(Color32::WHITE)
-                .desired_width(f32::INFINITY)
-                .frame(false);
-            let resp = ui.put(edit_rect, text_edit);
-
-            if should_focus_and_select_all {
-                if let Some(mut state) = egui::TextEdit::load_state(ctx, title_edit_id) {
-                    let len = self.title_edit_buffer.chars().count();
-                    let range = egui::text::CCursorRange::two(
-                        egui::text::CCursor::new(0),
-                        egui::text::CCursor::new(len),
-                    );
-                    state.cursor.set_char_range(Some(range));
-                    state.store(ctx, title_edit_id);
-                }
-                self.pending_title_focus = None;
-            }
-
-            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                self.cancel_title_edit();
-            } else if ctx.input(|i| i.key_pressed(egui::Key::Enter))
-                || (resp.lost_focus() && !ctx.input(|i| i.pointer.primary_down()))
-            {
-                self.commit_title_edit(id);
-            } else if primary_clicked {
-                if let Some(pointer) = pointer_pos {
-                    if !edit_rect.contains(pointer) {
-                        self.commit_title_edit(id);
-                    }
-                }
-            }
-        }
-
-        for (node_id, term_rect) in terminal_content_rects {
-            let visible_rect = term_rect.intersect(rect);
-            if !visible_rect.is_positive() {
-                continue;
-            }
-
-            if !self.terminal_backends.contains_key(&node_id)
-                && !self.terminal_errors.contains_key(&node_id)
-                && !self.terminal_exited.contains(&node_id)
-            {
-                self.ensure_terminal(node_id, ctx);
-            }
-
-            egui::Area::new(egui::Id::new(("terminal_node_embedded_area", node_id)))
-                .order(egui::Order::Foreground)
-                .constrain(false)
-                .fixed_pos(term_rect.min)
-                .show(ctx, |ui| {
-                    let full_screen_rect = Rect::from_min_size(term_rect.min, term_rect.size());
-                    let mut term_ui = ui.new_child(
-                        egui::UiBuilder::new()
-                            .max_rect(full_screen_rect)
-                            .layout(*ui.layout()),
-                    );
-                    term_ui.set_clip_rect(visible_rect);
-
-                    if let Some(err) = self.terminal_errors.get(&node_id) {
-                        term_ui.colored_label(Color32::LIGHT_RED, err);
-                    } else if let Some(backend) = self.terminal_backends.get_mut(&node_id) {
-                        let term_font_size = (14.0 * self.zoom).min(36.0);
-                        let term_font = TerminalFont::new(egui_term::FontSettings {
-                            font_type: FontId::monospace(term_font_size),
-                        });
-                        let term = TerminalView::new(&mut term_ui, backend)
-                            .set_focus(
-                                self.selected == Some(node_id)
-                                    && self.editing_title_node != Some(node_id)
-                                    && self.suspend_terminal_focus != Some(node_id),
-                            )
-                            .set_font(term_font)
-                            .set_size(term_rect.size());
-                        term_ui.add(term);
-                    } else {
-                        term_ui.label("终端未启动，请在右侧点击“重启终端”。");
-                    }
-                });
-        }
+        self.draw_embedded_terminals(ctx, rect, &terminal_content_rects);
 
         if !is_panning && self.resizing.is_none() && resize_handle_hit.is_none() {
             if let Some(pos) = response.hover_pos() {

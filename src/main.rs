@@ -10,7 +10,9 @@ use fonts::setup_custom_fonts;
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default().with_inner_size([1400.0, 820.0]),
+        viewport: eframe::egui::ViewportBuilder::default()
+            .with_inner_size([1400.0, 820.0])
+            .with_drag_and_drop(true),
         ..Default::default()
     };
 
