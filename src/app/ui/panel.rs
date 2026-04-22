@@ -19,6 +19,7 @@ impl GraphApp {
                     ui.separator();
                     ui.label("节点身份:");
                     ui.text_edit_singleline(&mut node.identity);
+                    ui.small("启动命令请在画布内右键终端节点 -> 编辑启动命令");
                     ui.small("terminal 内可直接执行: canvas done \"...\"");
                 }
 
@@ -66,10 +67,13 @@ impl GraphApp {
             ui.label("编辑身份:");
             ui.text_edit_singleline(&mut node.identity);
         }
-        ui.small("修改 identity 后，点击“重启终端”使环境变量生效。\n可在终端中执行: canvas done \"已完成...\"");
+        ui.small("启动命令请在画布内右键终端节点 -> 编辑启动命令。\n点击“应用并重启终端”后会重启并执行启动命令。\n可在终端中执行: canvas done \"已完成...\"");
 
-        if ui.button("重启终端").clicked() {
+        if ui.button("应用并重启终端").clicked() {
             self.restart_terminal(node_id, ctx);
+        }
+        if ui.button("保存并应用全部终端启动命令 (Ctrl+S)").clicked() {
+            self.apply_startup_scripts_after_save(ctx);
         }
 
         ui.separator();

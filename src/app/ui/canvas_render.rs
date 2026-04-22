@@ -89,10 +89,16 @@ impl GraphApp {
         ctx: &egui::Context,
         painter: &Painter,
         rect: Rect,
-    ) -> (Option<(usize, Rect)>, Option<(usize, Rect)>, Option<(usize, Rect)>) {
+    ) -> (
+        Option<(usize, Rect)>,
+        Option<(usize, Rect)>,
+        Option<(usize, Rect)>,
+        Option<(usize, Rect)>,
+    ) {
         let mut text_edit_rect: Option<(usize, Rect)> = None;
         let mut title_edit_rect: Option<(usize, Rect)> = None;
         let mut identity_edit_rect: Option<(usize, Rect)> = None;
+        let mut startup_edit_rect: Option<(usize, Rect)> = None;
 
         let render_nodes = self.nodes.clone();
         for node in &render_nodes {
@@ -265,6 +271,13 @@ impl GraphApp {
                     );
 
                     if let Some(term_rect) = self.terminal_content_rect_screen(node.id, rect) {
+                        if self.editing_startup_node == Some(node.id) {
+                            let overlay_rect = Rect::from_min_max(
+                                term_rect.min + vec2(10.0, 10.0) * zoom_scale,
+                                term_rect.max - vec2(10.0, 10.0) * zoom_scale,
+                            );
+                            startup_edit_rect = Some((node.id, overlay_rect));
+                        }
                         self.draw_embedded_terminal_for_rect(ui, ctx, rect, node.id, term_rect);
                     }
 
@@ -341,6 +354,11 @@ impl GraphApp {
             }
         }
 
-        (text_edit_rect, title_edit_rect, identity_edit_rect)
+        (
+            text_edit_rect,
+            title_edit_rect,
+            identity_edit_rect,
+            startup_edit_rect,
+        )
     }
 }

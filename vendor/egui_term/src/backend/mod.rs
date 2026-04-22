@@ -24,6 +24,7 @@ use std::io::Result;
 use std::ops::{Index, RangeInclusive};
 use std::sync::mpsc::Sender;
 use std::sync::{mpsc, Arc};
+use std::time::{Duration, Instant};
 
 pub type TerminalMode = TermMode;
 pub type PtyEvent = Event;
@@ -176,16 +177,26 @@ impl TerminalBackend {
         let _pty_event_loop_thread = pty_event_loop.spawn();
         let _pty_event_subscription = std::thread::Builder::new()
             .name(format!("pty_event_subscription_{}", id))
-            .spawn(move || loop {
-                if let Ok(event) = event_receiver.recv() {
-                    pty_event_proxy_sender
-                        .send((id, event.clone()))
-                        .unwrap_or_else(|_| {
-                            panic!("pty_event_subscription_{}: sending PtyEvent is failed", id)
-                        });
-                    app_context.clone().request_repaint();
-                    if let Event::Exit = event {
-                        break;
+            .spawn(move || {
+                let mut last_repaint = Instant::now() - Duration::from_millis(100);
+                loop {
+                    if let Ok(event) = event_receiver.recv() {
+                        pty_event_proxy_sender
+                            .send((id, event.clone()))
+                            .unwrap_or_else(|_| {
+                                panic!("pty_event_subscription_{}: sending PtyEvent is failed", id)
+                            });
+
+                        if last_repaint.elapsed() >= Duration::from_millis(16)
+                            || matches!(event, Event::Exit)
+                        {
+                            app_context.request_repaint();
+                            last_repaint = Instant::now();
+                        }
+
+                        if let Event::Exit = event {
+                            break;
+                        }
                     }
                 }
             })?;
@@ -453,30 +464,37 @@ impl TerminalBackend {
         layout_size: Size,
         font_size: Size,
     ) {
-        if layout_size == self.size.layout_size
-            && font_size.width as u16 == self.size.cell_width
-            && font_size.height as u16 == self.size.cell_height
-        {
+        let cell_width = font_size.width as u16;
+        let cell_height = font_size.height as u16;
+        let lines = (layout_size.height / font_size.height.floor()) as u16;
+        let cols = (layout_size.width / font_size.width.floor()) as u16;
+
+        if lines == 0 || cols == 0 {
             return;
         }
 
-        let lines = (layout_size.height / font_size.height.floor()) as u16;
-        let cols = (layout_size.width / font_size.width.floor()) as u16;
-        if lines > 0 && cols > 0 {
-            self.size = TerminalSize {
-                layout_size,
-                cell_height: font_size.height as u16,
-                cell_width: font_size.width as u16,
-                num_lines: lines,
-                num_cols: cols,
-            };
-
-            self.notifier.on_resize(self.size.into());
-            terminal.resize(TermSize::new(
-                self.size.num_cols as usize,
-                self.size.num_lines as usize,
-            ));
+        if cell_width == self.size.cell_width
+            && cell_height == self.size.cell_height
+            && lines == self.size.num_lines
+            && cols == self.size.num_cols
+        {
+            self.size.layout_size = layout_size;
+            return;
         }
+
+        self.size = TerminalSize {
+            layout_size,
+            cell_height,
+            cell_width,
+            num_lines: lines,
+            num_cols: cols,
+        };
+
+        self.notifier.on_resize(self.size.into());
+        terminal.resize(TermSize::new(
+            self.size.num_cols as usize,
+            self.size.num_lines as usize,
+        ));
     }
 
     fn write<I: Into<Cow<'static, [u8]>>>(&self, input: I) {

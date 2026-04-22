@@ -269,6 +269,7 @@ impl GraphApp {
             && self.editing_text_node.is_none()
             && self.editing_title_node.is_none()
             && self.editing_identity_node.is_none()
+            && self.editing_startup_node.is_none()
         {
             self.focus_selected_or_all(rect);
         }
@@ -338,6 +339,7 @@ impl GraphApp {
             && self.editing_text_node.is_none()
             && self.editing_title_node.is_none()
             && self.editing_identity_node.is_none()
+            && self.editing_startup_node.is_none()
             && !self.selected_nodes.is_empty()
             && !keyboard_has_focus;
 
@@ -453,6 +455,7 @@ impl GraphApp {
         if !is_panning
             && self.editing_title_node.is_none()
             && self.editing_identity_node.is_none()
+            && self.editing_startup_node.is_none()
             && primary_pressed
         {
             if let Some((id, local, size)) = resize_handle_hit {
@@ -745,6 +748,7 @@ impl GraphApp {
         if !any_popup_open
             && !is_panning
             && !pointer_over_terminal_content
+            && self.editing_startup_node.is_none()
             && (response.double_clicked() || tolerant_double_click)
         {
             if let Some(pointer) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
@@ -774,6 +778,7 @@ impl GraphApp {
         if !any_popup_open
             && !is_panning
             && !pointer_over_terminal_content
+            && self.editing_startup_node.is_none()
             && response.clicked()
             && !multi_select_modifier
         {
@@ -817,11 +822,12 @@ impl GraphApp {
         self.autosize_text_nodes(&painter);
         self.ensure_image_textures(ctx);
 
-        let (text_edit_rect, title_edit_rect, identity_edit_rect) =
+        let (text_edit_rect, title_edit_rect, identity_edit_rect, startup_edit_rect) =
             self.draw_nodes(ui, ctx, &painter, rect);
         self.handle_text_node_editor(ui, ctx, text_edit_rect);
         self.handle_title_editor(ui, ctx, title_edit_rect, primary_clicked, pointer_pos);
         self.handle_identity_editor(ui, ctx, identity_edit_rect, primary_clicked, pointer_pos);
+        self.handle_startup_editor(ui, ctx, startup_edit_rect, primary_clicked, pointer_pos);
 
         if !is_panning && self.resizing.is_none() && resize_handle_hit.is_none() {
             if let Some(pos) = response.hover_pos() {

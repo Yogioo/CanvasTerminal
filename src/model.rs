@@ -14,6 +14,7 @@ pub struct Node {
     pub kind: NodeKind,
     pub category: String,
     pub identity: String,
+    pub startup_script: String,
     pub text_body: String,
     pub image_path: String,
     pub pos: Pos2,

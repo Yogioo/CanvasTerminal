@@ -24,6 +24,17 @@ impl GraphApp {
                 ui.label(format!("节点 #{node_id}"));
                 ui.separator();
 
+                let is_terminal_node = self
+                    .nodes
+                    .iter()
+                    .find(|n| n.id == node_id)
+                    .is_some_and(|n| matches!(n.kind, crate::model::NodeKind::Terminal));
+
+                if is_terminal_node && ui.button("编辑启动命令").clicked() {
+                    self.start_startup_edit(node_id);
+                    ui.close_menu();
+                }
+
                 if ui.button("置于顶层").clicked() {
                     self.run_node_order_action(node_id, NodeOrderAction::BringToFront);
                     ui.close_menu();

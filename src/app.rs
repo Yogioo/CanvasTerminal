@@ -12,6 +12,7 @@ use image::ImageReader;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::mpsc;
+use std::time::Duration;
 
 enum HistoryEntry {
     DeleteBatch {
@@ -56,6 +57,7 @@ pub struct GraphApp {
     terminal_exited: HashSet<usize>,
     terminal_errors: HashMap<usize, String>,
     pending_terminal_injections: HashMap<usize, Vec<String>>,
+    pending_terminal_starts: Vec<usize>,
     image_textures: HashMap<usize, TextureHandle>,
     image_errors: HashMap<usize, String>,
     image_bytes: HashMap<usize, Vec<u8>>,
@@ -77,6 +79,9 @@ pub struct GraphApp {
     editing_identity_node: Option<usize>,
     pending_identity_focus: Option<usize>,
     identity_edit_buffer: String,
+    editing_startup_node: Option<usize>,
+    pending_startup_focus: Option<usize>,
+    startup_edit_buffer: String,
     suspend_terminal_focus: Option<usize>,
     resizing: Option<(usize, Pos2, egui::Vec2)>,
     context_menu_node: Option<usize>,
@@ -129,6 +134,7 @@ impl GraphApp {
             terminal_exited: HashSet::new(),
             terminal_errors: HashMap::new(),
             pending_terminal_injections: HashMap::new(),
+            pending_terminal_starts: Vec::new(),
             image_textures: HashMap::new(),
             image_errors: HashMap::new(),
             image_bytes: HashMap::new(),
@@ -149,6 +155,9 @@ impl GraphApp {
             editing_identity_node: None,
             pending_identity_focus: None,
             identity_edit_buffer: String::new(),
+            editing_startup_node: None,
+            pending_startup_focus: None,
+            startup_edit_buffer: String::new(),
             suspend_terminal_focus: None,
             resizing: None,
             context_menu_node: None,
@@ -230,6 +239,7 @@ impl GraphApp {
             kind: NodeKind::Terminal,
             category: "终端".to_owned(),
             identity: format!("agent-{id}"),
+            startup_script: String::new(),
             text_body: String::new(),
             image_path: String::new(),
             pos,
@@ -247,6 +257,7 @@ impl GraphApp {
             kind: NodeKind::Text,
             category: "文本".to_owned(),
             identity: String::new(),
+            startup_script: String::new(),
             text_body: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             image_path: String::new(),
             pos,
@@ -287,6 +298,7 @@ impl GraphApp {
             kind: NodeKind::Image,
             category: "图片".to_owned(),
             identity: String::new(),
+            startup_script: String::new(),
             text_body: String::new(),
             image_path,
             pos,
@@ -313,6 +325,7 @@ impl GraphApp {
             kind: NodeKind::Image,
             category: "图片".to_owned(),
             identity: String::new(),
+            startup_script: String::new(),
             text_body: String::new(),
             image_path: display_name,
             pos,
@@ -337,6 +350,7 @@ impl GraphApp {
             kind: NodeKind::Image,
             category: "图片".to_owned(),
             identity: String::new(),
+            startup_script: String::new(),
             text_body: String::new(),
             image_path: display_name,
             pos,
@@ -529,6 +543,15 @@ impl GraphApp {
             .to_owned()
     }
 
+    fn terminal_startup_script(&self, node_id: usize) -> Option<String> {
+        self.nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .map(|n| n.startup_script.trim())
+            .filter(|script| !script.is_empty())
+            .map(ToOwned::to_owned)
+    }
+
     fn inject_terminal_text(&mut self, node_id: usize, text: &str) {
         if let Some(backend) = self.terminal_backends.get_mut(&node_id) {
             backend.process_command(BackendCommand::Write(text.as_bytes().to_vec()));
@@ -538,6 +561,17 @@ impl GraphApp {
                 .or_default()
                 .push(text.to_owned());
         }
+    }
+
+    fn run_terminal_startup_script(&mut self, node_id: usize) {
+        let Some(script) = self.terminal_startup_script(node_id) else {
+            return;
+        };
+
+        let command = format!("{script}\r\n");
+        self.inject_terminal_text(node_id, &command);
+        self.change_history
+            .push(format!("节点 #{node_id} 执行启动命令"));
     }
 
     fn poll_done_events(&mut self) {
@@ -597,6 +631,8 @@ impl GraphApp {
                 self.terminal_exited.remove(&node_id);
                 self.terminal_errors.remove(&node_id);
 
+                self.run_terminal_startup_script(node_id);
+
                 if let Some(pending) = self.pending_terminal_injections.remove(&node_id) {
                     for text in pending {
                         self.inject_terminal_text(node_id, &text);
@@ -610,11 +646,72 @@ impl GraphApp {
         }
     }
 
+    fn queue_terminal_start(&mut self, node_id: usize) {
+        if self.terminal_backends.contains_key(&node_id)
+            || self.terminal_errors.contains_key(&node_id)
+            || self.terminal_exited.contains(&node_id)
+        {
+            return;
+        }
+
+        let is_terminal_node = self
+            .nodes
+            .iter()
+            .any(|n| n.id == node_id && matches!(n.kind, NodeKind::Terminal));
+        if !is_terminal_node {
+            return;
+        }
+
+        if !self.pending_terminal_starts.contains(&node_id) {
+            self.pending_terminal_starts.push(node_id);
+        }
+    }
+
+    fn process_terminal_start_queue(&mut self, ctx: &egui::Context) {
+        const MAX_TERMINAL_STARTS_PER_FRAME: usize = 1;
+
+        for _ in 0..MAX_TERMINAL_STARTS_PER_FRAME {
+            if self.pending_terminal_starts.is_empty() {
+                break;
+            }
+
+            let node_id = self.pending_terminal_starts.remove(0);
+            self.ensure_terminal(node_id, ctx);
+        }
+    }
+
     fn restart_terminal(&mut self, node_id: usize, ctx: &egui::Context) {
         self.terminal_backends.remove(&node_id);
         self.terminal_exited.remove(&node_id);
         self.terminal_errors.remove(&node_id);
+        self.pending_terminal_starts.retain(|id| *id != node_id);
         self.ensure_terminal(node_id, ctx);
+    }
+
+    fn apply_startup_scripts_after_save(&mut self, ctx: &egui::Context) {
+        let target_ids: Vec<usize> = self
+            .nodes
+            .iter()
+            .filter(|node| {
+                node.kind == NodeKind::Terminal && !node.startup_script.trim().is_empty()
+            })
+            .map(|node| node.id)
+            .collect();
+
+        if target_ids.is_empty() {
+            self.change_history
+                .push("保存后应用启动命令：没有可执行的终端节点".to_owned());
+            return;
+        }
+
+        for node_id in &target_ids {
+            self.restart_terminal(*node_id, ctx);
+        }
+
+        self.change_history.push(format!(
+            "保存后应用启动命令：已重启 {} 个终端节点",
+            target_ids.len()
+        ));
     }
 
     fn poll_terminal_events(&mut self) {
@@ -944,6 +1041,7 @@ impl GraphApp {
         self.terminal_exited.remove(&node_id);
         self.terminal_errors.remove(&node_id);
         self.pending_terminal_injections.remove(&node_id);
+        self.pending_terminal_starts.retain(|id| *id != node_id);
         self.image_textures.remove(&node_id);
         self.image_errors.remove(&node_id);
         self.image_bytes.remove(&node_id);
@@ -983,6 +1081,11 @@ impl GraphApp {
             self.editing_identity_node = None;
             self.pending_identity_focus = None;
             self.identity_edit_buffer.clear();
+        }
+        if self.editing_startup_node == Some(node_id) {
+            self.editing_startup_node = None;
+            self.pending_startup_focus = None;
+            self.startup_edit_buffer.clear();
         }
         if self.suspend_terminal_focus == Some(node_id) {
             self.suspend_terminal_focus = None;
@@ -1190,6 +1293,9 @@ impl GraphApp {
         self.editing_identity_node = None;
         self.pending_identity_focus = None;
         self.identity_edit_buffer.clear();
+        self.editing_startup_node = None;
+        self.pending_startup_focus = None;
+        self.startup_edit_buffer.clear();
         self.editing_title_node = Some(node_id);
         self.pending_title_focus = Some(node_id);
         self.title_edit_buffer = title;
@@ -1236,6 +1342,9 @@ impl GraphApp {
         self.editing_title_node = None;
         self.pending_title_focus = None;
         self.title_edit_buffer.clear();
+        self.editing_startup_node = None;
+        self.pending_startup_focus = None;
+        self.startup_edit_buffer.clear();
         self.editing_identity_node = Some(node_id);
         self.pending_identity_focus = Some(node_id);
         self.identity_edit_buffer = identity;
@@ -1266,6 +1375,55 @@ impl GraphApp {
         self.pending_identity_focus = None;
         self.identity_edit_buffer.clear();
         self.suspend_terminal_focus = node_id;
+    }
+
+    fn start_startup_edit(&mut self, node_id: usize) {
+        let Some(startup_script) = self
+            .nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .map(|n| n.startup_script.clone())
+        else {
+            return;
+        };
+
+        self.set_single_selection(node_id);
+        self.dragging = None;
+        self.drag_start_pos = None;
+        self.drag_group_start = None;
+        self.resizing = None;
+        self.editing_text_node = None;
+        self.pending_text_focus = None;
+        self.editing_title_node = None;
+        self.pending_title_focus = None;
+        self.title_edit_buffer.clear();
+        self.editing_identity_node = None;
+        self.pending_identity_focus = None;
+        self.identity_edit_buffer.clear();
+        self.editing_startup_node = Some(node_id);
+        self.pending_startup_focus = Some(node_id);
+        self.startup_edit_buffer = startup_script;
+    }
+
+    fn commit_startup_edit(&mut self, node_id: usize, ctx: &egui::Context) {
+        let mut changed = false;
+        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+            let next = self.startup_edit_buffer.trim().to_owned();
+            if node.startup_script != next {
+                node.startup_script = next;
+                changed = true;
+            }
+        }
+        self.editing_startup_node = None;
+        self.pending_startup_focus = None;
+        self.startup_edit_buffer.clear();
+        self.suspend_terminal_focus = Some(node_id);
+
+        if changed {
+            self.change_history
+                .push(format!("节点 #{node_id} 启动命令已更新，自动重启终端"));
+            self.restart_terminal(node_id, ctx);
+        }
     }
 
     fn paint_grid(&self, painter: &egui::Painter, rect: Rect, pan: egui::Vec2, zoom: f32) {
@@ -1300,9 +1458,14 @@ impl eframe::App for GraphApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_terminal_events();
         self.poll_done_events();
+        self.process_terminal_start_queue(ctx);
 
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) {
             self.undo_last_change();
+        }
+
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
+            self.apply_startup_scripts_after_save(ctx);
         }
 
         if let Some(terminal_id) = self.selected_terminal_id() {
@@ -1325,6 +1488,8 @@ impl eframe::App for GraphApp {
             self.draw_canvas(ui, ctx);
         });
 
-        ctx.request_repaint();
+        if !self.pending_terminal_starts.is_empty() {
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
     }
 }

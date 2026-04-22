@@ -158,10 +158,66 @@ impl GraphApp {
         }
     }
 
-    pub(in crate::app::ui) fn draw_embedded_terminal_for_rect(
+    pub(in crate::app::ui) fn handle_startup_editor(
         &mut self,
         ui: &mut Ui,
         ctx: &egui::Context,
+        startup_edit_rect: Option<(usize, Rect)>,
+        primary_clicked: bool,
+        pointer_pos: Option<Pos2>,
+    ) {
+        let Some((id, edit_rect)) = startup_edit_rect else {
+            return;
+        };
+
+        let startup_edit_id = egui::Id::new(("terminal-startup-editor", id));
+        let should_focus_and_select_all = self.pending_startup_focus == Some(id);
+        if should_focus_and_select_all {
+            ctx.memory_mut(|m| m.request_focus(startup_edit_id));
+        }
+
+        let desired_rows = self.startup_edit_buffer.lines().count().max(4);
+        let text_edit = TextEdit::multiline(&mut self.startup_edit_buffer)
+            .id(startup_edit_id)
+            .font(FontId::monospace((13.0 * self.zoom).max(9.0)))
+            .text_color(Color32::from_rgb(238, 235, 255))
+            .desired_width(f32::INFINITY)
+            .desired_rows(desired_rows)
+            .frame(true);
+        let resp = ui.put(edit_rect, text_edit);
+
+        if should_focus_and_select_all {
+            if let Some(mut state) = egui::TextEdit::load_state(ctx, startup_edit_id) {
+                let len = self.startup_edit_buffer.chars().count();
+                let range = egui::text::CCursorRange::two(
+                    egui::text::CCursor::new(0),
+                    egui::text::CCursor::new(len),
+                );
+                state.cursor.set_char_range(Some(range));
+                state.store(ctx, startup_edit_id);
+            }
+            self.pending_startup_focus = None;
+        }
+
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.commit_startup_edit(id, ctx);
+        } else if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter))
+            || (resp.lost_focus() && !ctx.input(|i| i.pointer.primary_down()))
+        {
+            self.commit_startup_edit(id, ctx);
+        } else if primary_clicked {
+            if let Some(pointer) = pointer_pos {
+                if !edit_rect.contains(pointer) {
+                    self.commit_startup_edit(id, ctx);
+                }
+            }
+        }
+    }
+
+    pub(in crate::app::ui) fn draw_embedded_terminal_for_rect(
+        &mut self,
+        ui: &mut Ui,
+        _ctx: &egui::Context,
         canvas_rect: Rect,
         node_id: usize,
         term_rect: Rect,
@@ -175,7 +231,7 @@ impl GraphApp {
             && !self.terminal_errors.contains_key(&node_id)
             && !self.terminal_exited.contains(&node_id)
         {
-            self.ensure_terminal(node_id, ctx);
+            self.queue_terminal_start(node_id);
         }
 
         let full_screen_rect = Rect::from_min_size(term_rect.min, term_rect.size());
@@ -189,7 +245,7 @@ impl GraphApp {
         if let Some(err) = self.terminal_errors.get(&node_id) {
             term_ui.colored_label(Color32::LIGHT_RED, err);
         } else if let Some(backend) = self.terminal_backends.get_mut(&node_id) {
-            let term_font_size = (14.0 * self.zoom).min(36.0);
+            let term_font_size = (14.0 * self.zoom).clamp(9.0, 32.0).round();
             let term_font = TerminalFont::new(egui_term::FontSettings {
                 font_type: FontId::monospace(term_font_size),
             });
@@ -198,11 +254,14 @@ impl GraphApp {
                     self.selected == Some(node_id)
                         && self.editing_title_node != Some(node_id)
                         && self.editing_identity_node != Some(node_id)
+                        && self.editing_startup_node != Some(node_id)
                         && self.suspend_terminal_focus != Some(node_id),
                 )
                 .set_font(term_font)
                 .set_size(term_rect.size());
             term_ui.add(term);
+        } else if self.pending_terminal_starts.contains(&node_id) {
+            term_ui.label("终端启动中...");
         } else {
             term_ui.label("终端未启动，请在右侧点击“重启终端”。");
         }
