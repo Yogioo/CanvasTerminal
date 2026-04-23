@@ -107,7 +107,7 @@ pub struct GraphApp {
     box_select_subtractive: bool,
     box_select_base_selection: HashSet<usize>,
     window_bar_visible_until: f64,
-    top_menu_popup_open: bool,
+    command_palette_open: bool,
 }
 
 impl GraphApp {
@@ -185,7 +185,7 @@ impl GraphApp {
             box_select_subtractive: false,
             box_select_base_selection: HashSet::new(),
             window_bar_visible_until: 0.0,
-            top_menu_popup_open: false,
+            command_palette_open: false,
         };
 
         app
@@ -493,7 +493,7 @@ impl GraphApp {
             return true;
         }
 
-        label.contains(kw)
+        label.to_lowercase().contains(&kw.to_lowercase())
     }
 
     fn menu_item_highlighted_label(&self, label: &str) -> egui::text::LayoutJob {
@@ -547,7 +547,8 @@ impl GraphApp {
             ui.memory_mut(|m| m.request_focus(search_id));
         }
 
-        let search_resp = ui.add(
+        let search_resp = ui.add_sized(
+            [ui.available_width(), 24.0],
             egui::TextEdit::singleline(&mut self.menu_search_text)
                 .id(search_id)
                 .hint_text(hint_text),
@@ -565,7 +566,7 @@ impl GraphApp {
         let mut matched = Vec::new();
         for (path, label, action_id) in items {
             if self.menu_item_matches(path) || self.menu_item_matches(label) {
-                matched.push((*path, *action_id));
+                matched.push((*label, *action_id));
             }
         }
 
@@ -587,11 +588,11 @@ impl GraphApp {
         }
 
         let mut trigger_action = None;
-        for (row, (path, action_id)) in matched.iter().enumerate() {
+        for (row, (label, action_id)) in matched.iter().enumerate() {
             let selected = row == self.menu_search_selected;
             let resp = ui.add_sized(
                 [ui.available_width(), 24.0],
-                egui::Button::new(self.menu_item_highlighted_label(path)).selected(selected),
+                egui::Button::new(self.menu_item_highlighted_label(label)).selected(selected),
             );
             if resp.hovered() {
                 self.menu_search_selected = row;
@@ -609,6 +610,35 @@ impl GraphApp {
         ui.small(footer_text);
 
         trigger_action
+    }
+
+    fn should_close_popup(
+        &self,
+        ctx: &egui::Context,
+        popup_rect: Option<Rect>,
+        action_triggered: bool,
+    ) -> bool {
+        if action_triggered {
+            return true;
+        }
+
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            return true;
+        }
+
+        let Some(rect) = popup_rect else {
+            return false;
+        };
+
+        ctx.input(|i| {
+            if !i.pointer.any_pressed() {
+                return false;
+            }
+            let Some(pos) = i.pointer.interact_pos() else {
+                return false;
+            };
+            !rect.contains(pos)
+        })
     }
 
     fn terminal_identity(&self, node_id: usize) -> String {
@@ -1558,21 +1588,31 @@ impl eframe::App for GraphApp {
         self.poll_done_events();
         self.process_terminal_start_queue(ctx);
 
-        if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Z))
-            || ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Y))
-        {
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::U)) {
             self.redo_last_change();
         } else if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) {
             self.undo_last_change();
         }
 
-        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
+        if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::S)) {
+            self.run_file_menu_action(2);
+        } else if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
             self.run_file_menu_action(0);
         }
 
-        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O)) {
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::R)) {
             self.run_file_menu_action(1);
         }
+
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O)) {
+            self.run_file_menu_action(3);
+        }
+
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::P)) {
+            self.command_palette_open = true;
+            self.reset_menu_search_state(true);
+        }
+
 
         let now = ctx.input(|i| i.time);
         let screen_rect = ctx.screen_rect();
@@ -1583,7 +1623,7 @@ impl eframe::App for GraphApp {
                 .is_some_and(|p| p.y <= screen_rect.top() + 32.0)
         });
         let any_popup_open = ctx.memory(|m| m.any_popup_open());
-        let keep_top_bar = self.top_menu_popup_open || any_popup_open;
+        let keep_top_bar = any_popup_open;
 
         if pointer_near_top || keep_top_bar {
             self.window_bar_visible_until = now + 1.0;
@@ -1596,7 +1636,6 @@ impl eframe::App for GraphApp {
                 self.draw_canvas(ui, ctx);
             });
 
-        let mut top_menu_popup_open_this_frame = false;
         if show_window_bar {
             egui::Area::new("window_drag_bar_overlay".into())
                 .order(egui::Order::Foreground)
@@ -1618,64 +1657,7 @@ impl eframe::App for GraphApp {
                     let maxim_rect = close_rect.translate(vec2(-(button_size.x + button_gap), 0.0));
                     let minim_rect = maxim_rect.translate(vec2(-(button_size.x + button_gap), 0.0));
 
-                    let menu_rect = Rect::from_min_max(
-                        Pos2::new(bar_rect.left() + 8.0, bar_rect.top() + 2.0),
-                        Pos2::new(bar_rect.left() + 260.0, bar_rect.bottom() - 2.0),
-                    );
-
-                    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(menu_rect), |ui| {
-                        ui.horizontal(|ui| {
-                            let file_menu = ui.menu_button("文件", |ui| {
-                                top_menu_popup_open_this_frame = true;
-                                let items = [
-                                    ("文件/快速保存", "快速保存", 0usize),
-                                    ("文件/快速加载", "快速加载", 1usize),
-                                    ("文件/保存", "保存", 2usize),
-                                    ("文件/加载", "加载", 3usize),
-                                ];
-                                if let Some(action_id) = self.show_searchable_menu_actions(
-                                    ui,
-                                    ctx,
-                                    egui::Id::new("window_menu_file_search_input"),
-                                    "搜索文件操作...",
-                                    &items,
-                                    "无匹配功能",
-                                    "↑/↓ 选择，Enter 执行",
-                                ) {
-                                    self.run_file_menu_action(action_id);
-                                    ui.close_menu();
-                                }
-                            });
-                            if file_menu.response.clicked() {
-                                self.reset_menu_search_state(true);
-                            }
-
-                            let edit_menu = ui.menu_button("编辑", |ui| {
-                                top_menu_popup_open_this_frame = true;
-                                let items = [
-                                    ("编辑/Undo", "Undo", 0usize),
-                                    ("编辑/Redo", "Redo", 1usize),
-                                ];
-                                if let Some(action_id) = self.show_searchable_menu_actions(
-                                    ui,
-                                    ctx,
-                                    egui::Id::new("window_menu_edit_search_input"),
-                                    "搜索编辑操作...",
-                                    &items,
-                                    "无匹配功能",
-                                    "↑/↓ 选择，Enter 执行",
-                                ) {
-                                    self.run_edit_menu_action(action_id);
-                                    ui.close_menu();
-                                }
-                            });
-                            if edit_menu.response.clicked() {
-                                self.reset_menu_search_state(true);
-                            }
-                        });
-                    });
-
-                    let drag_left = menu_rect.right() + 8.0;
+                    let drag_left = bar_rect.left() + 8.0;
                     let drag_right = (minim_rect.left() - 8.0).max(drag_left);
                     let drag_rect = Rect::from_min_max(
                         Pos2::new(drag_left, bar_rect.top()),
@@ -1776,7 +1758,51 @@ impl eframe::App for GraphApp {
                     }
                 });
         }
-        self.top_menu_popup_open = top_menu_popup_open_this_frame;
+        if self.command_palette_open {
+            let mut action_triggered = false;
+            let palette_window = egui::Window::new("命令面板")
+                .id(egui::Id::new("command_palette_window"))
+                .title_bar(false)
+                .collapsible(false)
+                .resizable(false)
+                .movable(false)
+                .anchor(egui::Align2::CENTER_TOP, vec2(0.0, 40.0))
+                .show(ctx, |ui| {
+                    ui.set_min_width(460.0);
+
+                    let palette_items = [
+                        ("文件/快速保存", "文件/快速保存  Ctrl+S", 0usize),
+                        ("文件/快速加载", "文件/快速加载  Ctrl+R", 1usize),
+                        ("文件/另存为", "文件/另存为  Ctrl+Shift+S", 2usize),
+                        ("文件/加载", "文件/加载  Ctrl+O", 3usize),
+                        ("编辑/撤销", "编辑/撤销  Ctrl+Z", 100usize),
+                        ("编辑/重做", "编辑/重做  Ctrl+U", 101usize),
+                    ];
+
+                    if let Some(action_id) = self.show_searchable_menu_actions(
+                        ui,
+                        ctx,
+                        egui::Id::new("command_palette_search_input"),
+                        "输入命令...", 
+                        &palette_items,
+                        "无匹配命令",
+                        "Ctrl+P 打开，Esc 关闭，↑/↓ 选择，Enter 执行",
+                    ) {
+                        if action_id < 100 {
+                            self.run_file_menu_action(action_id);
+                        } else {
+                            self.run_edit_menu_action(action_id - 100);
+                        }
+                        action_triggered = true;
+                    }
+                });
+
+            let popup_rect = palette_window.as_ref().map(|window| window.response.rect);
+            if self.should_close_popup(ctx, popup_rect, action_triggered) {
+                self.command_palette_open = false;
+                self.reset_menu_search_state(false);
+            }
+        }
 
         if show_window_bar && !pointer_near_top {
             let remaining = (self.window_bar_visible_until - now).max(0.0);

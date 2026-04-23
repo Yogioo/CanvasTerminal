@@ -64,3 +64,5 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+# 代码一旦超过600行，就应该告诉用户，确定优化后， 尝试 拆文件/抽象复用代码
