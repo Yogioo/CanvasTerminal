@@ -651,25 +651,6 @@ impl GraphApp {
         self.ensure_terminal(node_id, ctx);
     }
 
-    fn apply_startup_scripts_after_save(&mut self, ctx: &egui::Context) {
-        let target_ids: Vec<usize> = self
-            .nodes
-            .iter()
-            .filter(|node| {
-                node.kind == NodeKind::Terminal && !node.startup_script.trim().is_empty()
-            })
-            .map(|node| node.id)
-            .collect();
-
-        if target_ids.is_empty() {
-            return;
-        }
-
-        for node_id in &target_ids {
-            self.restart_terminal(*node_id, ctx);
-        }
-    }
-
     fn poll_terminal_events(&mut self) {
         while let Ok((id, event)) = self.pty_rx.try_recv() {
             if let PtyEvent::Exit = event {
@@ -1382,10 +1363,6 @@ impl eframe::App for GraphApp {
 
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) {
             self.undo_last_change();
-        }
-
-        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
-            self.apply_startup_scripts_after_save(ctx);
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
