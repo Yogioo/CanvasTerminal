@@ -1,5 +1,5 @@
 use super::super::{GraphApp, NodeOrderAction};
-use eframe::egui::{self, Pos2};
+use eframe::egui::{self, Color32, Pos2};
 
 impl GraphApp {
     fn run_create_action(&mut self, action_id: usize, spawn_pos: Pos2) {
@@ -20,6 +20,17 @@ impl GraphApp {
 
     pub(in crate::app::ui) fn show_canvas_context_menu(&mut self, response: &egui::Response, ctx: &egui::Context) {
         response.context_menu(|ui| {
+            let visuals = ui.visuals_mut();
+            visuals.window_fill = Color32::from_rgb(245, 245, 245);
+            visuals.panel_fill = Color32::from_rgb(245, 245, 245);
+            visuals.extreme_bg_color = Color32::from_rgb(255, 255, 255);
+            visuals.override_text_color = Some(Color32::from_rgb(20, 20, 20));
+            visuals.widgets.noninteractive.fg_stroke.color = Color32::from_rgb(20, 20, 20);
+            visuals.widgets.inactive.fg_stroke.color = Color32::from_rgb(20, 20, 20);
+            visuals.widgets.hovered.fg_stroke.color = Color32::from_rgb(20, 20, 20);
+            visuals.widgets.active.fg_stroke.color = Color32::from_rgb(20, 20, 20);
+            visuals.widgets.open.fg_stroke.color = Color32::from_rgb(20, 20, 20);
+
             if let Some(node_id) = self.context_menu_node {
                 ui.label(format!("节点 #{node_id}"));
                 ui.separator();

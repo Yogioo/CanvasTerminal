@@ -23,6 +23,7 @@ fn main() -> eframe::Result<()> {
         "Node Graph MVP (egui terminal)",
         options,
         Box::new(|cc| {
+            cc.egui_ctx.set_visuals(eframe::egui::Visuals::light());
             setup_custom_fonts(&cc.egui_ctx);
             Ok(Box::new(app::GraphApp::new(cc)))
         }),
