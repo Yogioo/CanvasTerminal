@@ -1,0 +1,363 @@
+use super::{GraphApp, NodeOrderAction};
+use crate::model::{Node, NodeKind};
+use chrono::Local;
+use eframe::egui::{self, vec2, ColorImage, Pos2, Rect, TextureOptions};
+use std::collections::{HashMap, HashSet};
+
+impl GraphApp {
+    fn new_base_node(&mut self, kind: NodeKind, title: String, pos: Pos2, size: egui::Vec2) -> Node {
+        Node {
+            id: self.alloc_node_id(),
+            title,
+            kind,
+            identity: String::new(),
+            startup_script: String::new(),
+            text_body: String::new(),
+            image_path: String::new(),
+            pos,
+            size,
+        }
+    }
+
+    fn push_node_and_select(&mut self, node: Node) -> usize {
+        let id = node.id;
+        self.nodes.push(node);
+        self.set_single_selection(id);
+        id
+    }
+
+    pub(in crate::app) fn create_terminal_node(&mut self, pos: Pos2) {
+        let mut node = self.new_base_node(
+            NodeKind::Terminal,
+            "Terminal".to_owned(),
+            pos,
+            vec2(840.0, 660.0),
+        );
+        node.identity = format!("agent-{}", node.id);
+        self.push_node_and_select(node);
+    }
+
+    pub(in crate::app) fn create_text_node(&mut self, pos: Pos2, edit_now: bool) {
+        let mut node = self.new_base_node(NodeKind::Text, "".to_owned(), pos, vec2(260.0, 140.0));
+        node.title = format!("文本节点 {}", node.id);
+        node.text_body = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let id = self.push_node_and_select(node);
+        if edit_now {
+            self.editing_text_node = Some(id);
+            self.pending_text_focus = Some(id);
+        }
+    }
+
+    pub(in crate::app) fn advance_spawn_pos_below_selected(&self, spawn_pos: &mut Pos2) {
+        if let Some(id) = self.selected {
+            if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
+                spawn_pos.y = node.pos.y + node.size.y + 16.0;
+            }
+        }
+    }
+
+    pub(in crate::app) fn create_image_node_from_path(&mut self, pos: Pos2, image_path: String) {
+        let size = image::image_dimensions(&image_path)
+            .ok()
+            .filter(|(w, h)| *w > 0 && *h > 0)
+            .map(|(w, h)| vec2(w as f32, h as f32))
+            .unwrap_or(vec2(320.0, 220.0));
+
+        let mut node = self.new_base_node(NodeKind::Image, String::new(), pos, size);
+        if node.size.y > 0.0 {
+            self.image_aspects.insert(node.id, node.size.x / node.size.y);
+        }
+
+        node.image_path = image_path;
+        self.push_node_and_select(node);
+    }
+
+    pub(in crate::app) fn create_image_node_from_bytes(
+        &mut self,
+        pos: Pos2,
+        display_name: String,
+        bytes: Vec<u8>,
+    ) {
+        match self.persist_image_bytes_to_artifact(&bytes) {
+            Ok(relative_path) => {
+                self.create_image_node_from_path(pos, relative_path);
+            }
+            Err(err) => {
+                eprintln!("failed to persist dropped image bytes, fallback to in-memory image: {err}");
+
+                let mut size = vec2(320.0, 220.0);
+                if let Ok(color_image) = Self::decode_image_bytes(&bytes) {
+                    let [w, h] = color_image.size;
+                    if w > 0 && h > 0 {
+                        size = vec2(w as f32, h as f32);
+                    }
+                }
+
+                let mut node = self.new_base_node(NodeKind::Image, String::new(), pos, size);
+                node.image_path = display_name;
+                let id = self.push_node_and_select(node);
+                self.image_bytes.insert(id, bytes);
+            }
+        }
+    }
+
+    pub(in crate::app) fn create_image_node_from_color_image(
+        &mut self,
+        pos: Pos2,
+        display_name: String,
+        color_image: ColorImage,
+        ctx: &egui::Context,
+    ) {
+        match self.persist_clipboard_color_image(&color_image) {
+            Ok(relative_path) => {
+                self.create_image_node_from_path(pos, relative_path);
+            }
+            Err(err) => {
+                eprintln!("failed to persist clipboard image, fallback to in-memory image: {err}");
+
+                let [w, h] = color_image.size;
+                let aspect = if h == 0 { 1.0 } else { w as f32 / h as f32 };
+
+                let mut node =
+                    self.new_base_node(NodeKind::Image, String::new(), pos, vec2(w as f32, h as f32));
+                node.image_path = display_name;
+                let id = self.push_node_and_select(node);
+
+                let texture =
+                    ctx.load_texture(format!("image-node-{id}"), color_image, TextureOptions::LINEAR);
+                self.image_textures.insert(id, texture);
+                self.image_errors.remove(&id);
+                self.image_bytes.remove(&id);
+                self.image_aspects.insert(id, aspect);
+            }
+        }
+    }
+
+    pub(in crate::app) fn has_edge(&self, from: usize, to: usize) -> bool {
+        self.edges.iter().any(|(a, b)| *a == from && *b == to)
+    }
+
+    fn edge_segment_local(&self, from: usize, to: usize) -> Option<(Pos2, Pos2)> {
+        let a = self.nodes.iter().find(|n| n.id == from)?;
+        let b = self.nodes.iter().find(|n| n.id == to)?;
+        let start = a.pos + vec2(a.size.x, a.size.y * 0.5);
+        let end = b.pos + vec2(0.0, b.size.y * 0.5);
+        Some((start, end))
+    }
+
+    pub(in crate::app) fn cut_edges_intersecting_segment(&mut self, cut_a: Pos2, cut_b: Pos2) {
+        let hit: Vec<bool> = self
+            .edges
+            .iter()
+            .map(|(from, to)| {
+                self.edge_segment_local(*from, *to)
+                    .is_some_and(|(a, b)| Self::segments_intersect(cut_a, cut_b, a, b))
+            })
+            .collect();
+
+        let mut idx = 0usize;
+        self.edges.retain(|_| {
+            let keep = !hit[idx];
+            idx += 1;
+            keep
+        });
+    }
+
+    pub(in crate::app) fn cut_nodes_intersecting_segment(&mut self, cut_a: Pos2, cut_b: Pos2) {
+        let hit_ids: Vec<usize> = self
+            .nodes
+            .iter()
+            .filter(|n| {
+                let rect = Rect::from_min_size(n.pos, n.size);
+                Self::segment_intersects_rect(cut_a, cut_b, rect)
+            })
+            .map(|n| n.id)
+            .collect();
+
+        for id in hit_ids {
+            self.remove_node(id);
+        }
+    }
+
+    fn ordered_selected_ids(&self) -> Vec<usize> {
+        self.nodes
+            .iter()
+            .filter(|n| self.selected_nodes.contains(&n.id))
+            .map(|n| n.id)
+            .collect()
+    }
+
+    fn selection_or_single(&self, node_id: usize) -> HashSet<usize> {
+        if self.selected_nodes.contains(&node_id) && !self.selected_nodes.is_empty() {
+            self.selected_nodes.clone()
+        } else {
+            let mut picked = HashSet::new();
+            picked.insert(node_id);
+            picked
+        }
+    }
+
+    pub(in crate::app) fn apply_node_order(&mut self, order: &[usize]) {
+        let mut map: HashMap<usize, Node> = std::mem::take(&mut self.nodes)
+            .into_iter()
+            .map(|node| (node.id, node))
+            .collect();
+
+        let mut reordered = Vec::with_capacity(map.len());
+        for id in order {
+            if let Some(node) = map.remove(id) {
+                reordered.push(node);
+            }
+        }
+        reordered.extend(map.into_values());
+        self.nodes = reordered;
+    }
+
+    fn record_reorder_history(&mut self, before: Vec<usize>) {
+        let after: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
+        if before == after {
+            return;
+        }
+
+        self.push_history(super::history::HistoryEntry::ReorderNodes { before });
+    }
+
+    pub(in crate::app) fn bring_selection_to_front(&mut self) {
+        let selected = self.selected_nodes.clone();
+        if selected.is_empty() {
+            return;
+        }
+
+        let before: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
+        self.nodes
+            .sort_by_key(|node| usize::from(selected.contains(&node.id)));
+        self.record_reorder_history(before);
+        self.selected = self.ordered_selected_ids().last().copied();
+    }
+
+    pub(in crate::app) fn send_selection_to_back(&mut self) {
+        let selected = self.selected_nodes.clone();
+        if selected.is_empty() {
+            return;
+        }
+
+        let before: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
+        self.nodes
+            .sort_by_key(|node| usize::from(!selected.contains(&node.id)));
+        self.record_reorder_history(before);
+        self.selected = self.ordered_selected_ids().last().copied();
+    }
+
+    pub(in crate::app) fn bring_selection_forward_one(&mut self) {
+        if self.selected_nodes.is_empty() {
+            return;
+        }
+
+        let before: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
+        for idx in (0..self.nodes.len().saturating_sub(1)).rev() {
+            let current_selected = self.selected_nodes.contains(&self.nodes[idx].id);
+            let next_selected = self.selected_nodes.contains(&self.nodes[idx + 1].id);
+            if current_selected && !next_selected {
+                self.nodes.swap(idx, idx + 1);
+            }
+        }
+
+        self.record_reorder_history(before);
+        self.selected = self.ordered_selected_ids().last().copied();
+    }
+
+    pub(in crate::app) fn send_selection_backward_one(&mut self) {
+        if self.selected_nodes.is_empty() {
+            return;
+        }
+
+        let before: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
+        for idx in 1..self.nodes.len() {
+            let current_selected = self.selected_nodes.contains(&self.nodes[idx].id);
+            let prev_selected = self.selected_nodes.contains(&self.nodes[idx - 1].id);
+            if current_selected && !prev_selected {
+                self.nodes.swap(idx - 1, idx);
+            }
+        }
+
+        self.record_reorder_history(before);
+        self.selected = self.ordered_selected_ids().last().copied();
+    }
+
+    pub(in crate::app) fn reorder_from_context(&mut self, node_id: usize, mode: NodeOrderAction) {
+        let target_selection = self.selection_or_single(node_id);
+        self.selected_nodes = target_selection;
+
+        match mode {
+            NodeOrderAction::BringToFront => self.bring_selection_to_front(),
+            NodeOrderAction::BringForwardOne => self.bring_selection_forward_one(),
+            NodeOrderAction::SendBackwardOne => self.send_selection_backward_one(),
+            NodeOrderAction::SendToBack => self.send_selection_to_back(),
+        }
+    }
+
+    pub(in crate::app) fn remove_node(&mut self, node_id: usize) {
+        self.nodes.retain(|n| n.id != node_id);
+        self.edges.retain(|(from, to)| *from != node_id && *to != node_id);
+        self.terminal_backends.remove(&node_id);
+        self.terminal_exited.remove(&node_id);
+        self.terminal_errors.remove(&node_id);
+        self.pending_terminal_injections.remove(&node_id);
+        self.pending_terminal_starts.retain(|id| *id != node_id);
+        self.image_textures.remove(&node_id);
+        self.image_errors.remove(&node_id);
+        self.image_bytes.remove(&node_id);
+        self.image_aspects.remove(&node_id);
+
+        self.selected_nodes.remove(&node_id);
+        if self.selected == Some(node_id) {
+            self.selected = self.selected_nodes.iter().copied().next();
+        }
+        if self.dragging.is_some_and(|(id, _)| id == node_id) {
+            self.dragging = None;
+            self.drag_start_pos = None;
+            self.drag_group_start = None;
+        }
+        if self
+            .drag_group_start
+            .as_ref()
+            .is_some_and(|(_, nodes)| nodes.iter().any(|(id, _)| *id == node_id))
+        {
+            self.dragging = None;
+            self.drag_start_pos = None;
+            self.drag_group_start = None;
+        }
+        if self.resizing.is_some_and(|(id, _, _)| id == node_id) {
+            self.resizing = None;
+        }
+        if self.editing_text_node == Some(node_id) {
+            self.editing_text_node = None;
+            self.pending_text_focus = None;
+        }
+        if self.editing_title_node == Some(node_id) {
+            self.editing_title_node = None;
+            self.pending_title_focus = None;
+            self.title_edit_buffer.clear();
+        }
+        if self.editing_identity_node == Some(node_id) {
+            self.editing_identity_node = None;
+            self.pending_identity_focus = None;
+            self.identity_edit_buffer.clear();
+        }
+        if self.editing_startup_node == Some(node_id) {
+            self.editing_startup_node = None;
+            self.pending_startup_focus = None;
+            self.startup_edit_buffer.clear();
+        }
+        if self.suspend_terminal_focus == Some(node_id) {
+            self.suspend_terminal_focus = None;
+        }
+        if self.linking_from == Some(node_id) {
+            self.linking_from = None;
+            self.linking_pointer_local = None;
+        }
+        if self.context_menu_node == Some(node_id) {
+            self.context_menu_node = None;
+        }
+    }
+}

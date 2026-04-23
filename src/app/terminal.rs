@@ -1,0 +1,163 @@
+use super::GraphApp;
+use crate::event_protocol::DoneEvent;
+use crate::model::NodeKind;
+use crate::shell::{system_shell, terminal_shell_args};
+use eframe::egui;
+use egui_term::{BackendCommand, BackendSettings, PtyEvent, TerminalBackend};
+
+impl GraphApp {
+    fn terminal_identity(&self, node_id: usize) -> String {
+        self.nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .map(|n| n.identity.trim())
+            .filter(|identity| !identity.is_empty())
+            .unwrap_or("agent")
+            .to_owned()
+    }
+
+    fn terminal_startup_script(&self, node_id: usize) -> Option<String> {
+        self.nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .map(|n| n.startup_script.trim())
+            .filter(|script| !script.is_empty())
+            .map(ToOwned::to_owned)
+    }
+
+    fn inject_terminal_text(&mut self, node_id: usize, text: &str) {
+        if let Some(backend) = self.terminal_backends.get_mut(&node_id) {
+            backend.process_command(BackendCommand::Write(text.as_bytes().to_vec()));
+        } else {
+            self.pending_terminal_injections
+                .entry(node_id)
+                .or_default()
+                .push(text.to_owned());
+        }
+    }
+
+    fn run_terminal_startup_script(&mut self, node_id: usize) {
+        let Some(script) = self.terminal_startup_script(node_id) else {
+            return;
+        };
+
+        let command = format!("{script}\r\n");
+        self.inject_terminal_text(node_id, &command);
+    }
+
+    pub(in crate::app) fn poll_done_events(&mut self) {
+        let mut queued = Vec::new();
+        if let Some(rx) = &self.done_event_rx {
+            while let Ok(event) = rx.try_recv() {
+                queued.push(event);
+            }
+        }
+
+        for event in queued {
+            self.handle_done_event(event);
+        }
+    }
+
+    fn handle_done_event(&mut self, event: DoneEvent) {
+        let downstream: Vec<usize> = self
+            .edges
+            .iter()
+            .filter_map(|(from, to)| (*from == event.node_id).then_some(*to))
+            .collect();
+
+        let injected = format!("上游节点 {} 已完成：{}\r\n", event.identity, event.summary);
+
+        for node_id in downstream {
+            self.inject_terminal_text(node_id, &injected);
+        }
+    }
+
+    fn ensure_terminal(&mut self, node_id: usize, ctx: &egui::Context) {
+        if self.terminal_backends.contains_key(&node_id) {
+            return;
+        }
+
+        let shell = system_shell();
+        let identity = self.terminal_identity(node_id);
+        match TerminalBackend::new(
+            node_id as u64,
+            ctx.clone(),
+            self.pty_tx.clone(),
+            BackendSettings {
+                shell,
+                args: terminal_shell_args(node_id, &identity),
+                working_directory: std::env::current_dir().ok(),
+            },
+        ) {
+            Ok(backend) => {
+                self.terminal_backends.insert(node_id, backend);
+                self.terminal_exited.remove(&node_id);
+                self.terminal_errors.remove(&node_id);
+
+                self.run_terminal_startup_script(node_id);
+
+                if let Some(pending) = self.pending_terminal_injections.remove(&node_id) {
+                    for text in pending {
+                        self.inject_terminal_text(node_id, &text);
+                    }
+                }
+            }
+            Err(e) => {
+                self.terminal_errors
+                    .insert(node_id, format!("终端启动失败: {e}"));
+            }
+        }
+    }
+
+    pub(in crate::app) fn queue_terminal_start(&mut self, node_id: usize) {
+        if self.terminal_backends.contains_key(&node_id)
+            || self.terminal_errors.contains_key(&node_id)
+            || self.terminal_exited.contains(&node_id)
+        {
+            return;
+        }
+
+        let is_terminal_node = self
+            .nodes
+            .iter()
+            .any(|n| n.id == node_id && matches!(n.kind, NodeKind::Terminal));
+        if !is_terminal_node {
+            return;
+        }
+
+        if !self.pending_terminal_starts.contains(&node_id) {
+            self.pending_terminal_starts.push(node_id);
+        }
+    }
+
+    pub(in crate::app) fn process_terminal_start_queue(&mut self, ctx: &egui::Context) {
+        const MAX_TERMINAL_STARTS_PER_FRAME: usize = 1;
+
+        for _ in 0..MAX_TERMINAL_STARTS_PER_FRAME {
+            if self.pending_terminal_starts.is_empty() {
+                break;
+            }
+
+            let node_id = self.pending_terminal_starts.remove(0);
+            self.ensure_terminal(node_id, ctx);
+        }
+    }
+
+    pub(in crate::app) fn restart_terminal(&mut self, node_id: usize, ctx: &egui::Context) {
+        self.terminal_backends.remove(&node_id);
+        self.terminal_exited.remove(&node_id);
+        self.terminal_errors.remove(&node_id);
+        self.pending_terminal_starts.retain(|id| *id != node_id);
+        self.ensure_terminal(node_id, ctx);
+    }
+
+    pub(in crate::app) fn poll_terminal_events(&mut self) {
+        while let Ok((id, event)) = self.pty_rx.try_recv() {
+            if let PtyEvent::Exit = event {
+                let node_id = id as usize;
+                self.terminal_exited.insert(node_id);
+                self.terminal_backends.remove(&node_id);
+            }
+        }
+    }
+}
