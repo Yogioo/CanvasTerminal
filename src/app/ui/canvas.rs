@@ -222,7 +222,7 @@ impl GraphApp {
         let (rect, response) = ui.allocate_exact_size(available, Sense::click_and_drag());
         let painter = ui.painter_at(rect);
 
-        painter.rect_filled(rect, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 30));
+        painter.rect_filled(rect, 0.0, Color32::from_rgb(20, 20, 34));
 
         let is_space_down = ctx.input(|i| i.key_down(egui::Key::Space));
         let is_space_pan = ctx.input(|i| i.key_down(egui::Key::Space) && i.pointer.primary_down());

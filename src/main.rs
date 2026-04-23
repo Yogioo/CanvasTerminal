@@ -13,7 +13,7 @@ fn main() -> eframe::Result<()> {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([1400.0, 820.0])
             .with_drag_and_drop(true)
-            .with_transparent(true)
+            .with_transparent(false)
             .with_decorations(false),
         renderer: eframe::Renderer::Glow,
         ..Default::default()
