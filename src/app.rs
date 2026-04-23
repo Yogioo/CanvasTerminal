@@ -1,3 +1,4 @@
+mod persistence;
 mod ui;
 
 use crate::constants::TERMINAL_HEADER_HEIGHT;
@@ -301,29 +302,38 @@ impl GraphApp {
     }
 
     fn create_image_node_from_bytes(&mut self, pos: Pos2, display_name: String, bytes: Vec<u8>) {
-        let id = self.alloc_node_id();
+        match self.persist_image_bytes_to_artifact(&bytes) {
+            Ok(relative_path) => {
+                self.create_image_node_from_path(pos, relative_path);
+            }
+            Err(err) => {
+                eprintln!("failed to persist dropped image bytes, fallback to in-memory image: {err}");
 
-        let mut size = vec2(320.0, 220.0);
-        if let Ok(color_image) = Self::decode_image_bytes(&bytes) {
-            let [w, h] = color_image.size;
-            if w > 0 && h > 0 {
-                size = vec2(w as f32, h as f32);
+                let id = self.alloc_node_id();
+
+                let mut size = vec2(320.0, 220.0);
+                if let Ok(color_image) = Self::decode_image_bytes(&bytes) {
+                    let [w, h] = color_image.size;
+                    if w > 0 && h > 0 {
+                        size = vec2(w as f32, h as f32);
+                    }
+                }
+
+                self.nodes.push(Node {
+                    id,
+                    title: String::new(),
+                    kind: NodeKind::Image,
+                    identity: String::new(),
+                    startup_script: String::new(),
+                    text_body: String::new(),
+                    image_path: display_name,
+                    pos,
+                    size,
+                });
+                self.image_bytes.insert(id, bytes);
+                self.set_single_selection(id);
             }
         }
-
-        self.nodes.push(Node {
-            id,
-            title: String::new(),
-            kind: NodeKind::Image,
-            identity: String::new(),
-            startup_script: String::new(),
-            text_body: String::new(),
-            image_path: display_name,
-            pos,
-            size,
-        });
-        self.image_bytes.insert(id, bytes);
-        self.set_single_selection(id);
     }
 
     fn create_image_node_from_color_image(
@@ -333,36 +343,45 @@ impl GraphApp {
         color_image: ColorImage,
         ctx: &egui::Context,
     ) {
-        let id = self.alloc_node_id();
-        self.nodes.push(Node {
-            id,
-            title: String::new(),
-            kind: NodeKind::Image,
-            identity: String::new(),
-            startup_script: String::new(),
-            text_body: String::new(),
-            image_path: display_name,
-            pos,
-            size: vec2(320.0, 220.0),
-        });
+        match self.persist_clipboard_color_image(&color_image) {
+            Ok(relative_path) => {
+                self.create_image_node_from_path(pos, relative_path);
+            }
+            Err(err) => {
+                eprintln!("failed to persist clipboard image, fallback to in-memory image: {err}");
 
-        let [w, h] = color_image.size;
-        let aspect = if h == 0 { 1.0 } else { w as f32 / h as f32 };
+                let id = self.alloc_node_id();
+                self.nodes.push(Node {
+                    id,
+                    title: String::new(),
+                    kind: NodeKind::Image,
+                    identity: String::new(),
+                    startup_script: String::new(),
+                    text_body: String::new(),
+                    image_path: display_name,
+                    pos,
+                    size: vec2(320.0, 220.0),
+                });
 
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
-            node.size = vec2(w as f32, h as f32);
+                let [w, h] = color_image.size;
+                let aspect = if h == 0 { 1.0 } else { w as f32 / h as f32 };
+
+                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
+                    node.size = vec2(w as f32, h as f32);
+                }
+
+                let texture = ctx.load_texture(
+                    format!("image-node-{id}"),
+                    color_image,
+                    TextureOptions::LINEAR,
+                );
+                self.image_textures.insert(id, texture);
+                self.image_errors.remove(&id);
+                self.image_bytes.remove(&id);
+                self.image_aspects.insert(id, aspect);
+                self.set_single_selection(id);
+            }
         }
-
-        let texture = ctx.load_texture(
-            format!("image-node-{id}"),
-            color_image,
-            TextureOptions::LINEAR,
-        );
-        self.image_textures.insert(id, texture);
-        self.image_errors.remove(&id);
-        self.image_bytes.remove(&id);
-        self.image_aspects.insert(id, aspect);
-        self.set_single_selection(id);
     }
 
     fn is_supported_image_path(path: &Path) -> bool {
@@ -1363,6 +1382,18 @@ impl eframe::App for GraphApp {
 
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) {
             self.undo_last_change();
+        }
+
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
+            if let Err(err) = self.save_graph_to_default_path() {
+                eprintln!("save graph failed: {err}");
+            }
+        }
+
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O)) {
+            if let Err(err) = self.load_graph_from_default_path() {
+                eprintln!("load graph failed: {err}");
+            }
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {

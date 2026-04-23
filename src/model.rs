@@ -1,6 +1,7 @@
 use eframe::egui::{self, Pos2};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NodeKind {
     Terminal,
     Text,
