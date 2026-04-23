@@ -10,11 +10,13 @@ use chrono::Local;
 use eframe::egui::{self, vec2, ColorImage, Pos2, Rect, TextureHandle, TextureOptions};
 use egui_term::{BackendCommand, BackendSettings, PtyEvent, TerminalBackend};
 use image::ImageReader;
+use rfd::FileDialog;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
 
+#[derive(Clone)]
 enum HistoryEntry {
     DeleteBatch {
         nodes: Vec<Node>,
@@ -23,6 +25,7 @@ enum HistoryEntry {
     MoveNode {
         node_id: usize,
         from: Pos2,
+        to: Pos2,
     },
     MoveNodes {
         nodes: Vec<(usize, Pos2, Pos2)>,
@@ -67,8 +70,6 @@ pub struct GraphApp {
     next_node_id: usize,
     menu_search_text: String,
     menu_search_selected: usize,
-    menu_nav_level: u8,
-    menu_nav_selected: usize,
     pending_menu_search_focus: bool,
     editing_text_node: Option<usize>,
     pending_text_focus: Option<usize>,
@@ -92,6 +93,7 @@ pub struct GraphApp {
     cut_snapshot_nodes: Option<Vec<Node>>,
     cut_snapshot_edges: Option<Vec<(usize, usize)>>,
     undo_stack: Vec<HistoryEntry>,
+    redo_stack: Vec<HistoryEntry>,
     last_primary_click_time: Option<f64>,
     last_primary_click_pos: Option<Pos2>,
     last_canvas_pointer_world_pos: Option<Pos2>,
@@ -105,6 +107,7 @@ pub struct GraphApp {
     box_select_subtractive: bool,
     box_select_base_selection: HashSet<usize>,
     window_bar_visible_until: f64,
+    top_menu_popup_open: bool,
 }
 
 impl GraphApp {
@@ -145,8 +148,6 @@ impl GraphApp {
             next_node_id: 1,
             menu_search_text: String::new(),
             menu_search_selected: 0,
-            menu_nav_level: 0,
-            menu_nav_selected: 0,
             pending_menu_search_focus: false,
             editing_text_node: None,
             pending_text_focus: None,
@@ -170,6 +171,7 @@ impl GraphApp {
             cut_snapshot_nodes: None,
             cut_snapshot_edges: None,
             undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
             last_primary_click_time: None,
             last_primary_click_pos: None,
             last_canvas_pointer_world_pos: None,
@@ -183,6 +185,7 @@ impl GraphApp {
             box_select_subtractive: false,
             box_select_base_selection: HashSet::new(),
             window_bar_visible_until: 0.0,
+            top_menu_popup_open: false,
         };
 
         app
@@ -522,6 +525,90 @@ impl GraphApp {
         }
 
         job
+    }
+
+    fn reset_menu_search_state(&mut self, request_focus: bool) {
+        self.menu_search_text.clear();
+        self.menu_search_selected = 0;
+        self.pending_menu_search_focus = request_focus;
+    }
+
+    fn show_searchable_menu_actions(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        search_id: egui::Id,
+        hint_text: &str,
+        items: &[(&str, &str, usize)],
+        empty_text: &str,
+        footer_text: &str,
+    ) -> Option<usize> {
+        if self.pending_menu_search_focus {
+            ui.memory_mut(|m| m.request_focus(search_id));
+        }
+
+        let search_resp = ui.add(
+            egui::TextEdit::singleline(&mut self.menu_search_text)
+                .id(search_id)
+                .hint_text(hint_text),
+        );
+        let search_has_focus = search_resp.has_focus() || ui.memory(|m| m.has_focus(search_id));
+        if self.pending_menu_search_focus && search_has_focus {
+            self.pending_menu_search_focus = false;
+        }
+        if search_resp.changed() {
+            self.menu_search_selected = 0;
+        }
+
+        ui.separator();
+
+        let mut matched = Vec::new();
+        for (path, label, action_id) in items {
+            if self.menu_item_matches(path) || self.menu_item_matches(label) {
+                matched.push((*path, *action_id));
+            }
+        }
+
+        if matched.is_empty() {
+            ui.small(empty_text);
+            return None;
+        }
+
+        if self.menu_search_selected >= matched.len() {
+            self.menu_search_selected = matched.len().saturating_sub(1);
+        }
+
+        if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+            self.menu_search_selected = (self.menu_search_selected + 1) % matched.len();
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+            self.menu_search_selected =
+                (self.menu_search_selected + matched.len() - 1) % matched.len();
+        }
+
+        let mut trigger_action = None;
+        for (row, (path, action_id)) in matched.iter().enumerate() {
+            let selected = row == self.menu_search_selected;
+            let resp = ui.add_sized(
+                [ui.available_width(), 24.0],
+                egui::Button::new(self.menu_item_highlighted_label(path)).selected(selected),
+            );
+            if resp.hovered() {
+                self.menu_search_selected = row;
+            }
+            if resp.clicked() {
+                trigger_action = Some(*action_id);
+            }
+        }
+
+        if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+            trigger_action = Some(matched[self.menu_search_selected].1);
+        }
+
+        ui.separator();
+        ui.small(footer_text);
+
+        trigger_action
     }
 
     fn terminal_identity(&self, node_id: usize) -> String {
@@ -1054,8 +1141,62 @@ impl GraphApp {
         }
     }
 
+    fn save_graph_with_dialog(&self) {
+        let Some(path) = FileDialog::new()
+            .add_filter("Graph JSON", &["json"])
+            .set_file_name("graph.json")
+            .save_file()
+        else {
+            return;
+        };
+
+        if let Err(err) = self.save_graph_to_path(&path) {
+            eprintln!("save graph failed: {err}");
+        }
+    }
+
+    fn load_graph_with_dialog(&mut self) {
+        let Some(path) = FileDialog::new()
+            .add_filter("Graph JSON", &["json"])
+            .pick_file()
+        else {
+            return;
+        };
+
+        if let Err(err) = self.load_graph_from_path(&path) {
+            eprintln!("load graph failed: {err}");
+        }
+    }
+
+    fn run_file_menu_action(&mut self, action_id: usize) {
+        match action_id {
+            0 => {
+                if let Err(err) = self.save_graph_to_default_path() {
+                    eprintln!("save graph failed: {err}");
+                }
+            }
+            1 => {
+                if let Err(err) = self.load_graph_from_default_path() {
+                    eprintln!("load graph failed: {err}");
+                }
+            }
+            2 => self.save_graph_with_dialog(),
+            3 => self.load_graph_with_dialog(),
+            _ => {}
+        }
+    }
+
+    fn run_edit_menu_action(&mut self, action_id: usize) {
+        match action_id {
+            0 => self.undo_last_change(),
+            1 => self.redo_last_change(),
+            _ => {}
+        }
+    }
+
     fn push_history(&mut self, entry: HistoryEntry) {
         self.undo_stack.push(entry);
+        self.redo_stack.clear();
     }
 
     fn record_move_history(&mut self, node_id: usize, from: Pos2, to: Pos2) {
@@ -1063,7 +1204,7 @@ impl GraphApp {
             return;
         }
 
-        self.push_history(HistoryEntry::MoveNode { node_id, from });
+        self.push_history(HistoryEntry::MoveNode { node_id, from, to });
     }
 
     fn record_nodes_move_history(&mut self, nodes: Vec<(usize, Pos2, Pos2)>) {
@@ -1100,53 +1241,108 @@ impl GraphApp {
         });
     }
 
-    fn undo_last_change(&mut self) {
-        let Some(entry) = self.undo_stack.pop() else {
-            return;
-        };
-
+    fn apply_history_entry(&mut self, entry: HistoryEntry) -> HistoryEntry {
         match entry {
             HistoryEntry::DeleteBatch { nodes, edges } => {
-                for node in nodes {
+                for node in &nodes {
                     if self.nodes.iter().any(|n| n.id == node.id) {
                         continue;
                     }
                     if node.id >= self.next_node_id {
                         self.next_node_id = node.id + 1;
                     }
-                    self.nodes.push(node);
+                    self.nodes.push(node.clone());
                 }
 
                 self.nodes.sort_by_key(|n| n.id);
 
-                for (from, to) in edges {
-                    if self.has_edge(from, to) {
+                for (from, to) in &edges {
+                    if self.has_edge(*from, *to) {
                         continue;
                     }
-                    let has_from = self.nodes.iter().any(|n| n.id == from);
-                    let has_to = self.nodes.iter().any(|n| n.id == to);
+                    let has_from = self.nodes.iter().any(|n| n.id == *from);
+                    let has_to = self.nodes.iter().any(|n| n.id == *to);
                     if has_from && has_to {
-                        self.edges.push((from, to));
+                        self.edges.push((*from, *to));
                     }
                 }
 
+                HistoryEntry::DeleteBatch { nodes, edges }
             }
-            HistoryEntry::MoveNode { node_id, from } => {
+            HistoryEntry::MoveNode { node_id, from, to } => {
                 if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
                     node.pos = from;
                 }
+                HistoryEntry::MoveNode {
+                    node_id,
+                    from: to,
+                    to: from,
+                }
             }
             HistoryEntry::MoveNodes { nodes } => {
-                for (node_id, from, _) in nodes {
+                let mut swapped = Vec::with_capacity(nodes.len());
+                for (node_id, from, to) in nodes {
                     if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
                         node.pos = from;
                     }
+                    swapped.push((node_id, to, from));
                 }
+                HistoryEntry::MoveNodes { nodes: swapped }
             }
             HistoryEntry::ReorderNodes { before } => {
+                let current: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
                 self.apply_node_order(&before);
+                HistoryEntry::ReorderNodes { before: current }
             }
         }
+    }
+
+    fn redo_delete_batch(&mut self, nodes: &[Node], edges: &[(usize, usize)]) {
+        for (from, to) in edges {
+            self.edges.retain(|edge| edge != &(*from, *to));
+        }
+
+        for node in nodes {
+            self.remove_node(node.id);
+        }
+    }
+
+    fn undo_last_change(&mut self) {
+        let Some(entry) = self.undo_stack.pop() else {
+            return;
+        };
+
+        let redo_entry = match &entry {
+            HistoryEntry::DeleteBatch { nodes, edges } => {
+                let cloned = HistoryEntry::DeleteBatch {
+                    nodes: nodes.clone(),
+                    edges: edges.clone(),
+                };
+                self.apply_history_entry(cloned)
+            }
+            _ => self.apply_history_entry(entry),
+        };
+
+        self.redo_stack.push(redo_entry);
+    }
+
+    fn redo_last_change(&mut self) {
+        let Some(entry) = self.redo_stack.pop() else {
+            return;
+        };
+
+        let undo_entry = match &entry {
+            HistoryEntry::DeleteBatch { nodes, edges } => {
+                self.redo_delete_batch(nodes, edges);
+                HistoryEntry::DeleteBatch {
+                    nodes: nodes.clone(),
+                    edges: edges.clone(),
+                }
+            }
+            _ => self.apply_history_entry(entry),
+        };
+
+        self.undo_stack.push(undo_entry);
     }
 
     fn segment_intersects_rect(a: Pos2, b: Pos2, rect: Rect) -> bool {
@@ -1362,20 +1558,20 @@ impl eframe::App for GraphApp {
         self.poll_done_events();
         self.process_terminal_start_queue(ctx);
 
-        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) {
+        if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Z))
+            || ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Y))
+        {
+            self.redo_last_change();
+        } else if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) {
             self.undo_last_change();
         }
 
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
-            if let Err(err) = self.save_graph_to_default_path() {
-                eprintln!("save graph failed: {err}");
-            }
+            self.run_file_menu_action(0);
         }
 
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O)) {
-            if let Err(err) = self.load_graph_from_default_path() {
-                eprintln!("load graph failed: {err}");
-            }
+            self.run_file_menu_action(1);
         }
 
         let now = ctx.input(|i| i.time);
@@ -1386,11 +1582,13 @@ impl eframe::App for GraphApp {
                 .or_else(|| i.pointer.hover_pos())
                 .is_some_and(|p| p.y <= screen_rect.top() + 32.0)
         });
+        let any_popup_open = ctx.memory(|m| m.any_popup_open());
+        let keep_top_bar = self.top_menu_popup_open || any_popup_open;
 
-        if pointer_near_top {
+        if pointer_near_top || keep_top_bar {
             self.window_bar_visible_until = now + 1.0;
         }
-        let show_window_bar = pointer_near_top || now <= self.window_bar_visible_until;
+        let show_window_bar = pointer_near_top || keep_top_bar || now <= self.window_bar_visible_until;
 
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(egui::Color32::TRANSPARENT))
@@ -1398,6 +1596,7 @@ impl eframe::App for GraphApp {
                 self.draw_canvas(ui, ctx);
             });
 
+        let mut top_menu_popup_open_this_frame = false;
         if show_window_bar {
             egui::Area::new("window_drag_bar_overlay".into())
                 .order(egui::Order::Foreground)
@@ -1419,9 +1618,69 @@ impl eframe::App for GraphApp {
                     let maxim_rect = close_rect.translate(vec2(-(button_size.x + button_gap), 0.0));
                     let minim_rect = maxim_rect.translate(vec2(-(button_size.x + button_gap), 0.0));
 
-                    let drag_right = (minim_rect.left() - 8.0).max(bar_rect.left());
-                    let drag_rect =
-                        Rect::from_min_max(bar_rect.min, Pos2::new(drag_right, bar_rect.bottom()));
+                    let menu_rect = Rect::from_min_max(
+                        Pos2::new(bar_rect.left() + 8.0, bar_rect.top() + 2.0),
+                        Pos2::new(bar_rect.left() + 260.0, bar_rect.bottom() - 2.0),
+                    );
+
+                    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(menu_rect), |ui| {
+                        ui.horizontal(|ui| {
+                            let file_menu = ui.menu_button("文件", |ui| {
+                                top_menu_popup_open_this_frame = true;
+                                let items = [
+                                    ("文件/快速保存", "快速保存", 0usize),
+                                    ("文件/快速加载", "快速加载", 1usize),
+                                    ("文件/保存", "保存", 2usize),
+                                    ("文件/加载", "加载", 3usize),
+                                ];
+                                if let Some(action_id) = self.show_searchable_menu_actions(
+                                    ui,
+                                    ctx,
+                                    egui::Id::new("window_menu_file_search_input"),
+                                    "搜索文件操作...",
+                                    &items,
+                                    "无匹配功能",
+                                    "↑/↓ 选择，Enter 执行",
+                                ) {
+                                    self.run_file_menu_action(action_id);
+                                    ui.close_menu();
+                                }
+                            });
+                            if file_menu.response.clicked() {
+                                self.reset_menu_search_state(true);
+                            }
+
+                            let edit_menu = ui.menu_button("编辑", |ui| {
+                                top_menu_popup_open_this_frame = true;
+                                let items = [
+                                    ("编辑/Undo", "Undo", 0usize),
+                                    ("编辑/Redo", "Redo", 1usize),
+                                ];
+                                if let Some(action_id) = self.show_searchable_menu_actions(
+                                    ui,
+                                    ctx,
+                                    egui::Id::new("window_menu_edit_search_input"),
+                                    "搜索编辑操作...",
+                                    &items,
+                                    "无匹配功能",
+                                    "↑/↓ 选择，Enter 执行",
+                                ) {
+                                    self.run_edit_menu_action(action_id);
+                                    ui.close_menu();
+                                }
+                            });
+                            if edit_menu.response.clicked() {
+                                self.reset_menu_search_state(true);
+                            }
+                        });
+                    });
+
+                    let drag_left = menu_rect.right() + 8.0;
+                    let drag_right = (minim_rect.left() - 8.0).max(drag_left);
+                    let drag_rect = Rect::from_min_max(
+                        Pos2::new(drag_left, bar_rect.top()),
+                        Pos2::new(drag_right, bar_rect.bottom()),
+                    );
 
                     let drag_response = ui.interact(
                         drag_rect,
@@ -1517,6 +1776,7 @@ impl eframe::App for GraphApp {
                     }
                 });
         }
+        self.top_menu_popup_open = top_menu_popup_open_this_frame;
 
         if show_window_bar && !pointer_near_top {
             let remaining = (self.window_bar_visible_until - now).max(0.0);

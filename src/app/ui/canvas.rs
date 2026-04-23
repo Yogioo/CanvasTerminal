@@ -740,11 +740,7 @@ impl GraphApp {
                     self.editing_text_node = None;
                     self.pending_text_focus = None;
                 }
-                self.menu_search_text.clear();
-                self.menu_search_selected = 0;
-                self.menu_nav_level = 0;
-                self.menu_nav_selected = 0;
-                self.pending_menu_search_focus = true;
+                self.reset_menu_search_state(true);
             }
         }
 

@@ -118,7 +118,7 @@ impl GraphApp {
         Ok(path)
     }
 
-    fn save_graph_to_path(&self, path: &Path) -> Result<(), String> {
+    pub(in crate::app) fn save_graph_to_path(&self, path: &Path) -> Result<(), String> {
         let config = GraphConfig::from_app(self);
         let json = serde_json::to_string_pretty(&config)
             .map_err(|err| format!("配置序列化失败: {err}"))?;
@@ -135,7 +135,7 @@ impl GraphApp {
             .map_err(|err| format!("写入配置文件失败 ({}): {err}", path.display()))
     }
 
-    fn load_graph_from_path(&mut self, path: &Path) -> Result<(), String> {
+    pub(in crate::app) fn load_graph_from_path(&mut self, path: &Path) -> Result<(), String> {
         let json = fs::read_to_string(path)
             .map_err(|err| format!("读取配置文件失败 ({}): {err}", path.display()))?;
         let config: GraphConfig =
@@ -190,6 +190,7 @@ impl GraphApp {
         self.cut_snapshot_nodes = None;
         self.cut_snapshot_edges = None;
         self.undo_stack.clear();
+        self.redo_stack.clear();
 
         self.editing_text_node = None;
         self.pending_text_focus = None;
