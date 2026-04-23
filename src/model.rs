@@ -12,12 +12,10 @@ pub struct Node {
     pub id: usize,
     pub title: String,
     pub kind: NodeKind,
-    pub category: String,
     pub identity: String,
     pub startup_script: String,
     pub text_body: String,
     pub image_path: String,
     pub pos: Pos2,
     pub size: egui::Vec2,
-    pub status: &'static str,
 }

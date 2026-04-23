@@ -6,7 +6,7 @@ use crate::event_server::start_done_event_server;
 use crate::model::{Node, NodeKind};
 use crate::shell::{system_shell, terminal_shell_args};
 use chrono::Local;
-use eframe::egui::{self, vec2, ColorImage, Pos2, Rect, SidePanel, Stroke, TextureHandle, TextureOptions};
+use eframe::egui::{self, vec2, ColorImage, Pos2, Rect, Stroke, TextureHandle, TextureOptions};
 use egui_term::{BackendCommand, BackendSettings, PtyEvent, TerminalBackend};
 use image::ImageReader;
 use std::collections::{HashMap, HashSet};
@@ -22,7 +22,6 @@ enum HistoryEntry {
     MoveNode {
         node_id: usize,
         from: Pos2,
-        to: Pos2,
     },
     MoveNodes {
         nodes: Vec<(usize, Pos2, Pos2)>,
@@ -63,7 +62,6 @@ pub struct GraphApp {
     image_bytes: HashMap<usize, Vec<u8>>,
     image_aspects: HashMap<usize, f32>,
     done_event_rx: Option<mpsc::Receiver<DoneEvent>>,
-    done_event_error: Option<String>,
 
     next_node_id: usize,
     menu_search_text: String,
@@ -93,7 +91,6 @@ pub struct GraphApp {
     cut_snapshot_nodes: Option<Vec<Node>>,
     cut_snapshot_edges: Option<Vec<(usize, usize)>>,
     undo_stack: Vec<HistoryEntry>,
-    change_history: Vec<String>,
     last_primary_click_time: Option<f64>,
     last_primary_click_pos: Option<Pos2>,
     last_canvas_pointer_world_pos: Option<Pos2>,
@@ -113,9 +110,12 @@ impl GraphApp {
         let (pty_tx, pty_rx) = mpsc::channel();
 
         let nodes = Vec::new();
-        let (done_event_rx, done_event_error) = match start_done_event_server() {
-            Ok(rx) => (Some(rx), None),
-            Err(err) => (None, Some(err)),
+        let done_event_rx = match start_done_event_server() {
+            Ok(rx) => Some(rx),
+            Err(err) => {
+                eprintln!("failed to start done event server: {err}");
+                None
+            }
         };
 
         let app = Self {
@@ -140,7 +140,6 @@ impl GraphApp {
             image_bytes: HashMap::new(),
             image_aspects: HashMap::new(),
             done_event_rx,
-            done_event_error,
             next_node_id: 1,
             menu_search_text: String::new(),
             menu_search_selected: 0,
@@ -169,7 +168,6 @@ impl GraphApp {
             cut_snapshot_nodes: None,
             cut_snapshot_edges: None,
             undo_stack: Vec::new(),
-            change_history: Vec::new(),
             last_primary_click_time: None,
             last_primary_click_pos: None,
             last_canvas_pointer_world_pos: None,
@@ -237,14 +235,12 @@ impl GraphApp {
             id,
             title: "Terminal".to_owned(),
             kind: NodeKind::Terminal,
-            category: "终端".to_owned(),
             identity: format!("agent-{id}"),
             startup_script: String::new(),
             text_body: String::new(),
             image_path: String::new(),
             pos,
             size: vec2(840.0, 660.0),
-            status: "Running",
         });
         self.set_single_selection(id);
     }
@@ -255,14 +251,12 @@ impl GraphApp {
             id,
             title: format!("文本节点 {id}"),
             kind: NodeKind::Text,
-            category: "文本".to_owned(),
             identity: String::new(),
             startup_script: String::new(),
             text_body: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             image_path: String::new(),
             pos,
             size: vec2(260.0, 140.0),
-            status: "Editable",
         });
         self.set_single_selection(id);
         if edit_now {
@@ -296,14 +290,12 @@ impl GraphApp {
             id,
             title: String::new(),
             kind: NodeKind::Image,
-            category: "图片".to_owned(),
             identity: String::new(),
             startup_script: String::new(),
             text_body: String::new(),
             image_path,
             pos,
             size,
-            status: "Preview",
         });
         self.set_single_selection(id);
     }
@@ -323,14 +315,12 @@ impl GraphApp {
             id,
             title: String::new(),
             kind: NodeKind::Image,
-            category: "图片".to_owned(),
             identity: String::new(),
             startup_script: String::new(),
             text_body: String::new(),
             image_path: display_name,
             pos,
             size,
-            status: "Preview",
         });
         self.image_bytes.insert(id, bytes);
         self.set_single_selection(id);
@@ -348,14 +338,12 @@ impl GraphApp {
             id,
             title: String::new(),
             kind: NodeKind::Image,
-            category: "图片".to_owned(),
             identity: String::new(),
             startup_script: String::new(),
             text_body: String::new(),
             image_path: display_name,
             pos,
             size: vec2(320.0, 220.0),
-            status: "Preview",
         });
 
         let [w, h] = color_image.size;
@@ -375,14 +363,6 @@ impl GraphApp {
         self.image_bytes.remove(&id);
         self.image_aspects.insert(id, aspect);
         self.set_single_selection(id);
-    }
-
-    fn node_kind_name(kind: &NodeKind) -> &'static str {
-        match kind {
-            NodeKind::Terminal => "终端",
-            NodeKind::Text => "文本",
-            NodeKind::Image => "图片",
-        }
     }
 
     fn is_supported_image_path(path: &Path) -> bool {
@@ -523,16 +503,6 @@ impl GraphApp {
         job
     }
 
-    fn selected_terminal_id(&self) -> Option<usize> {
-        let id = self.selected?;
-        let node = self.nodes.iter().find(|n| n.id == id)?;
-        if matches!(node.kind, NodeKind::Terminal) {
-            Some(id)
-        } else {
-            None
-        }
-    }
-
     fn terminal_identity(&self, node_id: usize) -> String {
         self.nodes
             .iter()
@@ -570,8 +540,6 @@ impl GraphApp {
 
         let command = format!("{script}\r\n");
         self.inject_terminal_text(node_id, &command);
-        self.change_history
-            .push(format!("节点 #{node_id} 执行启动命令"));
     }
 
     fn poll_done_events(&mut self) {
@@ -588,11 +556,6 @@ impl GraphApp {
     }
 
     fn handle_done_event(&mut self, event: DoneEvent) {
-        self.change_history.push(format!(
-            "节点 #{} ({}) 完成: {}",
-            event.node_id, event.identity, event.summary
-        ));
-
         let downstream: Vec<usize> = self
             .edges
             .iter()
@@ -699,19 +662,12 @@ impl GraphApp {
             .collect();
 
         if target_ids.is_empty() {
-            self.change_history
-                .push("保存后应用启动命令：没有可执行的终端节点".to_owned());
             return;
         }
 
         for node_id in &target_ids {
             self.restart_terminal(*node_id, ctx);
         }
-
-        self.change_history.push(format!(
-            "保存后应用启动命令：已重启 {} 个终端节点",
-            target_ids.len()
-        ));
     }
 
     fn poll_terminal_events(&mut self) {
@@ -948,16 +904,13 @@ impl GraphApp {
         self.nodes = reordered;
     }
 
-    fn record_reorder_history(&mut self, before: Vec<usize>, action_name: &str) {
+    fn record_reorder_history(&mut self, before: Vec<usize>) {
         let after: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
         if before == after {
             return;
         }
 
-        self.push_history(
-            HistoryEntry::ReorderNodes { before },
-            action_name.to_owned(),
-        );
+        self.push_history(HistoryEntry::ReorderNodes { before });
     }
 
     fn bring_selection_to_front(&mut self) {
@@ -969,7 +922,7 @@ impl GraphApp {
         let before: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
         self.nodes
             .sort_by_key(|node| usize::from(selected.contains(&node.id)));
-        self.record_reorder_history(before, "调整层级: 置于顶层");
+        self.record_reorder_history(before);
         self.selected = self.ordered_selected_ids().last().copied();
     }
 
@@ -982,7 +935,7 @@ impl GraphApp {
         let before: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
         self.nodes
             .sort_by_key(|node| usize::from(!selected.contains(&node.id)));
-        self.record_reorder_history(before, "调整层级: 置于底层");
+        self.record_reorder_history(before);
         self.selected = self.ordered_selected_ids().last().copied();
     }
 
@@ -1000,7 +953,7 @@ impl GraphApp {
             }
         }
 
-        self.record_reorder_history(before, "调整层级: 上移一层");
+        self.record_reorder_history(before);
         self.selected = self.ordered_selected_ids().last().copied();
     }
 
@@ -1018,7 +971,7 @@ impl GraphApp {
             }
         }
 
-        self.record_reorder_history(before, "调整层级: 下移一层");
+        self.record_reorder_history(before);
         self.selected = self.ordered_selected_ids().last().copied();
     }
 
@@ -1099,9 +1052,8 @@ impl GraphApp {
         }
     }
 
-    fn push_history(&mut self, entry: HistoryEntry, text: String) {
+    fn push_history(&mut self, entry: HistoryEntry) {
         self.undo_stack.push(entry);
-        self.change_history.push(text);
     }
 
     fn record_move_history(&mut self, node_id: usize, from: Pos2, to: Pos2) {
@@ -1109,13 +1061,7 @@ impl GraphApp {
             return;
         }
 
-        self.push_history(
-            HistoryEntry::MoveNode { node_id, from, to },
-            format!(
-                "移动节点 #{node_id}: ({:.0}, {:.0}) -> ({:.0}, {:.0})",
-                from.x, from.y, to.x, to.y
-            ),
-        );
+        self.push_history(HistoryEntry::MoveNode { node_id, from });
     }
 
     fn record_nodes_move_history(&mut self, nodes: Vec<(usize, Pos2, Pos2)>) {
@@ -1128,11 +1074,7 @@ impl GraphApp {
             return;
         }
 
-        let moved_count = moved_nodes.len();
-        self.push_history(
-            HistoryEntry::MoveNodes { nodes: moved_nodes },
-            format!("移动节点 {} 个", moved_count),
-        );
+        self.push_history(HistoryEntry::MoveNodes { nodes: moved_nodes });
     }
 
     fn record_cut_history(&mut self, before_nodes: Vec<Node>, before_edges: Vec<(usize, usize)>) {
@@ -1150,16 +1092,10 @@ impl GraphApp {
             return;
         }
 
-        let removed_node_count = removed_nodes.len();
-        let removed_edge_count = removed_edges.len();
-
-        self.push_history(
-            HistoryEntry::DeleteBatch {
-                nodes: removed_nodes,
-                edges: removed_edges,
-            },
-            format!("删除内容: 节点 {} 个, 连线 {} 条", removed_node_count, removed_edge_count),
-        );
+        self.push_history(HistoryEntry::DeleteBatch {
+            nodes: removed_nodes,
+            edges: removed_edges,
+        });
     }
 
     fn undo_last_change(&mut self) {
@@ -1169,9 +1105,6 @@ impl GraphApp {
 
         match entry {
             HistoryEntry::DeleteBatch { nodes, edges } => {
-                let restored_nodes = nodes.len();
-                let restored_edges = edges.len();
-
                 for node in nodes {
                     if self.nodes.iter().any(|n| n.id == node.id) {
                         continue;
@@ -1195,32 +1128,21 @@ impl GraphApp {
                     }
                 }
 
-                self.change_history.push(format!(
-                    "撤销删除: 恢复节点 {} 个, 连线 {} 条",
-                    restored_nodes, restored_edges
-                ));
             }
-            HistoryEntry::MoveNode { node_id, from, to } => {
+            HistoryEntry::MoveNode { node_id, from } => {
                 if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
                     node.pos = from;
-                    self.change_history.push(format!(
-                        "撤销移动节点 #{node_id}: ({:.0}, {:.0}) <- ({:.0}, {:.0})",
-                        from.x, from.y, to.x, to.y
-                    ));
                 }
             }
             HistoryEntry::MoveNodes { nodes } => {
-                let moved_count = nodes.len();
                 for (node_id, from, _) in nodes {
                     if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
                         node.pos = from;
                     }
                 }
-                self.change_history.push(format!("撤销移动节点 {} 个", moved_count));
             }
             HistoryEntry::ReorderNodes { before } => {
                 self.apply_node_order(&before);
-                self.change_history.push("撤销层级调整".to_owned());
             }
         }
     }
@@ -1420,8 +1342,6 @@ impl GraphApp {
         self.suspend_terminal_focus = Some(node_id);
 
         if changed {
-            self.change_history
-                .push(format!("节点 #{node_id} 启动命令已更新，自动重启终端"));
             self.restart_terminal(node_id, ctx);
         }
     }
@@ -1467,22 +1387,6 @@ impl eframe::App for GraphApp {
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
             self.apply_startup_scripts_after_save(ctx);
         }
-
-        if let Some(terminal_id) = self.selected_terminal_id() {
-            self.ensure_terminal(terminal_id, ctx);
-        }
-
-        SidePanel::right("data_panel")
-            .resizable(true)
-            .default_width(360.0)
-            .min_width(300.0)
-            .show(ctx, |ui| {
-                if self.selected_terminal_id().is_some() {
-                    self.draw_terminal_hint_panel(ui, ctx);
-                } else {
-                    self.draw_service_panel(ui);
-                }
-            });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             self.draw_canvas(ui, ctx);

@@ -263,7 +263,7 @@ impl GraphApp {
         } else if self.pending_terminal_starts.contains(&node_id) {
             term_ui.label("终端启动中...");
         } else {
-            term_ui.label("终端未启动，请在右侧点击“重启终端”。");
+            term_ui.label("终端未启动，请稍候或通过节点菜单重启。");
         }
     }
 
