@@ -222,7 +222,7 @@ impl GraphApp {
         let (rect, response) = ui.allocate_exact_size(available, Sense::click_and_drag());
         let painter = ui.painter_at(rect);
 
-        painter.rect_filled(rect, 0.0, Color32::from_rgb(20, 22, 26));
+        painter.rect_filled(rect, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 30));
 
         let is_space_down = ctx.input(|i| i.key_down(egui::Key::Space));
         let is_space_pan = ctx.input(|i| i.key_down(egui::Key::Space) && i.pointer.primary_down());
@@ -328,6 +328,7 @@ impl GraphApp {
         let current_time = ctx.input(|i| i.time);
         let primary_clicked = ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary));
         let primary_pressed = ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
+        let pointer_in_window_top_strip = pointer_pos.is_some_and(|p| p.y <= rect.top() + 32.0);
         let is_panning =
             (is_space_pan || is_middle_pan) && pointer_in_canvas && !pointer_over_terminal_content;
 
@@ -397,7 +398,11 @@ impl GraphApp {
                     }
                 }
 
-                if !any_popup_open && !is_panning && !pointer_over_terminal_content {
+                if !any_popup_open
+                    && !is_panning
+                    && !pointer_over_terminal_content
+                    && !pointer_in_window_top_strip
+                {
                     if let (Some(last_time), Some(last_pos)) = (
                         self.last_primary_click_time,
                         self.last_primary_click_pos,
@@ -748,6 +753,7 @@ impl GraphApp {
         if !any_popup_open
             && !is_panning
             && !pointer_over_terminal_content
+            && !pointer_in_window_top_strip
             && self.editing_startup_node.is_none()
             && (response.double_clicked() || tolerant_double_click)
         {

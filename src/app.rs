@@ -7,7 +7,7 @@ use crate::event_server::start_done_event_server;
 use crate::model::{Node, NodeKind};
 use crate::shell::{system_shell, terminal_shell_args};
 use chrono::Local;
-use eframe::egui::{self, vec2, ColorImage, Pos2, Rect, Stroke, TextureHandle, TextureOptions};
+use eframe::egui::{self, vec2, ColorImage, Pos2, Rect, TextureHandle, TextureOptions};
 use egui_term::{BackendCommand, BackendSettings, PtyEvent, TerminalBackend};
 use image::ImageReader;
 use std::collections::{HashMap, HashSet};
@@ -104,6 +104,7 @@ pub struct GraphApp {
     box_select_additive: bool,
     box_select_subtractive: bool,
     box_select_base_selection: HashSet<usize>,
+    window_bar_visible_until: f64,
 }
 
 impl GraphApp {
@@ -181,6 +182,7 @@ impl GraphApp {
             box_select_additive: false,
             box_select_subtractive: false,
             box_select_base_selection: HashSet::new(),
+            window_bar_visible_until: 0.0,
         };
 
         app
@@ -1346,35 +1348,15 @@ impl GraphApp {
         }
     }
 
-    fn paint_grid(&self, painter: &egui::Painter, rect: Rect, pan: egui::Vec2, zoom: f32) {
-        let base_spacing = 32.0;
-        let spacing = base_spacing * zoom;
-        let color = egui::Color32::from_rgba_premultiplied(100, 110, 130, 25);
-
-        let x_offset = pan.x.rem_euclid(spacing);
-        let y_offset = pan.y.rem_euclid(spacing);
-
-        let mut x = rect.left() + x_offset - spacing;
-        while x <= rect.right() + spacing {
-            painter.line_segment(
-                [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
-                Stroke::new(1.0, color),
-            );
-            x += spacing;
-        }
-
-        let mut y = rect.top() + y_offset - spacing;
-        while y <= rect.bottom() + spacing {
-            painter.line_segment(
-                [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
-                Stroke::new(1.0, color),
-            );
-            y += spacing;
-        }
+    fn paint_grid(&self, _painter: &egui::Painter, _rect: Rect, _pan: egui::Vec2, _zoom: f32) {
     }
 }
 
 impl eframe::App for GraphApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        egui::Color32::from_rgba_premultiplied(0, 0, 0, 30).to_normalized_gamma_f32()
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_terminal_events();
         self.poll_done_events();
@@ -1396,9 +1378,152 @@ impl eframe::App for GraphApp {
             }
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            self.draw_canvas(ui, ctx);
+        let now = ctx.input(|i| i.time);
+        let screen_rect = ctx.screen_rect();
+        let pointer_near_top = ctx.input(|i| {
+            i.pointer
+                .latest_pos()
+                .or_else(|| i.pointer.hover_pos())
+                .is_some_and(|p| p.y <= screen_rect.top() + 32.0)
         });
+
+        if pointer_near_top {
+            self.window_bar_visible_until = now + 1.0;
+        }
+        let show_window_bar = pointer_near_top || now <= self.window_bar_visible_until;
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::default().fill(egui::Color32::TRANSPARENT))
+            .show(ctx, |ui| {
+                self.draw_canvas(ui, ctx);
+            });
+
+        if show_window_bar {
+            egui::Area::new("window_drag_bar_overlay".into())
+                .order(egui::Order::Foreground)
+                .fixed_pos(screen_rect.min)
+                .show(ctx, |ui| {
+                    let bar_height = 28.0;
+                    let (bar_rect, _) =
+                        ui.allocate_exact_size(vec2(screen_rect.width(), bar_height), egui::Sense::hover());
+
+                    let button_size = vec2(24.0, 18.0);
+                    let button_gap = 6.0;
+                    let right_pad = 12.0;
+                    let top = bar_rect.center().y - button_size.y * 0.5;
+
+                    let close_rect = Rect::from_min_size(
+                        Pos2::new(bar_rect.right() - right_pad - button_size.x, top),
+                        button_size,
+                    );
+                    let maxim_rect = close_rect.translate(vec2(-(button_size.x + button_gap), 0.0));
+                    let minim_rect = maxim_rect.translate(vec2(-(button_size.x + button_gap), 0.0));
+
+                    let drag_right = (minim_rect.left() - 8.0).max(bar_rect.left());
+                    let drag_rect =
+                        Rect::from_min_max(bar_rect.min, Pos2::new(drag_right, bar_rect.bottom()));
+
+                    let drag_response = ui.interact(
+                        drag_rect,
+                        ui.id().with("window_drag_area"),
+                        egui::Sense::click_and_drag(),
+                    );
+                    let start_drag =
+                        ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
+                    if drag_response.hovered() {
+                        ui.output_mut(|o| {
+                            o.cursor_icon = if drag_response.dragged() {
+                                egui::CursorIcon::Grabbing
+                            } else {
+                                egui::CursorIcon::Grab
+                            };
+                        });
+                    }
+                    if drag_response.double_clicked() {
+                        let is_maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
+                    } else if drag_response.hovered() && start_drag {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                    }
+
+                    let stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
+
+                    let minim = ui.interact(
+                        minim_rect,
+                        ui.id().with("window_minimize_button"),
+                        egui::Sense::click(),
+                    );
+                    let min_y = minim_rect.center().y;
+                    ui.painter().line_segment(
+                        [
+                            Pos2::new(minim_rect.center().x - 5.0, min_y),
+                            Pos2::new(minim_rect.center().x + 5.0, min_y),
+                        ],
+                        stroke,
+                    );
+                    if minim.clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                    }
+
+                    let is_maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+                    let maxim = ui.interact(
+                        maxim_rect,
+                        ui.id().with("window_maximize_button"),
+                        egui::Sense::click(),
+                    );
+                    if is_maximized {
+                        let back = Rect::from_center_size(
+                            maxim_rect.center() + vec2(-1.5, -1.5),
+                            vec2(8.5, 7.5),
+                        );
+                        let front = Rect::from_center_size(
+                            maxim_rect.center() + vec2(1.5, 1.5),
+                            vec2(8.5, 7.5),
+                        );
+                        ui.painter()
+                            .rect_stroke(back, 0.0, stroke, egui::StrokeKind::Inside);
+                        ui.painter()
+                            .rect_stroke(front, 0.0, stroke, egui::StrokeKind::Inside);
+                    } else {
+                        let square = Rect::from_center_size(maxim_rect.center(), vec2(9.0, 9.0));
+                        ui.painter()
+                            .rect_stroke(square, 0.0, stroke, egui::StrokeKind::Inside);
+                    }
+                    if maxim.clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
+                    }
+
+                    let close = ui.interact(
+                        close_rect,
+                        ui.id().with("window_close_button"),
+                        egui::Sense::click(),
+                    );
+                    ui.painter().line_segment(
+                        [
+                            close_rect.center() + vec2(-4.5, -4.5),
+                            close_rect.center() + vec2(4.5, 4.5),
+                        ],
+                        stroke,
+                    );
+                    ui.painter().line_segment(
+                        [
+                            close_rect.center() + vec2(-4.5, 4.5),
+                            close_rect.center() + vec2(4.5, -4.5),
+                        ],
+                        stroke,
+                    );
+                    if close.clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+        }
+
+        if show_window_bar && !pointer_near_top {
+            let remaining = (self.window_bar_visible_until - now).max(0.0);
+            if remaining > 0.0 {
+                ctx.request_repaint_after(Duration::from_secs_f64(remaining.min(0.1)));
+            }
+        }
 
         if !self.pending_terminal_starts.is_empty() {
             ctx.request_repaint_after(Duration::from_millis(16));

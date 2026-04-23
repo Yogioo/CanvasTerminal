@@ -12,7 +12,9 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([1400.0, 820.0])
-            .with_drag_and_drop(true),
+            .with_drag_and_drop(true)
+            .with_transparent(true)
+            .with_decorations(false),
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };

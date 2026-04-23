@@ -25,3 +25,7 @@ Thumbs.db
 
 # Packaged outputs
 /dist/
+
+# save cache
+graph.json
+artifacts/
