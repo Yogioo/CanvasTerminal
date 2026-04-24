@@ -180,6 +180,17 @@ impl GraphApp {
         node_id: usize,
         term_rect: Rect,
     ) {
+        let is_terminal_focused = self.selected == Some(node_id)
+            && self.editing_title_node != Some(node_id)
+            && self.editing_startup_node != Some(node_id)
+            && self.suspend_terminal_focus != Some(node_id);
+
+        if let Some(backend) = self.terminal_backends.get(&node_id) {
+            // 选中终端高频刷新，未选中终端降频，降低多终端高输出时卡顿。
+            let min_repaint_interval_ms = if is_terminal_focused { 16 } else { 80 };
+            backend.set_min_repaint_interval_ms(min_repaint_interval_ms);
+        }
+
         let visible_rect = term_rect.intersect(canvas_rect);
         if !visible_rect.is_positive() {
             return;
@@ -208,12 +219,7 @@ impl GraphApp {
                 font_type: FontId::monospace(term_font_size),
             });
             let term = TerminalView::new(&mut term_ui, backend)
-                .set_focus(
-                    self.selected == Some(node_id)
-                        && self.editing_title_node != Some(node_id)
-                        && self.editing_startup_node != Some(node_id)
-                        && self.suspend_terminal_focus != Some(node_id),
-                )
+                .set_focus(is_terminal_focused)
                 .set_font(term_font)
                 .set_size(term_rect.size());
             term_ui.add(term);

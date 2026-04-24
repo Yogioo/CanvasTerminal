@@ -22,6 +22,7 @@ use std::borrow::Cow;
 use std::cmp::min;
 use std::io::Result;
 use std::ops::{Index, RangeInclusive};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
@@ -141,6 +142,7 @@ pub struct TerminalBackend {
     size: TerminalSize,
     notifier: Notifier,
     last_content: RenderableContent,
+    min_repaint_interval_ms: Arc<AtomicU64>,
 }
 
 impl TerminalBackend {
@@ -155,7 +157,11 @@ impl TerminalBackend {
             working_directory: settings.working_directory,
             ..tty::Options::default()
         };
-        let config = term::Config::default();
+        let mut config = term::Config::default();
+        // Limit scrollback history to reduce per-frame grid cloning/render cost.
+        // Alacritty default is 10_000 lines, which can become expensive with
+        // multiple embedded terminals in egui.
+        config.scrolling_history = 2_000;
         let terminal_size = TerminalSize::default();
         let pty = tty::new(&pty_config, terminal_size.into(), id)?;
         let (event_sender, event_receiver) = mpsc::channel();
@@ -175,6 +181,8 @@ impl TerminalBackend {
         let notifier = Notifier(pty_event_loop.channel());
         let url_regex = RegexSearch::new(r#"(ipfs:|ipns:|magnet:|mailto:|gemini://|gopher://|https://|http://|news:|file://|git://|ssh:|ftp://)[^\u{0000}-\u{001F}\u{007F}-\u{009F}<>"\s{-}\^⟨⟩`]+"#).unwrap();
         let _pty_event_loop_thread = pty_event_loop.spawn();
+        let min_repaint_interval_ms = Arc::new(AtomicU64::new(33));
+        let min_repaint_interval_ms_for_thread = min_repaint_interval_ms.clone();
         let _pty_event_subscription = std::thread::Builder::new()
             .name(format!("pty_event_subscription_{}", id))
             .spawn(move || {
@@ -187,7 +195,12 @@ impl TerminalBackend {
                                 panic!("pty_event_subscription_{}: sending PtyEvent is failed", id)
                             });
 
-                        if last_repaint.elapsed() >= Duration::from_millis(16)
+                        let min_repaint_interval = Duration::from_millis(
+                            min_repaint_interval_ms_for_thread
+                                .load(Ordering::Relaxed)
+                                .max(1),
+                        );
+                        if last_repaint.elapsed() >= min_repaint_interval
                             || matches!(event, Event::Exit)
                         {
                             app_context.request_repaint();
@@ -208,7 +221,13 @@ impl TerminalBackend {
             size: terminal_size,
             notifier,
             last_content: initial_content,
+            min_repaint_interval_ms,
         })
+    }
+
+    pub fn set_min_repaint_interval_ms(&self, interval_ms: u64) {
+        self.min_repaint_interval_ms
+            .store(interval_ms.max(1), Ordering::Relaxed);
     }
 
     pub fn process_command(&mut self, cmd: BackendCommand) {
