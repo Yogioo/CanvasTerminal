@@ -187,7 +187,7 @@ impl GraphApp {
 
 impl eframe::App for GraphApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        egui::Color32::from_rgb(20, 20, 34).to_normalized_gamma_f32()
+        egui::Color32::from_rgb(30, 30, 50).to_normalized_gamma_f32()
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -201,7 +201,7 @@ impl eframe::App for GraphApp {
             self.update_window_bar_visibility(ctx);
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::default().fill(egui::Color32::from_rgb(20, 20, 34)))
+            .frame(egui::Frame::default().fill(egui::Color32::from_rgb(30, 30, 50)))
             .show(ctx, |ui| {
                 self.draw_canvas(ui, ctx);
             });
