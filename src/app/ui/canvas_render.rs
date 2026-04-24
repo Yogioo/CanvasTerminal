@@ -1,6 +1,7 @@
 use super::super::GraphApp;
 use crate::model::{NodeData, NodeKind};
-use eframe::egui::{self, vec2, Align2, Color32, FontId, Painter, Pos2, Rect, Stroke};
+use eframe::egui::{self, vec2, Align, Align2, Color32, FontId, Layout, Painter, Pos2, Rect, Stroke};
+use egui_commonmark::CommonMarkViewer;
 
 impl GraphApp {
     pub(in crate::app::ui) fn draw_edges(&self, painter: &Painter, rect: Rect) {
@@ -68,24 +69,55 @@ impl GraphApp {
     }
 
     pub(in crate::app::ui) fn autosize_text_nodes(&mut self, painter: &Painter) {
+        const TEXT_PADDING: f32 = 24.0;
+        const MIN_WIDTH: f32 = 160.0;
+        const SOFT_WIDTH: f32 = 560.0;
+        const SOFT_RATIO: f32 = 0.35;
+
         for node in self.nodes.iter_mut().filter(|n| n.kind == NodeKind::Text) {
-            let Some(text_body) = (match &node.data {
-                NodeData::Text { text_body } => Some(text_body.as_str()),
+            let Some((text_body, auto_size)) = (match &node.data {
+                NodeData::Text { text_body, auto_size } => Some((text_body.as_str(), *auto_size)),
                 _ => None,
             }) else {
                 continue;
             };
+
+            if !auto_size {
+                continue;
+            }
+
             let visible_text = if text_body.trim().is_empty() {
                 "(空文本)"
             } else {
                 text_body
             };
-            let galley = painter.layout_no_wrap(
-                visible_text.to_owned(),
+
+            let widest_line = visible_text
+                .lines()
+                .max_by_key(|line| line.chars().count())
+                .unwrap_or(visible_text);
+
+            let widest_line_galley = painter.layout_no_wrap(
+                widest_line.to_owned(),
                 FontId::proportional(15.0),
                 Color32::from_rgb(250, 240, 210),
             );
-            node.size = vec2(galley.size().x + 24.0, galley.size().y + 24.0);
+
+            let raw_width = (widest_line_galley.size().x + TEXT_PADDING).max(MIN_WIDTH);
+            let width = if raw_width <= SOFT_WIDTH {
+                raw_width
+            } else {
+                SOFT_WIDTH + (raw_width - SOFT_WIDTH) * SOFT_RATIO
+            };
+            let wrap_width = (width - TEXT_PADDING).max(40.0);
+            let wrapped_galley = painter.layout(
+                visible_text.to_owned(),
+                FontId::proportional(15.0),
+                Color32::from_rgb(250, 240, 210),
+                wrap_width,
+            );
+
+            node.size = vec2(width, wrapped_galley.size().y + TEXT_PADDING);
         }
     }
 
@@ -261,27 +293,40 @@ impl GraphApp {
                 NodeKind::Text => {
                     let is_editing = self.editing_text_node == Some(node.id);
                     if !is_editing {
-                        let preview = match &node.data {
-                            NodeData::Text { text_body } if text_body.trim().is_empty() => "(空文本)",
-                            NodeData::Text { text_body } => text_body,
-                            _ => "(空文本)",
+                        let (preview, auto_size) = match &node.data {
+                            NodeData::Text { text_body, auto_size } if text_body.trim().is_empty() => ("(空文本)", *auto_size),
+                            NodeData::Text { text_body, auto_size } => (text_body.as_str(), *auto_size),
+                            _ => ("(空文本)", true),
                         };
 
                         let content_rect = Rect::from_min_max(
                             node_rect.min + vec2(12.0, 12.0) * zoom_scale,
                             node_rect.max - vec2(12.0, 12.0) * zoom_scale,
                         );
+
                         if content_rect.is_positive() {
-                            let galley = painter.layout_no_wrap(
-                                preview.to_owned(),
-                                FontId::proportional(15.0 * zoom_scale),
-                                Color32::from_rgb(250, 240, 210),
+                            let mut text_ui = ui.new_child(
+                                egui::UiBuilder::new()
+                                    .max_rect(content_rect)
+                                    .layout(Layout::top_down(Align::Min)),
                             );
-                            painter.galley(
-                                content_rect.left_top(),
-                                galley,
-                                Color32::from_rgb(250, 240, 210),
-                            );
+                            text_ui.set_clip_rect(content_rect);
+                            text_ui.set_width(content_rect.width());
+
+                            text_ui.scope(|ui| {
+                                ui.style_mut().visuals.override_text_color = Some(Color32::from_rgb(250, 240, 210));
+                                CommonMarkViewer::new().show(ui, &mut self.markdown_cache, preview);
+                            });
+
+                            if auto_size {
+                                let rendered_height = text_ui.min_size().y;
+                                let desired_world_height = (rendered_height / zoom_scale + 24.0).max(60.0);
+                                if let Some(real_node) = self.nodes.iter_mut().find(|n| n.id == node.id) {
+                                    if (real_node.size.y - desired_world_height).abs() > 0.5 {
+                                        real_node.size.y = desired_world_height;
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -291,6 +336,15 @@ impl GraphApp {
                             node_rect.max - vec2(12.0, 12.0) * zoom_scale,
                         );
                         text_edit_rect = Some((node.id, edit_rect));
+                    }
+
+                    if is_selected {
+                        let handle_size = 12.0 * zoom_scale.clamp(0.75, 1.6);
+                        let handle_rect = Rect::from_min_size(
+                            node_rect.right_bottom() - vec2(handle_size + 6.0, handle_size + 6.0),
+                            vec2(handle_size, handle_size),
+                        );
+                        painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(255, 220, 130));
                     }
                 }
                 NodeKind::Image => {

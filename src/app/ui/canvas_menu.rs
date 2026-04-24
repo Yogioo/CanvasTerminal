@@ -35,15 +35,33 @@ impl GraphApp {
                 ui.label(format!("节点 #{node_id}"));
                 ui.separator();
 
-                let is_terminal_node = self
+                let node_state = self
                     .nodes
                     .iter()
                     .find(|n| n.id == node_id)
-                    .is_some_and(|n| matches!(n.kind, crate::model::NodeKind::Terminal));
+                    .map(|n| {
+                        let is_terminal = matches!(n.kind, crate::model::NodeKind::Terminal);
+                        let text_auto_size = match &n.data {
+                            crate::model::NodeData::Text { auto_size, .. } => Some(*auto_size),
+                            _ => None,
+                        };
+                        (is_terminal, text_auto_size)
+                    });
+
+                let is_terminal_node = node_state.is_some_and(|(is_terminal, _)| is_terminal);
+                let text_auto_size = node_state.and_then(|(_, text_auto_size)| text_auto_size);
 
                 if is_terminal_node && ui.button("编辑启动命令").clicked() {
                     self.start_startup_edit(node_id);
                     ui.close_menu();
+                }
+
+                if let Some(auto_size) = text_auto_size {
+                    let button = ui.add_enabled(!auto_size, egui::Button::new("恢复自动尺寸"));
+                    if button.clicked() {
+                        self.enable_text_node_auto_size(node_id);
+                        ui.close_menu();
+                    }
                 }
 
                 if ui.button("置于顶层").clicked() {

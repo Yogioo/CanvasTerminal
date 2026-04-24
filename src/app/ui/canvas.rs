@@ -409,7 +409,7 @@ impl GraphApp {
         let resize_handle_hit = pointer_pos.and_then(|pointer| {
             let selected_id = self.selected?;
             let node = self.nodes.iter().find(|n| n.id == selected_id)?;
-            if !matches!(node.kind, NodeKind::Terminal | NodeKind::Image) {
+            if !matches!(node.kind, NodeKind::Terminal | NodeKind::Image | NodeKind::Text) {
                 return None;
             }
 
@@ -542,6 +542,9 @@ impl GraphApp {
                                 let width = (start_size.x + delta.x).max(120.0);
                                 let height = (start_size.y + delta.y).max(60.0);
                                 node.size = vec2(width, height);
+                                if let crate::model::NodeData::Text { auto_size, .. } = &mut node.data {
+                                    *auto_size = false;
+                                }
                             }
                         }
                     }

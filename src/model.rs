@@ -8,6 +8,10 @@ pub enum NodeKind {
     Image,
 }
 
+fn default_text_autosize() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NodeData {
     Terminal {
@@ -16,6 +20,8 @@ pub enum NodeData {
     },
     Text {
         text_body: String,
+        #[serde(default = "default_text_autosize")]
+        auto_size: bool,
     },
     Image {
         image_path: String,

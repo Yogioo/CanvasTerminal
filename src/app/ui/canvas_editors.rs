@@ -16,7 +16,7 @@ impl GraphApp {
 
         if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
             let Some(text_body) = (match &mut node.data {
-                NodeData::Text { text_body } => Some(text_body),
+                NodeData::Text { text_body, .. } => Some(text_body),
                 _ => None,
             }) else {
                 return;

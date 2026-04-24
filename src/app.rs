@@ -18,6 +18,7 @@ use crate::model::Node;
 use self::history::HistoryEntry;
 use self::notifications::ToastNotification;
 use eframe::egui::{self, vec2, Pos2, Rect, TextureHandle};
+use egui_commonmark::CommonMarkCache;
 use egui_term::{PtyEvent, TerminalBackend};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -100,6 +101,7 @@ pub struct GraphApp {
     next_toast_id: u64,
     workspace_dirty: bool,
     last_title_dirty: Option<bool>,
+    markdown_cache: CommonMarkCache,
 }
 
 impl GraphApp {
@@ -182,6 +184,7 @@ impl GraphApp {
             next_toast_id: 1,
             workspace_dirty: false,
             last_title_dirty: None,
+            markdown_cache: CommonMarkCache::default(),
         };
 
         app

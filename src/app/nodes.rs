@@ -14,6 +14,7 @@ impl GraphApp {
             },
             NodeKind::Text => NodeData::Text {
                 text_body: String::new(),
+                auto_size: true,
             },
             NodeKind::Image => NodeData::Image {
                 image_path: String::new(),
@@ -48,8 +49,9 @@ impl GraphApp {
 
     pub(in crate::app) fn create_text_node(&mut self, pos: Pos2, edit_now: bool) {
         let mut node = self.new_base_node(NodeKind::Text, pos, vec2(260.0, 140.0));
-        if let NodeData::Text { text_body } = &mut node.data {
+        if let NodeData::Text { text_body, auto_size } = &mut node.data {
             *text_body = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+            *auto_size = true;
         }
         let id = self.push_node_and_select(node);
         if edit_now {
@@ -309,6 +311,20 @@ impl GraphApp {
             NodeOrderAction::SendBackwardOne => self.send_selection_backward_one(),
             NodeOrderAction::SendToBack => self.send_selection_to_back(),
         }
+    }
+
+    pub(in crate::app) fn enable_text_node_auto_size(&mut self, node_id: usize) -> bool {
+        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+            if let NodeData::Text { auto_size, .. } = &mut node.data {
+                if !*auto_size {
+                    *auto_size = true;
+                    self.mark_workspace_dirty();
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     pub(in crate::app) fn remove_node(&mut self, node_id: usize) {
