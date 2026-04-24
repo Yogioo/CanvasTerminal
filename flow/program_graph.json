@@ -1,0 +1,144 @@
+{
+  "version": 3,
+  "nodes": [
+    {
+      "id": 7,
+      "uid": "f9826048-766e-4601-b0ee-5ec8c3dbb6f9",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Planner",
+          "startup_script": "pi --append-system-prompt \"你是Planner, 你将目标拆解成多个任务目标并写入工作目录下的 ./Tasks.md 最后调用命令 canvas done '你完成的摘要信息'\" --model openai-codex/gpt-5.3-codex"
+        }
+      },
+      "pos_x": -133.33258,
+      "pos_y": 265.67548,
+      "size_x": 840.0,
+      "size_y": 660.0
+    },
+    {
+      "id": 8,
+      "uid": "13d13976-79a3-40b9-a179-f1c83dfd84c1",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Executer",
+          "startup_script": "pi --append-system-prompt \"你是Executer, 你将读取工作目录下的 ./Tasks 然后完成所有任务, 完成后调用命令 canvas done '你完成的摘要信息'\" --model openai-codex/gpt-5.3-codex"
+        }
+      },
+      "pos_x": 769.7444,
+      "pos_y": 266.932,
+      "size_x": 840.0,
+      "size_y": 660.0
+    },
+    {
+      "id": 10,
+      "uid": "63f32ee2-6711-4d46-a65b-5d406c87c560",
+      "kind": "Text",
+      "data": {
+        "Text": {
+          "text_body": "pi --append-system-prompt \"你是Planner, 你将目标拆解成多个任务目标并写入工作目录下的 ./Tasks.md 最后调用命令 canvas done '你完成的摘要信息'\" --model openai-codex/gpt-5.3-codex",
+          "auto_size": false
+        }
+      },
+      "pos_x": -247.71289,
+      "pos_y": 194.01411,
+      "size_x": 971.06616,
+      "size_y": 60.0
+    },
+    {
+      "id": 11,
+      "uid": "12031984-1b4a-4df0-9bb3-5102ab3bd9eb",
+      "kind": "Text",
+      "data": {
+        "Text": {
+          "text_body": "pi --append-system-prompt \"你是Executer, 你将读取工作目录下的 ./Tasks 然后完成所有任务, 完成后调用命令 canvas done '你完成的摘要信息'\" --model openai-codex/gpt-5.3-codex",
+          "auto_size": false
+        }
+      },
+      "pos_x": 767.41394,
+      "pos_y": 198.89606,
+      "size_x": 842.00415,
+      "size_y": 60.0
+    },
+    {
+      "id": 12,
+      "uid": "9ac41452-7e46-44cd-a461-b1e7fbf8435a",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Tester",
+          "startup_script": "pi --append-system-prompt \"你是Tester, 你将读取工作目录下的 ./Tasks,这里面是需要完成的任务, 你将获得Executer 完成的信息摘要,然后进行测试, 测试是否完成任务, 返回测试结论, 是否完成, 是否有问题需要修复\" --model openai-codex/gpt-5.3-codex"
+        }
+      },
+      "pos_x": 1655.2954,
+      "pos_y": 268.5141,
+      "size_x": 840.0,
+      "size_y": 660.0
+    },
+    {
+      "id": 13,
+      "uid": "8082d5a5-d8fb-4b3e-9e58-d47f9f2030a5",
+      "kind": "Text",
+      "data": {
+        "Text": {
+          "text_body": "pi --append-system-prompt \"你是Tester, 你将读取工作目录下的 ./Tasks,这里面是需要完成的任务, 你将获得Executer 完成的信息摘要,然后进行测试, 测试是否完成任务, 返回测试结论, 是否完成, 是否有问题需要修复\" --model openai-codex/gpt-5.3-codex",
+          "auto_size": false
+        }
+      },
+      "pos_x": 1673.6945,
+      "pos_y": 188.6376,
+      "size_x": 992.0425,
+      "size_y": 60.0
+    },
+    {
+      "id": 15,
+      "uid": "eb6ad19a-25bf-4646-9a19-713fab7eeefc",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Terminal",
+          "startup_script": "pi --append-system-prompt \"你是项目经理, 你需要先了解我们当前的项目, 然后读取./docs/todo.md 文件,判断我们当前最优先应该做的任务优先级,与用户讨论为什么, 如果用户确认后调用命令 canvas done '讨论得出的结论(也就是需要完成的目标)'\" --model openai-codex/gpt-5.4"
+        }
+      },
+      "pos_x": -1244.3938,
+      "pos_y": 267.49622,
+      "size_x": 907.2262,
+      "size_y": 1024.5502
+    },
+    {
+      "id": 16,
+      "uid": "0f8bb29f-c8b7-4d4c-8128-f7f195f26a77",
+      "kind": "Text",
+      "data": {
+        "Text": {
+          "text_body": "pi --append-system-prompt \"你是项目经理, 你需要先了解我们当前的项目, 然后读取./docs/todo.md 文件,判断我们当前最优先应该做的任务优先级,与用户讨论为什么, 如果用户确认后调用命令 canvas done '讨论得出的结论(也就是需要完成的目标)'\" --model openai-codex/gpt-5.4",
+          "auto_size": false
+        }
+      },
+      "pos_x": -1261.9019,
+      "pos_y": 60.900696,
+      "size_x": 883.28796,
+      "size_y": 193.69147
+    }
+  ],
+  "edges": [
+    [
+      7,
+      8
+    ],
+    [
+      8,
+      12
+    ],
+    [
+      15,
+      7
+    ]
+  ],
+  "view": {
+    "pan_x": 1155.23,
+    "pan_y": -207.20361,
+    "zoom": 0.71718395
+  }
+}
