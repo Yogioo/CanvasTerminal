@@ -34,6 +34,7 @@ pub struct TerminalViewState {
     is_dragged: bool,
     scroll_pixels: f32,
     current_mouse_position_on_grid: TerminalGridPoint,
+    last_auto_copied_selection: String,
 }
 
 pub struct TerminalView<'a> {
@@ -245,6 +246,25 @@ impl<'a> TerminalView<'a> {
         painter: &Painter,
     ) {
         let content = self.backend.sync();
+        let current_selection = if let Some(range) = content.selectable_range {
+            let mut result = String::new();
+            for indexed in content.grid.display_iter() {
+                if range.contains(indexed.point) {
+                    result.push(indexed.c);
+                }
+            }
+            result
+        } else {
+            String::new()
+        };
+
+        if current_selection.is_empty() {
+            state.last_auto_copied_selection.clear();
+        } else if state.last_auto_copied_selection != current_selection {
+            layout.ctx.copy_text(current_selection.clone());
+            state.last_auto_copied_selection = current_selection;
+        }
+
         let layout_min = layout.rect.min;
         let layout_max = layout.rect.max;
         let cell_height = content.terminal_size.cell_height as f32;
