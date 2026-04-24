@@ -36,6 +36,19 @@ impl GraphApp {
             );
             text_ui.set_clip_rect(edit_rect);
 
+            {
+                let style = text_ui.style_mut();
+                let scrollbar_bg = Color32::from_rgb(0, 0, 0);
+                let scrollbar_fg = Color32::from_rgb(255, 255, 255);
+                style.visuals.extreme_bg_color = scrollbar_bg;
+                style.visuals.faint_bg_color = scrollbar_bg;
+                style.spacing.scroll.foreground_color = true;
+                style.visuals.widgets.inactive.fg_stroke.color = scrollbar_fg;
+                style.visuals.widgets.hovered.fg_stroke.color = scrollbar_fg;
+                style.visuals.widgets.active.fg_stroke.color = scrollbar_fg;
+                style.visuals.widgets.open.fg_stroke.color = scrollbar_fg;
+            }
+
             let resp = egui::ScrollArea::vertical()
                 .id_salt(("text-node-editor-scroll", id))
                 .auto_shrink([false, false])
@@ -153,11 +166,24 @@ impl GraphApp {
         let text_edit = TextEdit::multiline(&mut self.startup_edit_buffer)
             .id(startup_edit_id)
             .font(FontId::monospace((13.0 * self.zoom).max(9.0)))
-            .text_color(Color32::from_rgb(238, 235, 255))
+            .text_color(Color32::WHITE)
+            .background_color(Color32::BLACK)
             .desired_width(f32::INFINITY)
             .desired_rows(desired_rows)
             .frame(true);
-        let resp = ui.put(edit_rect, text_edit);
+        let resp = ui
+            .scope(|ui| {
+                let style = ui.style_mut();
+                style.visuals.override_text_color = Some(Color32::WHITE);
+                style.visuals.widgets.inactive.bg_fill = Color32::BLACK;
+                style.visuals.widgets.hovered.bg_fill = Color32::BLACK;
+                style.visuals.widgets.active.bg_fill = Color32::BLACK;
+                style.visuals.widgets.inactive.fg_stroke.color = Color32::WHITE;
+                style.visuals.widgets.hovered.fg_stroke.color = Color32::WHITE;
+                style.visuals.widgets.active.fg_stroke.color = Color32::WHITE;
+                ui.put(edit_rect, text_edit)
+            })
+            .inner;
 
         if should_focus_and_select_all {
             if let Some(mut state) = egui::TextEdit::load_state(ctx, startup_edit_id) {

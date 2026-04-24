@@ -241,15 +241,7 @@ impl GraphApp {
                     let hide_text_for_zoom = zoom_scale < self.text_hide_zoom_threshold;
                     let is_editing = self.editing_text_node == Some(node.id);
 
-                    if hide_text_for_zoom {
-                        painter.text(
-                            node_rect.center(),
-                            Align2::CENTER_CENTER,
-                            "缩放过小，已隐藏文本",
-                            FontId::proportional((12.0 * zoom_scale).max(8.0)),
-                            Color32::from_rgb(201, 186, 146),
-                        );
-                    } else {
+                    if !hide_text_for_zoom {
                         if !is_editing {
                             let preview = match &node.data {
                                 NodeData::Text { text_body, .. } if text_body.trim().is_empty() => "(空文本)",
@@ -283,6 +275,8 @@ impl GraphApp {
                                         // Markdown 主题（暖深色）
                                         let body_color = Color32::from_rgb(236, 228, 208);      // 正文
                                         let heading_color = Color32::from_rgb(255, 214, 122);   // 标题/强调
+                                        let scrollbar_bg = Color32::from_rgb(0, 0, 0);          // 滚动条轨道背景
+                                        let scrollbar_fg = Color32::from_rgb(255, 255, 255);    // 滚动条前景
 
                                         let style = ui.style_mut();
                                         style.visuals.override_text_color = None;
@@ -291,6 +285,14 @@ impl GraphApp {
                                         style.visuals.widgets.active.fg_stroke.color = heading_color;
                                         style.visuals.hyperlink_color = Color32::from_rgb(122, 196, 255); // 链接
                                         style.visuals.code_bg_color = Color32::from_rgb(47, 42, 33);      // 代码块背景
+
+                                        style.visuals.extreme_bg_color = scrollbar_bg;
+                                        style.visuals.faint_bg_color = scrollbar_bg;
+                                        style.spacing.scroll.foreground_color = true;
+                                        style.visuals.widgets.inactive.fg_stroke.color = scrollbar_fg;
+                                        style.visuals.widgets.hovered.fg_stroke.color = scrollbar_fg;
+                                        style.visuals.widgets.active.fg_stroke.color = scrollbar_fg;
+                                        style.visuals.widgets.open.fg_stroke.color = scrollbar_fg;
 
                                         style.text_styles.insert(
                                             egui::TextStyle::Body,
