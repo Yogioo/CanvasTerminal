@@ -68,59 +68,6 @@ impl GraphApp {
         }
     }
 
-    pub(in crate::app::ui) fn autosize_text_nodes(&mut self, painter: &Painter) {
-        const TEXT_PADDING: f32 = 24.0;
-        const MIN_WIDTH: f32 = 160.0;
-        const SOFT_WIDTH: f32 = 560.0;
-        const SOFT_RATIO: f32 = 0.35;
-
-        for node in self.nodes.iter_mut().filter(|n| n.kind == NodeKind::Text) {
-            let Some((text_body, auto_size)) = (match &node.data {
-                NodeData::Text { text_body, auto_size } => Some((text_body.as_str(), *auto_size)),
-                _ => None,
-            }) else {
-                continue;
-            };
-
-            if !auto_size {
-                continue;
-            }
-
-            let visible_text = if text_body.trim().is_empty() {
-                "(空文本)"
-            } else {
-                text_body
-            };
-
-            let widest_line = visible_text
-                .lines()
-                .max_by_key(|line| line.chars().count())
-                .unwrap_or(visible_text);
-
-            let widest_line_galley = painter.layout_no_wrap(
-                widest_line.to_owned(),
-                FontId::proportional(15.0),
-                Color32::from_rgb(250, 240, 210),
-            );
-
-            let raw_width = (widest_line_galley.size().x + TEXT_PADDING).max(MIN_WIDTH);
-            let width = if raw_width <= SOFT_WIDTH {
-                raw_width
-            } else {
-                SOFT_WIDTH + (raw_width - SOFT_WIDTH) * SOFT_RATIO
-            };
-            let wrap_width = (width - TEXT_PADDING).max(40.0);
-            let wrapped_galley = painter.layout(
-                visible_text.to_owned(),
-                FontId::proportional(15.0),
-                Color32::from_rgb(250, 240, 210),
-                wrap_width,
-            );
-
-            node.size = vec2(width, wrapped_galley.size().y + TEXT_PADDING);
-        }
-    }
-
     pub(in crate::app::ui) fn draw_nodes(
         &mut self,
         ui: &mut egui::Ui,
@@ -291,51 +238,93 @@ impl GraphApp {
                     }
                 }
                 NodeKind::Text => {
+                    let hide_text_for_zoom = zoom_scale < self.text_hide_zoom_threshold;
                     let is_editing = self.editing_text_node == Some(node.id);
-                    if !is_editing {
-                        let (preview, auto_size) = match &node.data {
-                            NodeData::Text { text_body, auto_size } if text_body.trim().is_empty() => ("(空文本)", *auto_size),
-                            NodeData::Text { text_body, auto_size } => (text_body.as_str(), *auto_size),
-                            _ => ("(空文本)", true),
-                        };
 
-                        let content_rect = Rect::from_min_max(
-                            node_rect.min + vec2(12.0, 12.0) * zoom_scale,
-                            node_rect.max - vec2(12.0, 12.0) * zoom_scale,
+                    if hide_text_for_zoom {
+                        painter.text(
+                            node_rect.center(),
+                            Align2::CENTER_CENTER,
+                            "缩放过小，已隐藏文本",
+                            FontId::proportional((12.0 * zoom_scale).max(8.0)),
+                            Color32::from_rgb(201, 186, 146),
                         );
+                    } else {
+                        if !is_editing {
+                            let preview = match &node.data {
+                                NodeData::Text { text_body, .. } if text_body.trim().is_empty() => "(空文本)",
+                                NodeData::Text { text_body, .. } => text_body.as_str(),
+                                _ => "(空文本)",
+                            };
 
-                        if content_rect.is_positive() {
-                            let mut text_ui = ui.new_child(
-                                egui::UiBuilder::new()
-                                    .max_rect(content_rect)
-                                    .layout(Layout::top_down(Align::Min)),
+                            let content_rect = Rect::from_min_max(
+                                node_rect.min + vec2(12.0, 12.0) * zoom_scale,
+                                node_rect.max - vec2(12.0, 12.0) * zoom_scale,
                             );
-                            text_ui.set_clip_rect(content_rect);
-                            text_ui.set_width(content_rect.width());
 
-                            text_ui.scope(|ui| {
-                                ui.style_mut().visuals.override_text_color = Some(Color32::from_rgb(250, 240, 210));
-                                CommonMarkViewer::new().show(ui, &mut self.markdown_cache, preview);
-                            });
+                            if content_rect.is_positive() {
+                                let mut text_ui = ui.new_child(
+                                    egui::UiBuilder::new()
+                                        .max_rect(content_rect)
+                                        .layout(Layout::top_down(Align::Min)),
+                                );
+                                text_ui.set_clip_rect(content_rect);
+                                text_ui.set_width(content_rect.width());
 
-                            if auto_size {
-                                let rendered_height = text_ui.min_size().y;
-                                let desired_world_height = (rendered_height / zoom_scale + 24.0).max(60.0);
-                                if let Some(real_node) = self.nodes.iter_mut().find(|n| n.id == node.id) {
-                                    if (real_node.size.y - desired_world_height).abs() > 0.5 {
-                                        real_node.size.y = desired_world_height;
-                                    }
-                                }
+                                egui::ScrollArea::vertical()
+                                    .id_salt(("text-node-preview-scroll", node.id))
+                                    .auto_shrink([false, false])
+                                    .show(&mut text_ui, |ui| {
+                                        ui.set_width(content_rect.width());
+
+                                        let body_size = (15.0 * zoom_scale).round();
+                                        let heading_size = (body_size * 2.2).round();
+
+                                        // Markdown 主题（暖深色）
+                                        let body_color = Color32::from_rgb(236, 228, 208);      // 正文
+                                        let heading_color = Color32::from_rgb(255, 214, 122);   // 标题/强调
+
+                                        let style = ui.style_mut();
+                                        style.visuals.override_text_color = None;
+                                        style.visuals.widgets.noninteractive.fg_stroke.color = body_color;
+                                        style.visuals.widgets.inactive.fg_stroke.color = body_color;
+                                        style.visuals.widgets.active.fg_stroke.color = heading_color;
+                                        style.visuals.hyperlink_color = Color32::from_rgb(122, 196, 255); // 链接
+                                        style.visuals.code_bg_color = Color32::from_rgb(47, 42, 33);      // 代码块背景
+
+                                        style.text_styles.insert(
+                                            egui::TextStyle::Body,
+                                            FontId::proportional(body_size),
+                                        );
+                                        style.text_styles.insert(
+                                            egui::TextStyle::Small,
+                                            FontId::proportional(body_size),
+                                        );
+                                        style.text_styles.insert(
+                                            egui::TextStyle::Button,
+                                            FontId::proportional(body_size),
+                                        );
+                                        style.text_styles.insert(
+                                            egui::TextStyle::Heading,
+                                            FontId::proportional(heading_size),
+                                        );
+                                        style.text_styles.insert(
+                                            egui::TextStyle::Monospace,
+                                            FontId::monospace(body_size),
+                                        );
+
+                                        CommonMarkViewer::new().show(ui, &mut self.markdown_cache, preview);
+                                    });
                             }
                         }
-                    }
 
-                    if is_editing {
-                        let edit_rect = Rect::from_min_max(
-                            node_rect.min + vec2(12.0, 12.0) * zoom_scale,
-                            node_rect.max - vec2(12.0, 12.0) * zoom_scale,
-                        );
-                        text_edit_rect = Some((node.id, edit_rect));
+                        if is_editing {
+                            let edit_rect = Rect::from_min_max(
+                                node_rect.min + vec2(12.0, 12.0) * zoom_scale,
+                                node_rect.max - vec2(12.0, 12.0) * zoom_scale,
+                            );
+                            text_edit_rect = Some((node.id, edit_rect));
+                        }
                     }
 
                     if is_selected {

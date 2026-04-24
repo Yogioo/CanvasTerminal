@@ -9,7 +9,7 @@ pub enum NodeKind {
 }
 
 fn default_text_autosize() -> bool {
-    true
+    false
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

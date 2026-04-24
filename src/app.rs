@@ -102,6 +102,7 @@ pub struct GraphApp {
     workspace_dirty: bool,
     last_title_dirty: Option<bool>,
     markdown_cache: CommonMarkCache,
+    text_hide_zoom_threshold: f32,
 }
 
 impl GraphApp {
@@ -185,6 +186,7 @@ impl GraphApp {
             workspace_dirty: false,
             last_title_dirty: None,
             markdown_cache: CommonMarkCache::default(),
+            text_hide_zoom_threshold: 0.55,
         };
 
         app

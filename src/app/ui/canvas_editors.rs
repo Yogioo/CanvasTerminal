@@ -1,6 +1,6 @@
 use super::super::GraphApp;
 use crate::model::NodeData;
-use eframe::egui::{self, Color32, FontId, Pos2, Rect, TextEdit, Ui};
+use eframe::egui::{self, Align, Color32, FontId, Layout, Pos2, Rect, TextEdit, Ui};
 use egui_term::{TerminalFont, TerminalView};
 
 impl GraphApp {
@@ -29,15 +29,30 @@ impl GraphApp {
             }
 
             let desired_rows = text_body.split('\n').count().max(1);
-            let text_edit = TextEdit::multiline(text_body)
-                .id(text_edit_id)
-                .font(FontId::proportional(15.0 * self.zoom))
-                .text_color(Color32::from_rgb(250, 240, 210))
-                .margin(egui::Margin::ZERO)
-                .desired_width(f32::INFINITY)
-                .desired_rows(desired_rows)
-                .frame(false);
-            let resp = ui.put(edit_rect, text_edit);
+            let mut text_ui = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(edit_rect)
+                    .layout(Layout::top_down(Align::Min)),
+            );
+            text_ui.set_clip_rect(edit_rect);
+
+            let resp = egui::ScrollArea::vertical()
+                .id_salt(("text-node-editor-scroll", id))
+                .auto_shrink([false, false])
+                .show(&mut text_ui, |ui| {
+                    ui.set_width(edit_rect.width());
+                    ui.add(
+                        TextEdit::multiline(text_body)
+                            .id(text_edit_id)
+                            .font(FontId::proportional(15.0 * self.zoom))
+                            .text_color(Color32::from_rgb(250, 240, 210))
+                            .margin(egui::Margin::ZERO)
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(desired_rows)
+                            .frame(false),
+                    )
+                })
+                .inner;
 
             if should_focus_and_select_all {
                 if let Some(mut state) = egui::TextEdit::load_state(ctx, text_edit_id) {

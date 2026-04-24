@@ -287,8 +287,22 @@ impl GraphApp {
                 .find(|n| n.id == node_id)
                 .is_some_and(|n| n.kind == NodeKind::Terminal && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT)
         });
+        let pointer_over_text_node_before_zoom = pointer_pos.is_some_and(|p| {
+            let local = self.screen_to_world_pos(rect, p);
+            let Some((node_id, _)) = self.find_node_at(local) else {
+                return false;
+            };
+            self.nodes
+                .iter()
+                .find(|n| n.id == node_id)
+                .is_some_and(|n| n.kind == NodeKind::Text)
+        });
 
-        if pointer_in_canvas && !pointer_over_terminal_before_zoom && !just_focused {
+        if pointer_in_canvas
+            && !pointer_over_terminal_before_zoom
+            && !pointer_over_text_node_before_zoom
+            && !just_focused
+        {
             let zoom_change = ctx.input(|i| {
                 let pinch = i.zoom_delta();
                 let wheel = (i.raw_scroll_delta.y * 0.0015).exp();
@@ -808,7 +822,11 @@ impl GraphApp {
         self.draw_link_preview(&painter, rect);
         self.draw_cut_path(&painter, rect);
 
-        self.autosize_text_nodes(&painter);
+        if self.zoom < self.text_hide_zoom_threshold && self.editing_text_node.is_some() {
+            self.editing_text_node = None;
+            self.pending_text_focus = None;
+        }
+
         self.ensure_image_textures(ctx);
 
         let (text_edit_rect, title_edit_rect, startup_edit_rect) =
