@@ -214,34 +214,6 @@ impl GraphApp {
         self.camera_world_center = target_center;
         self.sync_pan_from_camera(canvas_rect);
 
-        let projected_center = self.world_to_screen_pos(canvas_rect, target_center);
-        let screen_center = canvas_rect.center();
-        let error = projected_center - screen_center;
-
-        eprintln!(
-            "[focus] canvas=({:.2},{:.2},{:.2},{:.2}) target_rect=({:.2},{:.2},{:.2},{:.2}) target_center=({:.4},{:.4}) zoom={:.8} camera=({:.4},{:.4}) pan=({:.4},{:.4}) projected=({:.4},{:.4}) screen_center=({:.4},{:.4}) error=({:.6},{:.6})",
-            canvas_rect.min.x,
-            canvas_rect.min.y,
-            canvas_rect.max.x,
-            canvas_rect.max.y,
-            target_world_rect.min.x,
-            target_world_rect.min.y,
-            target_world_rect.max.x,
-            target_world_rect.max.y,
-            target_center.x,
-            target_center.y,
-            self.zoom,
-            self.camera_world_center.x,
-            self.camera_world_center.y,
-            self.pan.x,
-            self.pan.y,
-            projected_center.x,
-            projected_center.y,
-            screen_center.x,
-            screen_center.y,
-            error.x,
-            error.y
-        );
     }
 
     fn selected_nodes_world_rect(&self) -> Option<Rect> {
@@ -259,22 +231,12 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn focus_selected_or_all(&mut self, canvas_rect: Rect) {
-        let selected_count = self.selected_nodes.len();
         let selected_rect = self.selected_nodes_world_rect();
         let all_rect = self.all_nodes_world_rect();
         let target = selected_rect.or(all_rect);
 
-        eprintln!(
-            "[focus] trigger selected_count={} has_selected_rect={} has_all_rect={}",
-            selected_count,
-            selected_rect.is_some(),
-            all_rect.is_some()
-        );
-
         if let Some(target_world_rect) = target {
             self.focus_rect(canvas_rect, target_world_rect);
-        } else {
-            eprintln!("[focus] skipped: no target rect");
         }
     }
 
