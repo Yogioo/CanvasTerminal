@@ -581,8 +581,8 @@ impl GraphApp {
 
         if let Some((drag_id, offset)) = self.dragging {
             if ctx.input(|i| i.pointer.primary_down()) && !ctx.input(|i| i.key_down(egui::Key::Space)) {
-                if let Some(pointer_pos) = response.interact_pointer_pos() {
-                    let local = self.screen_to_world_pos(rect, pointer_pos);
+                if let Some(pointer) = pointer_pos {
+                    let local = self.screen_to_world_pos(rect, pointer);
                     if let Some((start_pointer, start_nodes)) = self.drag_group_start.clone() {
                         let delta = local - start_pointer;
                         for (node_id, start_pos) in start_nodes {

@@ -320,6 +320,7 @@ impl GraphApp {
                                             egui::TextStyle::Monospace,
                                             FontId::monospace(body_size),
                                         );
+                                        style.interaction.selectable_labels = false;
 
                                         CommonMarkViewer::new().show(ui, &mut self.markdown_cache, preview);
                                     });
