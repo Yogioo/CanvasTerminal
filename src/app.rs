@@ -103,6 +103,7 @@ pub struct GraphApp {
     last_title_dirty: Option<bool>,
     markdown_cache: CommonMarkCache,
     text_hide_zoom_threshold: f32,
+    terminal_hide_zoom_threshold: f32,
 }
 
 impl GraphApp {
@@ -187,6 +188,7 @@ impl GraphApp {
             last_title_dirty: None,
             markdown_cache: CommonMarkCache::default(),
             text_hide_zoom_threshold: 0.55,
+            terminal_hide_zoom_threshold: 0.3,
         };
 
         app

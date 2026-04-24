@@ -217,15 +217,21 @@ impl GraphApp {
                         ),
                     );
 
+                    let hide_terminal_for_zoom =
+                        zoom_scale < self.terminal_hide_zoom_threshold
+                            && self.editing_startup_node != Some(node.id);
+
                     if let Some(term_rect) = self.terminal_content_rect_screen(node.id, rect) {
-                        if self.editing_startup_node == Some(node.id) {
-                            let overlay_rect = Rect::from_min_max(
-                                term_rect.min + vec2(10.0, 10.0) * zoom_scale,
-                                term_rect.max - vec2(10.0, 10.0) * zoom_scale,
-                            );
-                            startup_edit_rect = Some((node.id, overlay_rect));
+                        if !hide_terminal_for_zoom {
+                            if self.editing_startup_node == Some(node.id) {
+                                let overlay_rect = Rect::from_min_max(
+                                    term_rect.min + vec2(10.0, 10.0) * zoom_scale,
+                                    term_rect.max - vec2(10.0, 10.0) * zoom_scale,
+                                );
+                                startup_edit_rect = Some((node.id, overlay_rect));
+                            }
+                            self.draw_embedded_terminal_for_rect(ui, ctx, rect, node.id, term_rect);
                         }
-                        self.draw_embedded_terminal_for_rect(ui, ctx, rect, node.id, term_rect);
                     }
 
                     if is_selected {

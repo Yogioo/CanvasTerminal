@@ -282,10 +282,13 @@ impl GraphApp {
             let Some((node_id, _)) = self.find_node_at(local) else {
                 return false;
             };
-            self.nodes
-                .iter()
-                .find(|n| n.id == node_id)
-                .is_some_and(|n| n.kind == NodeKind::Terminal && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT)
+            self.nodes.iter().find(|n| n.id == node_id).is_some_and(|n| {
+                let terminal_content_visible = self.zoom >= self.terminal_hide_zoom_threshold
+                    || self.editing_startup_node == Some(node_id);
+                n.kind == NodeKind::Terminal
+                    && terminal_content_visible
+                    && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT
+            })
         });
         let pointer_over_text_node_before_zoom = pointer_pos.is_some_and(|p| {
             let local = self.screen_to_world_pos(rect, p);
@@ -330,10 +333,13 @@ impl GraphApp {
             let Some((node_id, _)) = self.find_node_at(local) else {
                 return false;
             };
-            self.nodes
-                .iter()
-                .find(|n| n.id == node_id)
-                .is_some_and(|n| n.kind == NodeKind::Terminal && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT)
+            self.nodes.iter().find(|n| n.id == node_id).is_some_and(|n| {
+                let terminal_content_visible = self.zoom >= self.terminal_hide_zoom_threshold
+                    || self.editing_startup_node == Some(node_id);
+                n.kind == NodeKind::Terminal
+                    && terminal_content_visible
+                    && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT
+            })
         });
 
         let current_time = ctx.input(|i| i.time);
