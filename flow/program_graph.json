@@ -37,13 +37,13 @@
       "kind": "Text",
       "data": {
         "Text": {
-          "text_body": "pi --append-system-prompt \"你是Planner, 你将目标拆解成多个任务目标并写入工作目录下的 ./Tasks.md 最后调用命令 canvas done '你完成的摘要信息'\" --model openai-codex/gpt-5.3-codex",
+          "text_body": "pi --append-system-prompt \"你是Planner, 你将目标拆解成多个任务目标并写入工作目录下的 ./Tasks.md 最后调用命令 canvas done '你完成的摘要信息'\" --model openai-codex/gpt-5.4",
           "auto_size": false
         }
       },
-      "pos_x": -247.71289,
-      "pos_y": 194.01411,
-      "size_x": 971.06616,
+      "pos_x": -89.032104,
+      "pos_y": 196.59306,
+      "size_x": 762.7319,
       "size_y": 60.0
     },
     {
@@ -56,39 +56,9 @@
           "auto_size": false
         }
       },
-      "pos_x": 767.41394,
-      "pos_y": 198.89606,
-      "size_x": 842.00415,
-      "size_y": 60.0
-    },
-    {
-      "id": 12,
-      "uid": "9ac41452-7e46-44cd-a461-b1e7fbf8435a",
-      "kind": "Terminal",
-      "data": {
-        "Terminal": {
-          "title": "Tester",
-          "startup_script": "pi --append-system-prompt \"你是Tester, 你将读取工作目录下的 ./Tasks,这里面是需要完成的任务, 你将获得Executer 完成的信息摘要,然后进行测试, 测试是否完成任务, 返回测试结论, 是否完成, 是否有问题需要修复\" --model openai-codex/gpt-5.3-codex"
-        }
-      },
-      "pos_x": 1655.2954,
-      "pos_y": 268.5141,
-      "size_x": 840.0,
-      "size_y": 660.0
-    },
-    {
-      "id": 13,
-      "uid": "8082d5a5-d8fb-4b3e-9e58-d47f9f2030a5",
-      "kind": "Text",
-      "data": {
-        "Text": {
-          "text_body": "pi --append-system-prompt \"你是Tester, 你将读取工作目录下的 ./Tasks,这里面是需要完成的任务, 你将获得Executer 完成的信息摘要,然后进行测试, 测试是否完成任务, 返回测试结论, 是否完成, 是否有问题需要修复\" --model openai-codex/gpt-5.3-codex",
-          "auto_size": false
-        }
-      },
-      "pos_x": 1673.6945,
-      "pos_y": 188.6376,
-      "size_x": 992.0425,
+      "pos_x": 914.96594,
+      "pos_y": 189.67401,
+      "size_x": 466.97595,
       "size_y": 60.0
     },
     {
@@ -97,14 +67,14 @@
       "kind": "Terminal",
       "data": {
         "Terminal": {
-          "title": "Terminal",
+          "title": "CEO",
           "startup_script": "pi --append-system-prompt \"你是项目经理, 你需要先了解我们当前的项目, 然后读取./docs/todo.md 文件,判断我们当前最优先应该做的任务优先级,与用户讨论为什么, 如果用户确认后调用命令 canvas done '讨论得出的结论(也就是需要完成的目标)'\" --model openai-codex/gpt-5.4"
         }
       },
-      "pos_x": -1244.3938,
-      "pos_y": 267.49622,
-      "size_x": 907.2262,
-      "size_y": 1024.5502
+      "pos_x": -1161.2137,
+      "pos_y": 251.66556,
+      "size_x": 951.42883,
+      "size_y": 685.6636
     },
     {
       "id": 16,
@@ -116,10 +86,55 @@
           "auto_size": false
         }
       },
-      "pos_x": -1261.9019,
-      "pos_y": 60.900696,
-      "size_x": 883.28796,
-      "size_y": 193.69147
+      "pos_x": -1137.9308,
+      "pos_y": 176.58653,
+      "size_x": 887.43964,
+      "size_y": 60.0
+    },
+    {
+      "id": 18,
+      "uid": "94c8497a-95e8-478d-9ec3-5cbbf9518d4d",
+      "kind": "Text",
+      "data": {
+        "Text": {
+          "text_body": "当前项目急需解决自动化测试流程. 目前每次都需要人工手动测试, 非常麻烦, 我的一个思路可能是新增一个agent用的cli,比如叫做 debug_canvas_cli 他可以调用获取我们调试用的信息, 也能完成所有人类能做的操作(要能可拓展, 最好是底层方法)",
+          "auto_size": false
+        }
+      },
+      "pos_x": -1858.622,
+      "pos_y": 557.09564,
+      "size_x": 510.4823,
+      "size_y": 154.3133
+    },
+    {
+      "id": 19,
+      "uid": "a03b5373-2d24-471b-bb08-a75e5bf9ddd4",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Terminal",
+          "startup_script": "pi"
+        }
+      },
+      "pos_x": 1676.5651,
+      "pos_y": 262.7646,
+      "size_x": 840.0,
+      "size_y": 660.0
+    },
+    {
+      "id": 20,
+      "uid": "19da866e-2659-4e66-bc39-3a51c80fa069",
+      "kind": "Text",
+      "data": {
+        "Text": {
+          "text_body": "你是 Tester 请你使用 canvas-agent-events 技能测试一下我们的任务完成情况",
+          "auto_size": false
+        }
+      },
+      "pos_x": 1670.9152,
+      "pos_y": 181.81711,
+      "size_x": 650.3286,
+      "size_y": 69.41812
     }
   ],
   "edges": [
@@ -128,17 +143,21 @@
       8
     ],
     [
-      8,
-      12
-    ],
-    [
       15,
       7
+    ],
+    [
+      18,
+      15
+    ],
+    [
+      8,
+      19
     ]
   ],
   "view": {
-    "pan_x": 1155.23,
-    "pan_y": -207.20361,
-    "zoom": 0.71718395
+    "pan_x": -1528.8914,
+    "pan_y": -204.7752,
+    "zoom": 1.2899334
   }
 }

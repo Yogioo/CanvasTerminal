@@ -4,14 +4,13 @@ cd /d "%~dp0.."
 
 set "APP_BIN=egui_node_graph_mvp"
 set "APP_EXE_NAME=CanvasTerminal.exe"
-set "DIST_ROOT=dist\app"
+set "DIST_ROOT=dist"
 
 echo Building Canvas app (release)...
 cargo build --release --bin %APP_BIN%
 if errorlevel 1 exit /b %ERRORLEVEL%
 
-if exist "%DIST_ROOT%" rmdir /s /q "%DIST_ROOT%"
-mkdir "%DIST_ROOT%"
+if not exist "%DIST_ROOT%" mkdir "%DIST_ROOT%"
 if errorlevel 1 exit /b %ERRORLEVEL%
 
 copy /y "target\release\%APP_BIN%.exe" "%DIST_ROOT%\%APP_EXE_NAME%" >nul

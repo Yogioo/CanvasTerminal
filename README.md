@@ -41,39 +41,9 @@ cargo run
 
 ---
 
-## 3) 打包
+## 3) 打包与使用（统一流程）
 
-### 仅打包主程序
-
-```cmd
-scripts\package-canvas-app.cmd
-```
-
-输出：
-
-```text
-dist/app/CanvasTerminal.exe
-```
-
-### 仅打包 agent skill + CLI
-
-```cmd
-scripts\package-canvas-agent-kit.cmd
-```
-
-输出：
-
-```text
-dist/canvas_skills/canvas-agent-events/
-```
-
-其中包含：
-
-```text
-SKILL.md
-bin/canvas.exe
-scripts/canvas.cmd
-```
+统一使用打包产物，避免版本混淆。
 
 ### 一键打包全部
 
@@ -84,20 +54,33 @@ scripts\package-all.cmd
 输出：
 
 ```text
-dist/app/CanvasTerminal.exe
-dist/canvas_skills/canvas-agent-events/
+dist/CanvasTerminal.exe
+dist/canvas.exe
+dist/SKILL.md
 ```
 
-### 仅重新编译 CLI（开发用）
+### 运行约定
 
-Debug:
+- App 使用：`dist\CanvasTerminal.exe`
+- CLI 一律使用：`dist\canvas.exe`
+- 不建议直接使用裸命令 `canvas`（可能命中 PATH 里的旧版本）
+
+---
+
+## 4) 自动化调试接口
+
+- 协议文档：`docs/automation-protocol.md`
+- Debug API：`POST /automation`
+- CLI 示例：
 
 ```cmd
-scripts\build-canvas-cli.cmd
+dist\canvas.exe debug graph get --pretty
+dist\canvas.exe debug node create --kind text --x 120 --y 100 --text "hello"
+dist\canvas.exe debug inject terminal --node-id 2 --command "echo smoke" --wait --timeout 5000
 ```
 
-Release:
+E2E smoke（可选，要求 app 正在运行）：
 
 ```cmd
-scripts\build-canvas-cli-release.cmd
+scripts\e2e-smoke.cmd
 ```

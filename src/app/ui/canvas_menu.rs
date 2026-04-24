@@ -4,21 +4,30 @@ use eframe::egui::{self, Color32, Pos2};
 impl GraphApp {
     fn run_create_action(&mut self, action_id: usize, spawn_pos: Pos2) {
         match action_id {
-            0 => self.create_terminal_node(spawn_pos),
-            1 => self.create_text_node(spawn_pos, true),
+            0 => {
+                self.create_terminal_node(spawn_pos);
+            }
+            1 => {
+                self.create_text_node(spawn_pos, true);
+            }
             _ => {}
         }
     }
 
     fn context_menu_spawn_pos(&self) -> Pos2 {
-        self.context_menu_local_pos.unwrap_or(Pos2::new(100.0, 100.0))
+        self.context_menu_local_pos
+            .unwrap_or(Pos2::new(100.0, 100.0))
     }
 
     fn run_node_order_action(&mut self, node_id: usize, action: NodeOrderAction) {
         self.reorder_from_context(node_id, action);
     }
 
-    pub(in crate::app::ui) fn show_canvas_context_menu(&mut self, response: &egui::Response, ctx: &egui::Context) {
+    pub(in crate::app::ui) fn show_canvas_context_menu(
+        &mut self,
+        response: &egui::Response,
+        ctx: &egui::Context,
+    ) {
         response.context_menu(|ui| {
             let visuals = ui.visuals_mut();
             visuals.window_fill = Color32::from_rgb(245, 245, 245);
@@ -35,15 +44,11 @@ impl GraphApp {
                 ui.label(format!("节点 #{node_id}"));
                 ui.separator();
 
-                let node_state = self
-                    .nodes
-                    .iter()
-                    .find(|n| n.id == node_id)
-                    .map(|n| {
-                        let is_terminal = matches!(n.kind, crate::model::NodeKind::Terminal);
-                        let is_text = matches!(n.kind, crate::model::NodeKind::Text);
-                        (is_terminal, is_text)
-                    });
+                let node_state = self.nodes.iter().find(|n| n.id == node_id).map(|n| {
+                    let is_terminal = matches!(n.kind, crate::model::NodeKind::Terminal);
+                    let is_text = matches!(n.kind, crate::model::NodeKind::Text);
+                    (is_terminal, is_text)
+                });
 
                 let is_terminal_node = node_state.is_some_and(|(is_terminal, _)| is_terminal);
                 let is_text_node = node_state.is_some_and(|(_, is_text)| is_text);
@@ -57,7 +62,6 @@ impl GraphApp {
                     self.complete_text_node_and_forward(node_id);
                     ui.close_menu();
                 }
-
 
                 if ui.button("置于顶层").clicked() {
                     self.run_node_order_action(node_id, NodeOrderAction::BringToFront);

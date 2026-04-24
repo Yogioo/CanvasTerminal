@@ -1,10 +1,18 @@
-use egui_node_graph_mvp::event_protocol::{DoneEvent, DEFAULT_CANVAS_API};
+use egui_node_graph_mvp::event_protocol::{
+    AutomationRequest, AutomationResponse, DoneEvent, DEFAULT_CANVAS_API,
+};
+use serde_json::{json, Value};
+use std::collections::VecDeque;
 use std::env;
 
 fn print_help() {
     println!(
-        "canvas - agent event CLI\n\nUSAGE:\n  canvas <COMMAND> [ARGS]\n\nCOMMANDS:\n  help                 Show this help message\n  ping                 Check whether the Canvas app event server is reachable\n  done <summary>       Emit a done event from the current terminal node\n\nENVIRONMENT:\n  CANVAS_NODE_UID      Current terminal node uid\n  CANVAS_API           Canvas app API base URL (default: http://127.0.0.1:4545)\n\nEXAMPLES:\n  canvas done \"已完成测试\"\n  canvas ping"
+        "canvas - agent/debug CLI\n\nUSAGE:\n  canvas <COMMAND> [ARGS]\n\nCOMMANDS:\n  help                                  Show this help\n  ping                                  Check whether Canvas app event server is reachable\n  done <summary>                        Emit a done event from the current terminal node\n  debug graph get [--pretty] [--jsonpath p]\n  debug node create|update|move|delete ...\n  debug edge create|reconnect|delete ...\n  debug inject text|terminal ...\n  debug terminal restart --node-id <id>\n\nENVIRONMENT:\n  CANVAS_NODE_UID      Current terminal node uid\n  CANVAS_API           Canvas app API base URL (default: http://127.0.0.1:4545)\n\nEXAMPLES:\n  canvas debug graph get --pretty\n  canvas debug node create --kind text --x 200 --y 120 --text \"hello\"\n  canvas debug inject terminal --node-id 2 --command \"echo ok\" --wait"
     );
+}
+
+fn api_base() -> String {
+    env::var("CANVAS_API").unwrap_or_else(|_| DEFAULT_CANVAS_API.to_owned())
 }
 
 fn command_done(args: Vec<String>) {
@@ -18,14 +26,9 @@ fn command_done(args: Vec<String>) {
         eprintln!("error: CANVAS_NODE_UID is missing");
         std::process::exit(1);
     });
-    let api = env::var("CANVAS_API").unwrap_or_else(|_| DEFAULT_CANVAS_API.to_owned());
-    let url = format!("{}/done", api.trim_end_matches('/'));
 
-    let response = ureq::post(&url).send_json(serde_json::json!(DoneEvent {
-        node_uid,
-        summary,
-    }));
-
+    let url = format!("{}/done", api_base().trim_end_matches('/'));
+    let response = ureq::post(&url).send_json(serde_json::json!(DoneEvent { node_uid, summary }));
     match response {
         Ok(_) => println!("ok"),
         Err(err) => {
@@ -36,22 +39,278 @@ fn command_done(args: Vec<String>) {
 }
 
 fn command_ping() {
-    let api = env::var("CANVAS_API").unwrap_or_else(|_| DEFAULT_CANVAS_API.to_owned());
-    let url = format!("{}/ping", api.trim_end_matches('/'));
-
+    let url = format!("{}/ping", api_base().trim_end_matches('/'));
     match ureq::get(&url).call() {
+        Ok(response) if response.status() == 200 => println!("ok"),
         Ok(response) => {
-            if response.status() == 200 {
-                println!("ok");
-            } else {
-                eprintln!("error: unexpected status {}", response.status());
-                std::process::exit(1);
-            }
+            eprintln!("error: unexpected status {}", response.status());
+            std::process::exit(1);
         }
         Err(err) => {
             eprintln!("error: failed to reach canvas app: {err}");
             std::process::exit(1);
         }
+    }
+}
+
+fn pop_flag_value(args: &mut VecDeque<String>, flag: &str) -> Option<String> {
+    let mut idx = 0usize;
+    while idx < args.len() {
+        if args[idx] == flag {
+            args.remove(idx);
+            return args.remove(idx);
+        }
+        idx += 1;
+    }
+    None
+}
+
+fn pop_flag(args: &mut VecDeque<String>, flag: &str) -> bool {
+    let mut idx = 0usize;
+    while idx < args.len() {
+        if args[idx] == flag {
+            args.remove(idx);
+            return true;
+        }
+        idx += 1;
+    }
+    false
+}
+
+fn parse_usize(value: Option<String>, name: &str) -> usize {
+    value
+        .unwrap_or_else(|| {
+            eprintln!("error: missing {name}");
+            std::process::exit(1);
+        })
+        .parse::<usize>()
+        .unwrap_or_else(|_| {
+            eprintln!("error: invalid {name}");
+            std::process::exit(1);
+        })
+}
+
+fn parse_f32(value: Option<String>, name: &str) -> f32 {
+    value
+        .unwrap_or_else(|| {
+            eprintln!("error: missing {name}");
+            std::process::exit(1);
+        })
+        .parse::<f32>()
+        .unwrap_or_else(|_| {
+            eprintln!("error: invalid {name}");
+            std::process::exit(1);
+        })
+}
+
+fn build_debug_action(args: Vec<String>) -> (AutomationRequest, bool, Option<String>) {
+    let mut args = VecDeque::from(args);
+    let Some(group) = args.pop_front() else {
+        eprintln!("usage: canvas debug <graph|node|edge|inject|terminal> ...");
+        std::process::exit(1);
+    };
+    let Some(op) = args.pop_front() else {
+        eprintln!("usage: canvas debug {group} <operation> ...");
+        std::process::exit(1);
+    };
+
+    let pretty = pop_flag(&mut args, "--pretty");
+    let jsonpath = pop_flag_value(&mut args, "--jsonpath");
+    let request_id = pop_flag_value(&mut args, "--request-id");
+
+    let (action, payload) = match (group.as_str(), op.as_str()) {
+        ("graph", "get") => {
+            let since_version =
+                pop_flag_value(&mut args, "--since-version").and_then(|v| v.parse::<u64>().ok());
+            ("graph.get", json!({ "since_version": since_version }))
+        }
+        ("node", "create") => {
+            let kind = pop_flag_value(&mut args, "--kind").unwrap_or_else(|| "text".to_owned());
+            let x = parse_f32(pop_flag_value(&mut args, "--x"), "--x");
+            let y = parse_f32(pop_flag_value(&mut args, "--y"), "--y");
+            let text = pop_flag_value(&mut args, "--text");
+            let title = pop_flag_value(&mut args, "--title");
+            let startup_script = pop_flag_value(&mut args, "--startup-script");
+            let image_path = pop_flag_value(&mut args, "--image-path");
+            (
+                "node.create",
+                json!({
+                    "kind": kind,
+                    "x": x,
+                    "y": y,
+                    "text_body": text,
+                    "title": title,
+                    "startup_script": startup_script,
+                    "image_path": image_path,
+                }),
+            )
+        }
+        ("node", "update") => {
+            let id = parse_usize(pop_flag_value(&mut args, "--id"), "--id");
+            let text = pop_flag_value(&mut args, "--text");
+            let auto_size = pop_flag_value(&mut args, "--auto-size").map(|v| v == "true");
+            let title = pop_flag_value(&mut args, "--title");
+            let startup_script = pop_flag_value(&mut args, "--startup-script");
+            (
+                "node.update",
+                json!({
+                    "id": id,
+                    "text_body": text,
+                    "auto_size": auto_size,
+                    "title": title,
+                    "startup_script": startup_script,
+                }),
+            )
+        }
+        ("node", "move") => {
+            let id = parse_usize(pop_flag_value(&mut args, "--id"), "--id");
+            let x = parse_f32(pop_flag_value(&mut args, "--x"), "--x");
+            let y = parse_f32(pop_flag_value(&mut args, "--y"), "--y");
+            ("node.move", json!({"id": id, "x": x, "y": y}))
+        }
+        ("node", "delete") => {
+            let id = parse_usize(pop_flag_value(&mut args, "--id"), "--id");
+            ("node.delete", json!({"id": id}))
+        }
+        ("edge", "create") => {
+            let from = parse_usize(pop_flag_value(&mut args, "--from"), "--from");
+            let to = parse_usize(pop_flag_value(&mut args, "--to"), "--to");
+            ("edge.create", json!({"from": from, "to": to}))
+        }
+        ("edge", "reconnect") => {
+            let from = parse_usize(pop_flag_value(&mut args, "--from"), "--from");
+            let to = parse_usize(pop_flag_value(&mut args, "--to"), "--to");
+            let new_from = parse_usize(pop_flag_value(&mut args, "--new-from"), "--new-from");
+            let new_to = parse_usize(pop_flag_value(&mut args, "--new-to"), "--new-to");
+            (
+                "edge.reconnect",
+                json!({
+                    "from": from,
+                    "to": to,
+                    "new_from": new_from,
+                    "new_to": new_to,
+                }),
+            )
+        }
+        ("edge", "delete") => {
+            let from = parse_usize(pop_flag_value(&mut args, "--from"), "--from");
+            let to = parse_usize(pop_flag_value(&mut args, "--to"), "--to");
+            ("edge.delete", json!({"from": from, "to": to}))
+        }
+        ("inject", "text") => {
+            let node_id = parse_usize(pop_flag_value(&mut args, "--node-id"), "--node-id");
+            let mode = pop_flag_value(&mut args, "--mode").unwrap_or_else(|| "replace".to_owned());
+            let text = pop_flag_value(&mut args, "--text").unwrap_or_default();
+            (
+                "inject.text",
+                json!({"node_id": node_id, "mode": mode, "text": text}),
+            )
+        }
+        ("inject", "terminal") => {
+            let node_id = parse_usize(pop_flag_value(&mut args, "--node-id"), "--node-id");
+            let command = pop_flag_value(&mut args, "--command").unwrap_or_default();
+            let wait = pop_flag(&mut args, "--wait");
+            let timeout =
+                pop_flag_value(&mut args, "--timeout").and_then(|v| v.parse::<u64>().ok());
+            (
+                "inject.terminal",
+                json!({
+                    "node_id": node_id,
+                    "command": command,
+                    "wait": wait,
+                    "timeout_ms": timeout,
+                }),
+            )
+        }
+        ("terminal", "restart") => {
+            let node_id = parse_usize(pop_flag_value(&mut args, "--node-id"), "--node-id");
+            ("terminal.restart", json!({"node_id": node_id}))
+        }
+        _ => {
+            eprintln!("error: unknown debug command '{} {}'", group, op);
+            std::process::exit(1);
+        }
+    };
+
+    if !args.is_empty() {
+        eprintln!("warning: ignored args: {:?}", args);
+    }
+
+    (
+        AutomationRequest {
+            action: action.to_owned(),
+            payload,
+            request_id,
+            timestamp_ms: None,
+        },
+        pretty,
+        jsonpath,
+    )
+}
+
+fn value_at_jsonpath<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
+    if path.is_empty() {
+        return Some(value);
+    }
+
+    let mut cursor = value;
+    for raw in path.split('.') {
+        if raw.is_empty() {
+            continue;
+        }
+
+        if let Ok(index) = raw.parse::<usize>() {
+            cursor = cursor.get(index)?;
+        } else {
+            cursor = cursor.get(raw)?;
+        }
+    }
+
+    Some(cursor)
+}
+
+fn print_json(value: &Value, pretty: bool) {
+    let text = if pretty {
+        serde_json::to_string_pretty(value)
+    } else {
+        serde_json::to_string(value)
+    }
+    .unwrap_or_else(|_| "{}".to_owned());
+    println!("{text}");
+}
+
+fn command_debug(args: Vec<String>) {
+    let (request, pretty, jsonpath) = build_debug_action(args);
+    let url = format!("{}/automation", api_base().trim_end_matches('/'));
+
+    let response =
+        match ureq::post(&url).send_json(serde_json::to_value(request).unwrap_or(Value::Null)) {
+            Ok(r) => r,
+            Err(err) => {
+                eprintln!("error: failed to call automation api: {err}");
+                std::process::exit(1);
+            }
+        };
+
+    let parsed: AutomationResponse = match response.into_json() {
+        Ok(v) => v,
+        Err(err) => {
+            eprintln!("error: invalid automation response: {err}");
+            std::process::exit(1);
+        }
+    };
+
+    let mut output = serde_json::to_value(&parsed).unwrap_or(Value::Null);
+    if let Some(path) = jsonpath {
+        output = value_at_jsonpath(&output, &path)
+            .cloned()
+            .unwrap_or(Value::Null);
+    }
+
+    print_json(&output, pretty);
+
+    if !parsed.ok {
+        std::process::exit(2);
     }
 }
 
@@ -66,6 +325,7 @@ fn main() {
         "-h" | "--help" | "help" => print_help(),
         "ping" => command_ping(),
         "done" => command_done(args.collect()),
+        "debug" => command_debug(args.collect()),
         other => {
             eprintln!("error: unknown command '{other}'\n");
             print_help();

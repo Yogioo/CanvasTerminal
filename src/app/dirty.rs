@@ -4,6 +4,7 @@ use eframe::egui::{self, vec2, Color32, CornerRadius};
 impl GraphApp {
     pub(in crate::app) fn mark_workspace_dirty(&mut self) {
         self.workspace_dirty = true;
+        self.bump_automation_state_version();
     }
 
     pub(in crate::app) fn mark_workspace_clean(&mut self) {
@@ -35,13 +36,17 @@ impl GraphApp {
         let screen_rect = ctx.screen_rect();
         let radius = 5.0;
         let margin = vec2(12.0, 12.0);
-        let pos = egui::pos2(screen_rect.right() - margin.x - radius, screen_rect.bottom() - margin.y - radius);
+        let pos = egui::pos2(
+            screen_rect.right() - margin.x - radius,
+            screen_rect.bottom() - margin.y - radius,
+        );
 
         egui::Area::new("workspace_dirty_indicator".into())
             .order(egui::Order::Foreground)
             .fixed_pos(pos - vec2(radius, radius))
             .show(ctx, |ui| {
-                let (rect, _) = ui.allocate_exact_size(vec2(radius * 2.0, radius * 2.0), egui::Sense::hover());
+                let (rect, _) =
+                    ui.allocate_exact_size(vec2(radius * 2.0, radius * 2.0), egui::Sense::hover());
                 ui.painter().rect_filled(
                     rect,
                     CornerRadius::same(radius as u8),

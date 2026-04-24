@@ -42,14 +42,18 @@ impl GraphApp {
         id
     }
 
-    pub(in crate::app) fn create_terminal_node(&mut self, pos: Pos2) {
+    pub(in crate::app) fn create_terminal_node(&mut self, pos: Pos2) -> usize {
         let node = self.new_base_node(NodeKind::Terminal, pos, vec2(840.0, 660.0));
-        self.push_node_and_select(node);
+        self.push_node_and_select(node)
     }
 
-    pub(in crate::app) fn create_text_node(&mut self, pos: Pos2, edit_now: bool) {
+    pub(in crate::app) fn create_text_node(&mut self, pos: Pos2, edit_now: bool) -> usize {
         let mut node = self.new_base_node(NodeKind::Text, pos, vec2(260.0, 140.0));
-        if let NodeData::Text { text_body, auto_size } = &mut node.data {
+        if let NodeData::Text {
+            text_body,
+            auto_size,
+        } = &mut node.data
+        {
             *text_body = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
             *auto_size = false;
         }
@@ -58,6 +62,7 @@ impl GraphApp {
             self.editing_text_node = Some(id);
             self.pending_text_focus = Some(id);
         }
+        id
     }
 
     pub(in crate::app) fn advance_spawn_pos_below_selected(&self, spawn_pos: &mut Pos2) {
@@ -68,7 +73,11 @@ impl GraphApp {
         }
     }
 
-    pub(in crate::app) fn create_image_node_from_path(&mut self, pos: Pos2, image_path: String) {
+    pub(in crate::app) fn create_image_node_from_path(
+        &mut self,
+        pos: Pos2,
+        image_path: String,
+    ) -> usize {
         let size = image::image_dimensions(&image_path)
             .ok()
             .filter(|(w, h)| *w > 0 && *h > 0)
@@ -77,13 +86,17 @@ impl GraphApp {
 
         let mut node = self.new_base_node(NodeKind::Image, pos, size);
         if node.size.y > 0.0 {
-            self.image_aspects.insert(node.id, node.size.x / node.size.y);
+            self.image_aspects
+                .insert(node.id, node.size.x / node.size.y);
         }
 
-        if let NodeData::Image { image_path: stored_path } = &mut node.data {
+        if let NodeData::Image {
+            image_path: stored_path,
+        } = &mut node.data
+        {
             *stored_path = image_path;
         }
-        self.push_node_and_select(node);
+        self.push_node_and_select(node)
     }
 
     pub(in crate::app) fn create_image_node_from_bytes(
@@ -97,7 +110,9 @@ impl GraphApp {
                 self.create_image_node_from_path(pos, relative_path);
             }
             Err(err) => {
-                eprintln!("failed to persist dropped image bytes, fallback to in-memory image: {err}");
+                eprintln!(
+                    "failed to persist dropped image bytes, fallback to in-memory image: {err}"
+                );
 
                 let mut size = vec2(320.0, 220.0);
                 if let Ok(color_image) = Self::decode_image_bytes(&bytes) {
@@ -108,7 +123,10 @@ impl GraphApp {
                 }
 
                 let mut node = self.new_base_node(NodeKind::Image, pos, size);
-                if let NodeData::Image { image_path: stored_path } = &mut node.data {
+                if let NodeData::Image {
+                    image_path: stored_path,
+                } = &mut node.data
+                {
                     *stored_path = display_name;
                 }
                 let id = self.push_node_and_select(node);
@@ -135,13 +153,19 @@ impl GraphApp {
                 let aspect = if h == 0 { 1.0 } else { w as f32 / h as f32 };
 
                 let mut node = self.new_base_node(NodeKind::Image, pos, vec2(w as f32, h as f32));
-                if let NodeData::Image { image_path: stored_path } = &mut node.data {
+                if let NodeData::Image {
+                    image_path: stored_path,
+                } = &mut node.data
+                {
                     *stored_path = display_name;
                 }
                 let id = self.push_node_and_select(node);
 
-                let texture =
-                    ctx.load_texture(format!("image-node-{id}"), color_image, TextureOptions::LINEAR);
+                let texture = ctx.load_texture(
+                    format!("image-node-{id}"),
+                    color_image,
+                    TextureOptions::LINEAR,
+                );
                 self.image_textures.insert(id, texture);
                 self.image_errors.remove(&id);
                 self.image_bytes.remove(&id);
@@ -313,11 +337,11 @@ impl GraphApp {
         }
     }
 
-
     pub(in crate::app) fn remove_node(&mut self, node_id: usize) {
         self.mark_workspace_dirty();
         self.nodes.retain(|n| n.id != node_id);
-        self.edges.retain(|(from, to)| *from != node_id && *to != node_id);
+        self.edges
+            .retain(|(from, to)| *from != node_id && *to != node_id);
         self.terminal_backends.remove(&node_id);
         self.terminal_exited.remove(&node_id);
         self.terminal_errors.remove(&node_id);

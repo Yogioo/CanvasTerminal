@@ -1,5 +1,5 @@
 use super::GraphApp;
-use crate::event_protocol::DoneEvent;
+use crate::event_protocol::{AppEvent, DoneEvent};
 use crate::model::{NodeData, NodeKind};
 use crate::shell::{system_shell, terminal_shell_args};
 use eframe::egui;
@@ -14,14 +14,14 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn complete_text_node_and_forward(&mut self, node_id: usize) {
-        let Some(text_body) = self
-            .nodes
-            .iter()
-            .find(|n| n.id == node_id)
-            .and_then(|n| match &n.data {
-                NodeData::Text { text_body, .. } => Some(text_body.trim().to_owned()),
-                _ => None,
-            })
+        let Some(text_body) =
+            self.nodes
+                .iter()
+                .find(|n| n.id == node_id)
+                .and_then(|n| match &n.data {
+                    NodeData::Text { text_body, .. } => Some(text_body.trim().to_owned()),
+                    _ => None,
+                })
         else {
             return;
         };
@@ -103,17 +103,25 @@ impl GraphApp {
         body.trim_end_matches(['\r', '\n']).to_owned()
     }
 
-
     pub(in crate::app) fn poll_done_events(&mut self) {
-        let mut queued = Vec::new();
-        if let Some(rx) = &self.done_event_rx {
+        let mut done_events = Vec::new();
+        let mut automation_calls = Vec::new();
+
+        if let Some(rx) = &self.event_rx {
             while let Ok(event) = rx.try_recv() {
-                queued.push(event);
+                match event {
+                    AppEvent::Done(done) => done_events.push(done),
+                    AppEvent::Automation(call) => automation_calls.push(call),
+                }
             }
         }
 
-        for event in queued {
+        for event in done_events {
             self.handle_done_event(event);
+        }
+
+        for call in automation_calls {
+            self.handle_automation_call(call);
         }
     }
 
@@ -219,11 +227,16 @@ impl GraphApp {
         }
     }
 
-    pub(in crate::app) fn restart_terminal(&mut self, node_id: usize, ctx: &egui::Context) {
+    pub(in crate::app) fn restart_terminal_deferred(&mut self, node_id: usize) {
         self.terminal_backends.remove(&node_id);
         self.terminal_exited.remove(&node_id);
         self.terminal_errors.remove(&node_id);
         self.pending_terminal_starts.retain(|id| *id != node_id);
+        self.queue_terminal_start(node_id);
+    }
+
+    pub(in crate::app) fn restart_terminal(&mut self, node_id: usize, ctx: &egui::Context) {
+        self.restart_terminal_deferred(node_id);
         self.ensure_terminal(node_id, ctx);
     }
 

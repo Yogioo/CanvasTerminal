@@ -129,8 +129,7 @@ impl GraphApp {
             }
         }
 
-        fs::write(path, json)
-            .map_err(|err| format!("写入配置文件失败 ({}): {err}", path.display()))
+        fs::write(path, json).map_err(|err| format!("写入配置文件失败 ({}): {err}", path.display()))
     }
 
     pub(in crate::app) fn load_graph_from_path(&mut self, path: &Path) -> Result<(), String> {
@@ -243,8 +242,11 @@ impl GraphApp {
             if node.kind != NodeKind::Image || node.size.y <= 0.0 {
                 continue;
             }
-            self.image_aspects.insert(node.id, node.size.x / node.size.y);
+            self.image_aspects
+                .insert(node.id, node.size.x / node.size.y);
         }
+
+        self.bump_automation_state_version();
     }
 
     fn next_image_relative_png_path() -> String {

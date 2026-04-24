@@ -1,3 +1,5 @@
+mod automation;
+mod automation_support;
 mod chrome;
 mod dirty;
 mod editing;
@@ -12,11 +14,11 @@ mod selection;
 mod terminal;
 mod ui;
 
-use crate::event_protocol::DoneEvent;
-use crate::event_server::start_done_event_server;
-use crate::model::Node;
 use self::history::HistoryEntry;
 use self::notifications::ToastNotification;
+use crate::event_protocol::{AppEvent, AutomationResponse};
+use crate::event_server::start_event_server;
+use crate::model::Node;
 use eframe::egui::{self, vec2, Pos2, Rect, TextureHandle};
 use egui_commonmark::CommonMarkCache;
 use egui_term::{PtyEvent, TerminalBackend};
@@ -56,7 +58,10 @@ pub struct GraphApp {
     image_errors: HashMap<usize, String>,
     image_bytes: HashMap<usize, Vec<u8>>,
     image_aspects: HashMap<usize, f32>,
-    done_event_rx: Option<mpsc::Receiver<DoneEvent>>,
+    event_rx: Option<mpsc::Receiver<AppEvent>>,
+    automation_state_version: u64,
+    automation_state_timestamp_ms: u64,
+    processed_automation_requests: HashMap<String, AutomationResponse>,
 
     next_node_id: usize,
     menu_search_text: String,
@@ -111,10 +116,10 @@ impl GraphApp {
         let (pty_tx, pty_rx) = mpsc::channel();
 
         let nodes = Vec::new();
-        let done_event_rx = match start_done_event_server() {
+        let event_rx = match start_event_server() {
             Ok(rx) => Some(rx),
             Err(err) => {
-                eprintln!("failed to start done event server: {err}");
+                eprintln!("failed to start event server: {err}");
                 None
             }
         };
@@ -142,7 +147,10 @@ impl GraphApp {
             image_errors: HashMap::new(),
             image_bytes: HashMap::new(),
             image_aspects: HashMap::new(),
-            done_event_rx,
+            event_rx,
+            automation_state_version: 1,
+            automation_state_timestamp_ms: crate::event_protocol::now_timestamp_ms(),
+            processed_automation_requests: HashMap::new(),
             next_node_id: 1,
             menu_search_text: String::new(),
             menu_search_selected: 0,
@@ -200,8 +208,7 @@ impl GraphApp {
         id
     }
 
-    fn paint_grid(&self, _painter: &egui::Painter, _rect: Rect, _pan: egui::Vec2, _zoom: f32) {
-    }
+    fn paint_grid(&self, _painter: &egui::Painter, _rect: Rect, _pan: egui::Vec2, _zoom: f32) {}
 }
 
 impl eframe::App for GraphApp {
