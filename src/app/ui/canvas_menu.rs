@@ -41,18 +41,25 @@ impl GraphApp {
                     .find(|n| n.id == node_id)
                     .map(|n| {
                         let is_terminal = matches!(n.kind, crate::model::NodeKind::Terminal);
+                        let is_text = matches!(n.kind, crate::model::NodeKind::Text);
                         let text_auto_size = match &n.data {
                             crate::model::NodeData::Text { auto_size, .. } => Some(*auto_size),
                             _ => None,
                         };
-                        (is_terminal, text_auto_size)
+                        (is_terminal, is_text, text_auto_size)
                     });
 
-                let is_terminal_node = node_state.is_some_and(|(is_terminal, _)| is_terminal);
-                let text_auto_size = node_state.and_then(|(_, text_auto_size)| text_auto_size);
+                let is_terminal_node = node_state.is_some_and(|(is_terminal, _, _)| is_terminal);
+                let is_text_node = node_state.is_some_and(|(_, is_text, _)| is_text);
+                let text_auto_size = node_state.and_then(|(_, _, text_auto_size)| text_auto_size);
 
                 if is_terminal_node && ui.button("编辑启动命令").clicked() {
                     self.start_startup_edit(node_id);
+                    ui.close_menu();
+                }
+
+                if is_text_node && ui.button("完成并传递").clicked() {
+                    self.complete_text_node_and_forward(node_id);
                     ui.close_menu();
                 }
 

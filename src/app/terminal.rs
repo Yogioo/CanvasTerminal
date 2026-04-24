@@ -13,6 +13,51 @@ impl GraphApp {
             .map(|n| n.uid.as_str())
     }
 
+    pub(in crate::app) fn complete_text_node_and_forward(&mut self, node_id: usize) {
+        let Some(text_body) = self
+            .nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .and_then(|n| match &n.data {
+                NodeData::Text { text_body, .. } => Some(text_body.trim().to_owned()),
+                _ => None,
+            })
+        else {
+            return;
+        };
+
+        if text_body.is_empty() {
+            self.push_toast_notification("文本为空，未传递到下游节点");
+            return;
+        }
+
+        let downstream_terminal_ids: Vec<usize> = self
+            .edges
+            .iter()
+            .filter_map(|(from, to)| (*from == node_id).then_some(*to))
+            .filter(|target_id| {
+                self.nodes
+                    .iter()
+                    .any(|n| n.id == *target_id && matches!(n.kind, NodeKind::Terminal))
+            })
+            .collect();
+
+        if downstream_terminal_ids.is_empty() {
+            self.push_toast_notification("无下游终端节点可接收传递内容");
+            return;
+        }
+
+        let injected = Self::build_injected_text_block(&text_body);
+        for target_id in downstream_terminal_ids.iter().copied() {
+            self.inject_terminal_text(target_id, &injected);
+        }
+
+        self.push_toast_notification(format!(
+            "已完成并传递到 {} 个下游终端节点",
+            downstream_terminal_ids.len()
+        ));
+    }
+
     fn terminal_startup_script(&self, node_id: usize) -> Option<String> {
         self.nodes
             .iter()
@@ -45,6 +90,15 @@ impl GraphApp {
         self.inject_terminal_text(node_id, &command);
     }
 
+    fn build_injected_text_block(body: &str) -> String {
+        let mut text = body.to_owned();
+        if !text.ends_with("\n") && !text.ends_with("\r") {
+            text.push_str("\r\n");
+        }
+        text
+    }
+
+
     pub(in crate::app) fn poll_done_events(&mut self) {
         let mut queued = Vec::new();
         if let Some(rx) = &self.done_event_rx {
@@ -68,16 +122,20 @@ impl GraphApp {
             return;
         };
 
-        let downstream: Vec<usize> = self
+        let downstream_terminal_ids: Vec<usize> = self
             .edges
             .iter()
             .filter_map(|(from, to)| (*from == source_id).then_some(*to))
+            .filter(|target_id| {
+                self.nodes
+                    .iter()
+                    .any(|n| n.id == *target_id && matches!(n.kind, NodeKind::Terminal))
+            })
             .collect();
 
-        let injected = format!("上游节点 {} 已完成：{}\r\n", event.node_uid, event.summary);
-
-        for node_id in downstream {
-            self.inject_terminal_text(node_id, &injected);
+        let injected = Self::build_injected_text_block(&event.summary);
+        for target_id in downstream_terminal_ids {
+            self.inject_terminal_text(target_id, &injected);
         }
     }
 
