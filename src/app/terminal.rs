@@ -1,26 +1,26 @@
 use super::GraphApp;
 use crate::event_protocol::DoneEvent;
-use crate::model::NodeKind;
+use crate::model::{NodeData, NodeKind};
 use crate::shell::{system_shell, terminal_shell_args};
 use eframe::egui;
 use egui_term::{BackendCommand, BackendSettings, PtyEvent, TerminalBackend};
 
 impl GraphApp {
-    fn terminal_identity(&self, node_id: usize) -> String {
+    fn terminal_uid(&self, node_id: usize) -> Option<&str> {
         self.nodes
             .iter()
             .find(|n| n.id == node_id)
-            .map(|n| n.identity.trim())
-            .filter(|identity| !identity.is_empty())
-            .unwrap_or("agent")
-            .to_owned()
+            .map(|n| n.uid.as_str())
     }
 
     fn terminal_startup_script(&self, node_id: usize) -> Option<String> {
         self.nodes
             .iter()
             .find(|n| n.id == node_id)
-            .map(|n| n.startup_script.trim())
+            .and_then(|n| match &n.data {
+                NodeData::Terminal { startup_script, .. } => Some(startup_script.trim()),
+                _ => None,
+            })
             .filter(|script| !script.is_empty())
             .map(ToOwned::to_owned)
     }
@@ -59,13 +59,22 @@ impl GraphApp {
     }
 
     fn handle_done_event(&mut self, event: DoneEvent) {
+        let Some(source_id) = self
+            .nodes
+            .iter()
+            .find(|n| n.uid == event.node_uid)
+            .map(|n| n.id)
+        else {
+            return;
+        };
+
         let downstream: Vec<usize> = self
             .edges
             .iter()
-            .filter_map(|(from, to)| (*from == event.node_id).then_some(*to))
+            .filter_map(|(from, to)| (*from == source_id).then_some(*to))
             .collect();
 
-        let injected = format!("上游节点 {} 已完成：{}\r\n", event.identity, event.summary);
+        let injected = format!("上游节点 {} 已完成：{}\r\n", event.node_uid, event.summary);
 
         for node_id in downstream {
             self.inject_terminal_text(node_id, &injected);
@@ -78,14 +87,18 @@ impl GraphApp {
         }
 
         let shell = system_shell();
-        let identity = self.terminal_identity(node_id);
+        let Some(node_uid) = self.terminal_uid(node_id) else {
+            self.terminal_errors
+                .insert(node_id, "终端启动失败: 未找到节点 UID".to_owned());
+            return;
+        };
         match TerminalBackend::new(
             node_id as u64,
             ctx.clone(),
             self.pty_tx.clone(),
             BackendSettings {
                 shell,
-                args: terminal_shell_args(node_id, &identity),
+                args: terminal_shell_args(node_id, node_uid),
                 working_directory: std::env::current_dir().ok(),
             },
         ) {

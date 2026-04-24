@@ -5,7 +5,6 @@ pub const DEFAULT_CANVAS_BIND_ADDR: &str = "127.0.0.1:4545";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DoneEvent {
-    pub node_id: usize,
-    pub identity: String,
+    pub node_uid: String,
     pub summary: String,
 }

@@ -1,4 +1,5 @@
 use super::GraphApp;
+use crate::model::NodeData;
 use eframe::egui;
 
 impl GraphApp {
@@ -6,13 +7,6 @@ impl GraphApp {
         self.editing_title_node = None;
         self.pending_title_focus = None;
         self.title_edit_buffer.clear();
-        self.suspend_terminal_focus = node_id;
-    }
-
-    fn finish_identity_edit(&mut self, node_id: Option<usize>) {
-        self.editing_identity_node = None;
-        self.pending_identity_focus = None;
-        self.identity_edit_buffer.clear();
         self.suspend_terminal_focus = node_id;
     }
 
@@ -43,10 +37,6 @@ impl GraphApp {
         self.pending_title_focus = None;
         self.title_edit_buffer.clear();
 
-        self.editing_identity_node = None;
-        self.pending_identity_focus = None;
-        self.identity_edit_buffer.clear();
-
         self.editing_startup_node = None;
         self.pending_startup_focus = None;
         self.startup_edit_buffer.clear();
@@ -57,7 +47,10 @@ impl GraphApp {
             .nodes
             .iter()
             .find(|n| n.id == node_id)
-            .map(|n| n.title.clone())
+            .and_then(|n| match &n.data {
+                NodeData::Terminal { title, .. } => Some(title.clone()),
+                _ => None,
+            })
         else {
             return;
         };
@@ -72,9 +65,13 @@ impl GraphApp {
         let mut changed = false;
         if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
             let trimmed = self.title_edit_buffer.trim();
-            if !trimmed.is_empty() && node.title != trimmed {
-                node.title = trimmed.to_owned();
-                changed = true;
+            if !trimmed.is_empty() {
+                if let NodeData::Terminal { title, .. } = &mut node.data {
+                    if title != trimmed {
+                        *title = trimmed.to_owned();
+                        changed = true;
+                    }
+                }
             }
         }
         if changed {
@@ -87,48 +84,15 @@ impl GraphApp {
         self.finish_title_edit(self.editing_title_node);
     }
 
-    pub(in crate::app) fn start_identity_edit(&mut self, node_id: usize) {
-        let Some(identity) = self
-            .nodes
-            .iter()
-            .find(|n| n.id == node_id)
-            .map(|n| n.identity.clone())
-        else {
-            return;
-        };
-
-        self.prepare_inline_node_edit(node_id);
-        self.editing_identity_node = Some(node_id);
-        self.pending_identity_focus = Some(node_id);
-        self.identity_edit_buffer = identity;
-    }
-
-    pub(in crate::app) fn commit_identity_edit(&mut self, node_id: usize, ctx: &egui::Context) {
-        let mut identity_changed = false;
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
-            let trimmed = self.identity_edit_buffer.trim();
-            if !trimmed.is_empty() && node.identity != trimmed {
-                node.identity = trimmed.to_owned();
-                identity_changed = true;
-            }
-        }
-        if identity_changed {
-            self.mark_workspace_dirty();
-        }
-        self.finish_identity_edit(Some(node_id));
-        self.restart_terminal_if_changed(node_id, identity_changed, ctx);
-    }
-
-    pub(in crate::app) fn cancel_identity_edit(&mut self) {
-        self.finish_identity_edit(self.editing_identity_node);
-    }
-
     pub(in crate::app) fn start_startup_edit(&mut self, node_id: usize) {
         let Some(startup_script) = self
             .nodes
             .iter()
             .find(|n| n.id == node_id)
-            .map(|n| n.startup_script.clone())
+            .and_then(|n| match &n.data {
+                NodeData::Terminal { startup_script, .. } => Some(startup_script.clone()),
+                _ => None,
+            })
         else {
             return;
         };
@@ -143,9 +107,11 @@ impl GraphApp {
         let mut changed = false;
         if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
             let next = self.startup_edit_buffer.trim().to_owned();
-            if node.startup_script != next {
-                node.startup_script = next;
-                changed = true;
+            if let NodeData::Terminal { startup_script, .. } = &mut node.data {
+                if *startup_script != next {
+                    *startup_script = next;
+                    changed = true;
+                }
             }
         }
         if changed {

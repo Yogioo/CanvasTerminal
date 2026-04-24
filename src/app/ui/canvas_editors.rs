@@ -1,4 +1,5 @@
 use super::super::GraphApp;
+use crate::model::NodeData;
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, TextEdit, Ui};
 use egui_term::{TerminalFont, TerminalView};
 
@@ -14,14 +15,21 @@ impl GraphApp {
         };
 
         if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
+            let Some(text_body) = (match &mut node.data {
+                NodeData::Text { text_body } => Some(text_body),
+                _ => None,
+            }) else {
+                return;
+            };
+
             let text_edit_id = egui::Id::new(("text-node-editor", id));
             let should_focus_and_select_all = self.pending_text_focus == Some(id);
             if should_focus_and_select_all {
                 ctx.memory_mut(|m| m.request_focus(text_edit_id));
             }
 
-            let desired_rows = node.text_body.split('\n').count().max(1);
-            let text_edit = TextEdit::multiline(&mut node.text_body)
+            let desired_rows = text_body.split('\n').count().max(1);
+            let text_edit = TextEdit::multiline(text_body)
                 .id(text_edit_id)
                 .font(FontId::proportional(15.0 * self.zoom))
                 .text_color(Color32::from_rgb(250, 240, 210))
@@ -33,7 +41,7 @@ impl GraphApp {
 
             if should_focus_and_select_all {
                 if let Some(mut state) = egui::TextEdit::load_state(ctx, text_edit_id) {
-                    let len = node.text_body.chars().count();
+                    let len = text_body.chars().count();
                     let range = egui::text::CCursorRange::two(
                         egui::text::CCursor::new(0),
                         egui::text::CCursor::new(len),
@@ -103,60 +111,6 @@ impl GraphApp {
             if let Some(pointer) = pointer_pos {
                 if !edit_rect.contains(pointer) {
                     self.commit_title_edit(id);
-                }
-            }
-        }
-    }
-
-    pub(in crate::app::ui) fn handle_identity_editor(
-        &mut self,
-        ui: &mut Ui,
-        ctx: &egui::Context,
-        identity_edit_rect: Option<(usize, Rect)>,
-        primary_clicked: bool,
-        pointer_pos: Option<Pos2>,
-    ) {
-        let Some((id, edit_rect)) = identity_edit_rect else {
-            return;
-        };
-
-        let identity_edit_id = egui::Id::new(("terminal-identity-editor", id));
-        let should_focus_and_select_all = self.pending_identity_focus == Some(id);
-        if should_focus_and_select_all {
-            ctx.memory_mut(|m| m.request_focus(identity_edit_id));
-        }
-
-        let text_edit = TextEdit::singleline(&mut self.identity_edit_buffer)
-            .id(identity_edit_id)
-            .font(FontId::proportional((13.0 * self.zoom).max(8.0)))
-            .text_color(Color32::from_rgb(238, 235, 255))
-            .desired_width(f32::INFINITY)
-            .frame(false);
-        let resp = ui.put(edit_rect, text_edit);
-
-        if should_focus_and_select_all {
-            if let Some(mut state) = egui::TextEdit::load_state(ctx, identity_edit_id) {
-                let len = self.identity_edit_buffer.chars().count();
-                let range = egui::text::CCursorRange::two(
-                    egui::text::CCursor::new(0),
-                    egui::text::CCursor::new(len),
-                );
-                state.cursor.set_char_range(Some(range));
-                state.store(ctx, identity_edit_id);
-            }
-            self.pending_identity_focus = None;
-        }
-
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.cancel_identity_edit();
-        } else if ctx.input(|i| i.key_pressed(egui::Key::Enter))
-            || (resp.lost_focus() && !ctx.input(|i| i.pointer.primary_down()))
-        {
-            self.commit_identity_edit(id, ctx);
-        } else if primary_clicked {
-            if let Some(pointer) = pointer_pos {
-                if !edit_rect.contains(pointer) {
-                    self.commit_identity_edit(id, ctx);
                 }
             }
         }
@@ -257,7 +211,6 @@ impl GraphApp {
                 .set_focus(
                     self.selected == Some(node_id)
                         && self.editing_title_node != Some(node_id)
-                        && self.editing_identity_node != Some(node_id)
                         && self.editing_startup_node != Some(node_id)
                         && self.suspend_terminal_focus != Some(node_id),
                 )

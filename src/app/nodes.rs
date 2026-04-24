@@ -1,19 +1,30 @@
 use super::{GraphApp, NodeOrderAction};
-use crate::model::{Node, NodeKind};
+use crate::model::{Node, NodeData, NodeKind};
 use chrono::Local;
 use eframe::egui::{self, vec2, ColorImage, Pos2, Rect, TextureOptions};
 use std::collections::{HashMap, HashSet};
+use uuid::Uuid;
 
 impl GraphApp {
-    fn new_base_node(&mut self, kind: NodeKind, title: String, pos: Pos2, size: egui::Vec2) -> Node {
+    fn new_base_node(&mut self, kind: NodeKind, pos: Pos2, size: egui::Vec2) -> Node {
+        let data = match kind {
+            NodeKind::Terminal => NodeData::Terminal {
+                title: "Terminal".to_owned(),
+                startup_script: String::new(),
+            },
+            NodeKind::Text => NodeData::Text {
+                text_body: String::new(),
+            },
+            NodeKind::Image => NodeData::Image {
+                image_path: String::new(),
+            },
+        };
+
         Node {
             id: self.alloc_node_id(),
-            title,
+            uid: Uuid::new_v4().to_string(),
             kind,
-            identity: String::new(),
-            startup_script: String::new(),
-            text_body: String::new(),
-            image_path: String::new(),
+            data,
             pos,
             size,
         }
@@ -31,20 +42,15 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn create_terminal_node(&mut self, pos: Pos2) {
-        let mut node = self.new_base_node(
-            NodeKind::Terminal,
-            "Terminal".to_owned(),
-            pos,
-            vec2(840.0, 660.0),
-        );
-        node.identity = format!("agent-{}", node.id);
+        let node = self.new_base_node(NodeKind::Terminal, pos, vec2(840.0, 660.0));
         self.push_node_and_select(node);
     }
 
     pub(in crate::app) fn create_text_node(&mut self, pos: Pos2, edit_now: bool) {
-        let mut node = self.new_base_node(NodeKind::Text, "".to_owned(), pos, vec2(260.0, 140.0));
-        node.title = format!("文本节点 {}", node.id);
-        node.text_body = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let mut node = self.new_base_node(NodeKind::Text, pos, vec2(260.0, 140.0));
+        if let NodeData::Text { text_body } = &mut node.data {
+            *text_body = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        }
         let id = self.push_node_and_select(node);
         if edit_now {
             self.editing_text_node = Some(id);
@@ -67,12 +73,14 @@ impl GraphApp {
             .map(|(w, h)| vec2(w as f32, h as f32))
             .unwrap_or(vec2(320.0, 220.0));
 
-        let mut node = self.new_base_node(NodeKind::Image, String::new(), pos, size);
+        let mut node = self.new_base_node(NodeKind::Image, pos, size);
         if node.size.y > 0.0 {
             self.image_aspects.insert(node.id, node.size.x / node.size.y);
         }
 
-        node.image_path = image_path;
+        if let NodeData::Image { image_path: stored_path } = &mut node.data {
+            *stored_path = image_path;
+        }
         self.push_node_and_select(node);
     }
 
@@ -97,8 +105,10 @@ impl GraphApp {
                     }
                 }
 
-                let mut node = self.new_base_node(NodeKind::Image, String::new(), pos, size);
-                node.image_path = display_name;
+                let mut node = self.new_base_node(NodeKind::Image, pos, size);
+                if let NodeData::Image { image_path: stored_path } = &mut node.data {
+                    *stored_path = display_name;
+                }
                 let id = self.push_node_and_select(node);
                 self.image_bytes.insert(id, bytes);
             }
@@ -122,9 +132,10 @@ impl GraphApp {
                 let [w, h] = color_image.size;
                 let aspect = if h == 0 { 1.0 } else { w as f32 / h as f32 };
 
-                let mut node =
-                    self.new_base_node(NodeKind::Image, String::new(), pos, vec2(w as f32, h as f32));
-                node.image_path = display_name;
+                let mut node = self.new_base_node(NodeKind::Image, pos, vec2(w as f32, h as f32));
+                if let NodeData::Image { image_path: stored_path } = &mut node.data {
+                    *stored_path = display_name;
+                }
                 let id = self.push_node_and_select(node);
 
                 let texture =
@@ -343,11 +354,6 @@ impl GraphApp {
             self.editing_title_node = None;
             self.pending_title_focus = None;
             self.title_edit_buffer.clear();
-        }
-        if self.editing_identity_node == Some(node_id) {
-            self.editing_identity_node = None;
-            self.pending_identity_focus = None;
-            self.identity_edit_buffer.clear();
         }
         if self.editing_startup_node == Some(node_id) {
             self.editing_startup_node = None;

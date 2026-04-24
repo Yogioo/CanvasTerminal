@@ -8,15 +8,26 @@ pub enum NodeKind {
     Image,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum NodeData {
+    Terminal {
+        title: String,
+        startup_script: String,
+    },
+    Text {
+        text_body: String,
+    },
+    Image {
+        image_path: String,
+    },
+}
+
 #[derive(Clone)]
 pub struct Node {
     pub id: usize,
-    pub title: String,
+    pub uid: String,
     pub kind: NodeKind,
-    pub identity: String,
-    pub startup_script: String,
-    pub text_body: String,
-    pub image_path: String,
+    pub data: NodeData,
     pub pos: Pos2,
     pub size: egui::Vec2,
 }

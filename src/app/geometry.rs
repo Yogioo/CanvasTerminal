@@ -32,18 +32,6 @@ impl GraphApp {
         None
     }
 
-    pub(in crate::app) fn find_terminal_identity_badge_at(&self, local: Pos2) -> Option<usize> {
-        for n in self.nodes.iter().rev() {
-            if n.kind != NodeKind::Terminal {
-                continue;
-            }
-            if Self::terminal_identity_badge_world_rect(n).contains(local) {
-                return Some(n.id);
-            }
-        }
-        None
-    }
-
     pub(in crate::app) fn ensure_camera_initialized(&mut self, canvas_rect: Rect) {
         if self.camera_initialized {
             return;
@@ -238,15 +226,6 @@ impl GraphApp {
         if let Some(target_world_rect) = target {
             self.focus_rect(canvas_rect, target_world_rect);
         }
-    }
-
-    pub(in crate::app) fn terminal_identity_badge_world_rect(node: &Node) -> Rect {
-        let height = 22.0;
-        let width = node.size.x.clamp(120.0, 220.0);
-        Rect::from_min_size(
-            Pos2::new(node.pos.x + 10.0, node.pos.y - height - 8.0),
-            vec2(width, height),
-        )
     }
 
     pub(in crate::app) fn terminal_header_height_screen(&self) -> f32 {

@@ -271,7 +271,6 @@ impl GraphApp {
             && !any_popup_open
             && self.editing_text_node.is_none()
             && self.editing_title_node.is_none()
-            && self.editing_identity_node.is_none()
             && self.editing_startup_node.is_none()
         {
             self.focus_selected_or_all(rect);
@@ -286,11 +285,7 @@ impl GraphApp {
             self.nodes
                 .iter()
                 .find(|n| n.id == node_id)
-                .is_some_and(|n| {
-                    n.kind == NodeKind::Terminal
-                        && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT
-                        && !Self::terminal_identity_badge_world_rect(n).contains(local)
-                })
+                .is_some_and(|n| n.kind == NodeKind::Terminal && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT)
         });
 
         if pointer_in_canvas && !pointer_over_terminal_before_zoom && !just_focused {
@@ -324,11 +319,7 @@ impl GraphApp {
             self.nodes
                 .iter()
                 .find(|n| n.id == node_id)
-                .is_some_and(|n| {
-                    n.kind == NodeKind::Terminal
-                        && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT
-                        && !Self::terminal_identity_badge_world_rect(n).contains(local)
-                })
+                .is_some_and(|n| n.kind == NodeKind::Terminal && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT)
         });
 
         let current_time = ctx.input(|i| i.time);
@@ -345,7 +336,6 @@ impl GraphApp {
             && !any_popup_open
             && self.editing_text_node.is_none()
             && self.editing_title_node.is_none()
-            && self.editing_identity_node.is_none()
             && self.editing_startup_node.is_none()
             && !self.selected_nodes.is_empty()
             && !keyboard_has_focus;
@@ -386,15 +376,9 @@ impl GraphApp {
         if primary_clicked {
             if let Some(pointer) = pointer_pos {
                 let local = self.screen_to_world_pos(rect, pointer);
-                if let Some(node_id) = self.find_terminal_identity_badge_at(local) {
-                    self.set_single_selection(node_id);
-                    self.editing_text_node = None;
-                } else if let Some((node_id, _)) = self.find_node_at(local) {
+                if let Some((node_id, _)) = self.find_node_at(local) {
                     if let Some(node) = self.nodes.iter().find(|n| n.id == node_id) {
-                        if node.kind == NodeKind::Terminal
-                            && local.y > node.pos.y + TERMINAL_HEADER_HEIGHT
-                            && !Self::terminal_identity_badge_world_rect(node).contains(local)
-                        {
+                        if node.kind == NodeKind::Terminal && local.y > node.pos.y + TERMINAL_HEADER_HEIGHT {
                             self.set_single_selection(node_id);
                             self.editing_text_node = None;
                             if self.suspend_terminal_focus == Some(node_id) {
@@ -466,7 +450,6 @@ impl GraphApp {
 
         if !is_panning
             && self.editing_title_node.is_none()
-            && self.editing_identity_node.is_none()
             && self.editing_startup_node.is_none()
             && primary_pressed
         {
@@ -479,14 +462,7 @@ impl GraphApp {
             } else if !pointer_over_terminal_content {
                 if let Some(pointer) = pointer_pos {
                     let local = self.screen_to_world_pos(rect, pointer);
-                    if let Some(id) = self.find_terminal_identity_badge_at(local) {
-                        self.set_single_selection(id);
-                        self.dragging = None;
-                        self.drag_start_pos = None;
-                        self.drag_group_start = None;
-                        self.box_select_start = None;
-                        self.box_select_current = None;
-                    } else if let Some((id, node_pos, can_drag)) = self.find_node_hit(local) {
+                    if let Some((id, node_pos, can_drag)) = self.find_node_hit(local) {
                         if subtract_select_modifier {
                             self.remove_from_selection(id);
                             self.dragging = None;
@@ -768,9 +744,7 @@ impl GraphApp {
         {
             if let Some(pointer) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                 let local = self.screen_to_world_pos(rect, pointer);
-                if let Some(id) = self.find_terminal_identity_badge_at(local) {
-                    self.start_identity_edit(id);
-                } else if let Some((id, _)) = self.find_node_at(local) {
+                if let Some((id, _)) = self.find_node_at(local) {
                     self.set_single_selection(id);
                     if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
                         if node.kind == NodeKind::Text {
@@ -799,10 +773,7 @@ impl GraphApp {
         {
             if let Some(pointer) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                 let local = self.screen_to_world_pos(rect, pointer);
-                if let Some(id) = self.find_terminal_identity_badge_at(local) {
-                    self.set_single_selection(id);
-                    self.editing_text_node = None;
-                } else if let Some((id, _)) = self.find_node_at(local) {
+                if let Some((id, _)) = self.find_node_at(local) {
                     self.set_single_selection(id);
                     if self.editing_text_node != Some(id) {
                         self.editing_text_node = None;
@@ -837,11 +808,10 @@ impl GraphApp {
         self.autosize_text_nodes(&painter);
         self.ensure_image_textures(ctx);
 
-        let (text_edit_rect, title_edit_rect, identity_edit_rect, startup_edit_rect) =
+        let (text_edit_rect, title_edit_rect, startup_edit_rect) =
             self.draw_nodes(ui, ctx, &painter, rect);
         self.handle_text_node_editor(ui, ctx, text_edit_rect);
         self.handle_title_editor(ui, ctx, title_edit_rect, primary_clicked, pointer_pos);
-        self.handle_identity_editor(ui, ctx, identity_edit_rect, primary_clicked, pointer_pos);
         self.handle_startup_editor(ui, ctx, startup_edit_rect, primary_clicked, pointer_pos);
 
         if !is_panning && self.resizing.is_none() && resize_handle_hit.is_none() {
@@ -849,8 +819,7 @@ impl GraphApp {
                 let local = self.screen_to_world_pos(rect, pos);
                 if is_space_down && response.hovered() {
                     ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grab);
-                } else if self.find_terminal_identity_badge_at(local).is_some()
-                    || self.find_node_at(local).is_some()
+                } else if self.find_node_at(local).is_some()
                 {
                     ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                 }

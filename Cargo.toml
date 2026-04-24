@@ -16,6 +16,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 arboard = "3"
 chrono = { version = "0.4", default-features = true, features = ["clock"] }
 rfd = "0.15"
+uuid = { version = "1", features = ["v4"] }
 
 [patch.crates-io]
 egui_term = { path = "vendor/egui_term" }

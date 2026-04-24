@@ -1,5 +1,5 @@
 use super::GraphApp;
-use crate::model::NodeKind;
+use crate::model::{NodeData, NodeKind};
 use eframe::egui::{self, vec2, ColorImage, TextureHandle, TextureOptions};
 use image::ImageReader;
 use std::path::Path;
@@ -51,7 +51,10 @@ impl GraphApp {
             return;
         };
 
-        let image_path = node.image_path.clone();
+        let image_path = match &node.data {
+            NodeData::Image { image_path } => image_path.clone(),
+            _ => return,
+        };
         let image = if let Some(bytes) = self.image_bytes.get(&node_id) {
             Self::decode_image_bytes(bytes)
         } else if image_path.trim().is_empty() {

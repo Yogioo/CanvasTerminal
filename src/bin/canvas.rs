@@ -3,7 +3,7 @@ use std::env;
 
 fn print_help() {
     println!(
-        "canvas - agent event CLI\n\nUSAGE:\n  canvas <COMMAND> [ARGS]\n\nCOMMANDS:\n  help                 Show this help message\n  ping                 Check whether the Canvas app event server is reachable\n  done <summary>       Emit a done event from the current terminal node\n\nENVIRONMENT:\n  CANVAS_NODE_ID       Current terminal node id\n  CANVAS_IDENTITY      Current terminal identity\n  CANVAS_API           Canvas app API base URL (default: http://127.0.0.1:4545)\n\nEXAMPLES:\n  canvas done \"已完成测试\"\n  canvas ping"
+        "canvas - agent event CLI\n\nUSAGE:\n  canvas <COMMAND> [ARGS]\n\nCOMMANDS:\n  help                 Show this help message\n  ping                 Check whether the Canvas app event server is reachable\n  done <summary>       Emit a done event from the current terminal node\n\nENVIRONMENT:\n  CANVAS_NODE_UID      Current terminal node uid\n  CANVAS_API           Canvas app API base URL (default: http://127.0.0.1:4545)\n\nEXAMPLES:\n  canvas done \"已完成测试\"\n  canvas ping"
     );
 }
 
@@ -14,21 +14,15 @@ fn command_done(args: Vec<String>) {
         std::process::exit(1);
     }
 
-    let node_id = env::var("CANVAS_NODE_ID")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or_else(|| {
-            eprintln!("error: CANVAS_NODE_ID is missing");
-            std::process::exit(1);
-        });
-
-    let identity = env::var("CANVAS_IDENTITY").unwrap_or_else(|_| "agent".to_owned());
+    let node_uid = env::var("CANVAS_NODE_UID").unwrap_or_else(|_| {
+        eprintln!("error: CANVAS_NODE_UID is missing");
+        std::process::exit(1);
+    });
     let api = env::var("CANVAS_API").unwrap_or_else(|_| DEFAULT_CANVAS_API.to_owned());
     let url = format!("{}/done", api.trim_end_matches('/'));
 
     let response = ureq::post(&url).send_json(serde_json::json!(DoneEvent {
-        node_id,
-        identity,
+        node_uid,
         summary,
     }));
 

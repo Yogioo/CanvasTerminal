@@ -1,5 +1,5 @@
 use super::super::GraphApp;
-use crate::model::NodeKind;
+use crate::model::{NodeData, NodeKind};
 use eframe::egui::{self, vec2, Align2, Color32, FontId, Painter, Pos2, Rect, Stroke};
 
 impl GraphApp {
@@ -69,10 +69,16 @@ impl GraphApp {
 
     pub(in crate::app::ui) fn autosize_text_nodes(&mut self, painter: &Painter) {
         for node in self.nodes.iter_mut().filter(|n| n.kind == NodeKind::Text) {
-            let visible_text = if node.text_body.trim().is_empty() {
+            let Some(text_body) = (match &node.data {
+                NodeData::Text { text_body } => Some(text_body.as_str()),
+                _ => None,
+            }) else {
+                continue;
+            };
+            let visible_text = if text_body.trim().is_empty() {
                 "(空文本)"
             } else {
-                &node.text_body
+                text_body
             };
             let galley = painter.layout_no_wrap(
                 visible_text.to_owned(),
@@ -89,15 +95,9 @@ impl GraphApp {
         ctx: &egui::Context,
         painter: &Painter,
         rect: Rect,
-    ) -> (
-        Option<(usize, Rect)>,
-        Option<(usize, Rect)>,
-        Option<(usize, Rect)>,
-        Option<(usize, Rect)>,
-    ) {
+    ) -> (Option<(usize, Rect)>, Option<(usize, Rect)>, Option<(usize, Rect)>) {
         let mut text_edit_rect: Option<(usize, Rect)> = None;
         let mut title_edit_rect: Option<(usize, Rect)> = None;
-        let mut identity_edit_rect: Option<(usize, Rect)> = None;
         let mut startup_edit_rect: Option<(usize, Rect)> = None;
 
         let render_nodes = self.nodes.clone();
@@ -189,10 +189,14 @@ impl GraphApp {
 
                     let is_title_editing = self.editing_title_node == Some(node.id);
                     if !is_title_editing {
+                        let title_text = match &node.data {
+                            NodeData::Terminal { title, .. } => title.as_str(),
+                            _ => "Terminal",
+                        };
                         painter.text(
                             Pos2::new(node_rect.min.x + 12.0 * zoom_scale, header_rect.center().y),
                             Align2::LEFT_CENTER,
-                            &node.title,
+                            title_text,
                             FontId::proportional((17.0 * zoom_scale).max(9.0)),
                             Color32::WHITE,
                         );
@@ -220,42 +224,6 @@ impl GraphApp {
                             state_text,
                             FontId::proportional((13.0 * zoom_scale).max(8.0)),
                             Color32::from_rgb(225, 220, 255),
-                        );
-                    }
-
-                    let identity_world_rect = Self::terminal_identity_badge_world_rect(node);
-                    let identity_rect = self.world_to_screen_rect(rect, identity_world_rect);
-                    let identity_fill = Color32::from_rgba_premultiplied(42, 36, 78, 235);
-                    let identity_stroke = Stroke::new(
-                        1.0 * zoom_scale.clamp(0.6, 1.6),
-                        Color32::from_rgb(146, 132, 205),
-                    );
-                    painter.rect(
-                        identity_rect,
-                        6.0 * zoom_scale,
-                        identity_fill,
-                        identity_stroke,
-                        egui::StrokeKind::Outside,
-                    );
-
-                    if self.editing_identity_node == Some(node.id) {
-                        let edit_rect = Rect::from_min_max(
-                            identity_rect.min + vec2(8.0, 3.0) * zoom_scale,
-                            identity_rect.max - vec2(8.0, 3.0) * zoom_scale,
-                        );
-                        identity_edit_rect = Some((node.id, edit_rect));
-                    } else {
-                        let identity_text = if node.identity.trim().is_empty() {
-                            "agent"
-                        } else {
-                            &node.identity
-                        };
-                        painter.text(
-                            identity_rect.left_center() + vec2(8.0, 0.0) * zoom_scale,
-                            Align2::LEFT_CENTER,
-                            format!("@{identity_text}"),
-                            FontId::proportional((13.0 * zoom_scale).max(8.0)),
-                            Color32::from_rgb(230, 224, 255),
                         );
                     }
 
@@ -293,10 +261,10 @@ impl GraphApp {
                 NodeKind::Text => {
                     let is_editing = self.editing_text_node == Some(node.id);
                     if !is_editing {
-                        let preview = if node.text_body.trim().is_empty() {
-                            "(空文本)"
-                        } else {
-                            &node.text_body
+                        let preview = match &node.data {
+                            NodeData::Text { text_body } if text_body.trim().is_empty() => "(空文本)",
+                            NodeData::Text { text_body } => text_body,
+                            _ => "(空文本)",
                         };
 
                         let content_rect = Rect::from_min_max(
@@ -363,11 +331,6 @@ impl GraphApp {
             }
         }
 
-        (
-            text_edit_rect,
-            title_edit_rect,
-            identity_edit_rect,
-            startup_edit_rect,
-        )
+        (text_edit_rect, title_edit_rect, startup_edit_rect)
     }
 }

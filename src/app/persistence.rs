@@ -1,5 +1,5 @@
 use super::GraphApp;
-use crate::model::{Node, NodeKind};
+use crate::model::{Node, NodeData, NodeKind};
 use eframe::egui::{vec2, ColorImage, Pos2};
 use image::{DynamicImage, ImageFormat, RgbaImage};
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const GRAPH_CONFIG_VERSION: u32 = 1;
+const GRAPH_CONFIG_VERSION: u32 = 3;
 const DEFAULT_GRAPH_PATH: &str = "./graph.json";
 const IMAGE_ARTIFACT_DIR: &str = "artifacts/img";
 static IMAGE_FILE_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -38,16 +38,9 @@ struct ViewConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct NodeConfig {
     id: usize,
-    title: String,
+    uid: String,
     kind: NodeKind,
-    #[serde(default)]
-    identity: String,
-    #[serde(default)]
-    startup_script: String,
-    #[serde(default)]
-    text_body: String,
-    #[serde(default)]
-    image_path: String,
+    data: NodeData,
     pos_x: f32,
     pos_y: f32,
     size_x: f32,
@@ -79,12 +72,9 @@ impl GraphConfig {
             .iter()
             .map(|node| NodeConfig {
                 id: node.id,
-                title: node.title.clone(),
+                uid: node.uid.clone(),
                 kind: node.kind.clone(),
-                identity: node.identity.clone(),
-                startup_script: node.startup_script.clone(),
-                text_body: node.text_body.clone(),
-                image_path: node.image_path.clone(),
+                data: node.data.clone(),
                 pos_x: node.pos.x,
                 pos_y: node.pos.y,
                 size_x: node.size.x,
@@ -134,9 +124,8 @@ impl GraphApp {
 
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent).map_err(|err| {
-                    format!("创建配置目录失败 ({}): {err}", parent.display())
-                })?;
+                fs::create_dir_all(parent)
+                    .map_err(|err| format!("创建配置目录失败 ({}): {err}", parent.display()))?;
             }
         }
 
@@ -154,23 +143,33 @@ impl GraphApp {
         Ok(())
     }
 
+    fn kind_matches_data(kind: &NodeKind, data: &NodeData) -> bool {
+        matches!(
+            (kind, data),
+            (NodeKind::Terminal, NodeData::Terminal { .. })
+                | (NodeKind::Text, NodeData::Text { .. })
+                | (NodeKind::Image, NodeData::Image { .. })
+        )
+    }
+
     fn apply_graph_config(&mut self, config: GraphConfig) {
         let mut seen_ids = HashSet::new();
+        let mut seen_uids = HashSet::new();
         let mut nodes = Vec::with_capacity(config.nodes.len());
 
         for node in config.nodes {
-            if !seen_ids.insert(node.id) {
+            if !seen_ids.insert(node.id) || !seen_uids.insert(node.uid.clone()) {
+                continue;
+            }
+            if !Self::kind_matches_data(&node.kind, &node.data) {
                 continue;
             }
 
             nodes.push(Node {
                 id: node.id,
-                title: node.title,
+                uid: node.uid,
                 kind: node.kind,
-                identity: node.identity,
-                startup_script: node.startup_script,
-                text_body: node.text_body,
-                image_path: node.image_path,
+                data: node.data,
                 pos: Pos2::new(node.pos_x, node.pos_y),
                 size: vec2(node.size_x.max(1.0), node.size_y.max(1.0)),
             });
@@ -207,9 +206,6 @@ impl GraphApp {
         self.editing_title_node = None;
         self.pending_title_focus = None;
         self.title_edit_buffer.clear();
-        self.editing_identity_node = None;
-        self.pending_identity_focus = None;
-        self.identity_edit_buffer.clear();
         self.editing_startup_node = None;
         self.pending_startup_focus = None;
         self.startup_edit_buffer.clear();
@@ -302,5 +298,4 @@ impl GraphApp {
         let color_image = Self::decode_image_bytes(bytes)?;
         self.persist_color_image_to_artifact(&color_image)
     }
-
 }
