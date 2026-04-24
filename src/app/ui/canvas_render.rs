@@ -68,6 +68,7 @@ impl GraphApp {
     }
 
     pub(in crate::app::ui) fn autosize_text_nodes(&mut self, painter: &Painter) {
+        let zoom_scale = self.zoom.max(0.01);
         for node in self.nodes.iter_mut().filter(|n| n.kind == NodeKind::Text) {
             let visible_text = if node.text_body.trim().is_empty() {
                 "(空文本)"
@@ -76,10 +77,11 @@ impl GraphApp {
             };
             let galley = painter.layout_no_wrap(
                 visible_text.to_owned(),
-                FontId::proportional(15.0),
+                FontId::proportional(15.0 * zoom_scale),
                 Color32::from_rgb(250, 240, 210),
             );
-            node.size = vec2(galley.size().x + 24.0, galley.size().y + 24.0);
+            let text_size_world = galley.size() / zoom_scale;
+            node.size = vec2(text_size_world.x + 24.0, text_size_world.y + 24.0);
         }
     }
 
@@ -299,13 +301,22 @@ impl GraphApp {
                             &node.text_body
                         };
 
-                        painter.text(
-                            node_rect.center(),
-                            Align2::CENTER_CENTER,
-                            preview,
-                            FontId::proportional(15.0 * zoom_scale),
-                            Color32::from_rgb(250, 240, 210),
+                        let content_rect = Rect::from_min_max(
+                            node_rect.min + vec2(12.0, 12.0) * zoom_scale,
+                            node_rect.max - vec2(12.0, 12.0) * zoom_scale,
                         );
+                        if content_rect.is_positive() {
+                            let galley = painter.layout_no_wrap(
+                                preview.to_owned(),
+                                FontId::proportional(15.0 * zoom_scale),
+                                Color32::from_rgb(250, 240, 210),
+                            );
+                            painter.galley(
+                                content_rect.left_top(),
+                                galley,
+                                Color32::from_rgb(250, 240, 210),
+                            );
+                        }
                     }
 
                     if is_editing {
