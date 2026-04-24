@@ -21,6 +21,9 @@ impl GraphApp {
 
     fn push_node_and_select(&mut self, node: Node) -> usize {
         let id = node.id;
+        self.push_history(super::history::HistoryEntry::CreateBatch {
+            nodes: vec![node.clone()],
+        });
         self.nodes.push(node);
         self.set_single_selection(id);
         self.mark_workspace_dirty();

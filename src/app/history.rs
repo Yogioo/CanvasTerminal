@@ -4,6 +4,9 @@ use eframe::egui::Pos2;
 
 #[derive(Clone)]
 pub(in crate::app) enum HistoryEntry {
+    CreateBatch {
+        nodes: Vec<Node>,
+    },
     DeleteBatch {
         nodes: Vec<Node>,
         edges: Vec<(usize, usize)>,
@@ -84,6 +87,10 @@ impl GraphApp {
 
     fn apply_history_entry(&mut self, entry: HistoryEntry) -> HistoryEntry {
         match entry {
+            HistoryEntry::CreateBatch { nodes } => {
+                self.redo_create_batch(&nodes);
+                HistoryEntry::CreateBatch { nodes }
+            }
             HistoryEntry::DeleteBatch { nodes, edges } => {
                 for node in &nodes {
                     if self.nodes.iter().any(|n| n.id == node.id) {
@@ -138,6 +145,24 @@ impl GraphApp {
         }
     }
 
+    fn undo_create_batch(&mut self, nodes: &[Node]) {
+        for node in nodes {
+            self.remove_node(node.id);
+        }
+    }
+
+    fn redo_create_batch(&mut self, nodes: &[Node]) {
+        for node in nodes {
+            if self.nodes.iter().any(|n| n.id == node.id) {
+                continue;
+            }
+            if node.id >= self.next_node_id {
+                self.next_node_id = node.id + 1;
+            }
+            self.nodes.push(node.clone());
+        }
+    }
+
     fn redo_delete_batch(&mut self, nodes: &[Node], edges: &[(usize, usize)]) {
         for (from, to) in edges {
             self.edges.retain(|edge| edge != &(*from, *to));
@@ -156,6 +181,12 @@ impl GraphApp {
         self.mark_workspace_dirty();
 
         let redo_entry = match &entry {
+            HistoryEntry::CreateBatch { nodes } => {
+                self.undo_create_batch(nodes);
+                HistoryEntry::CreateBatch {
+                    nodes: nodes.clone(),
+                }
+            }
             HistoryEntry::DeleteBatch { nodes, edges } => {
                 let cloned = HistoryEntry::DeleteBatch {
                     nodes: nodes.clone(),
@@ -177,6 +208,12 @@ impl GraphApp {
         self.mark_workspace_dirty();
 
         let undo_entry = match &entry {
+            HistoryEntry::CreateBatch { nodes } => {
+                self.redo_create_batch(nodes);
+                HistoryEntry::CreateBatch {
+                    nodes: nodes.clone(),
+                }
+            }
             HistoryEntry::DeleteBatch { nodes, edges } => {
                 self.redo_delete_batch(nodes, edges);
                 HistoryEntry::DeleteBatch {
