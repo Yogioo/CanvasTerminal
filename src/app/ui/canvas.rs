@@ -143,8 +143,12 @@ impl GraphApp {
 
         let paste_shortcut = key_v_pressed && (command_down || ctrl_down);
         let paste_requested = paste_shortcut || paste_event_count > 0 || raw_paste_event_count > 0;
+        let suppress_canvas_image_paste = self.editing_text_node.is_some()
+            || self.editing_title_node.is_some()
+            || self.editing_startup_node.is_some()
+            || ctx.wants_keyboard_input();
 
-        if paste_requested && pointer_in_canvas {
+        if paste_requested && pointer_in_canvas && !suppress_canvas_image_paste {
             if let Ok(mut clipboard) = Clipboard::new() {
                 if let Ok(image) = clipboard.get_image() {
                     let spawn_pos = spawn_local;
@@ -191,7 +195,7 @@ impl GraphApp {
             }
         }
 
-        if !pointer_in_canvas {
+        if !pointer_in_canvas || suppress_canvas_image_paste {
             return;
         }
 
