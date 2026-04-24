@@ -235,7 +235,13 @@ impl GraphApp {
             .unwrap_or(1);
 
         self.pan = vec2(config.view.pan_x, config.view.pan_y);
-        self.zoom = config.view.zoom.clamp(0.35, 2.5);
+        self.zoom = if config.view.zoom.is_finite() && config.view.zoom >= 1e-4 {
+            config.view.zoom
+        } else {
+            1.0
+        };
+        self.camera_world_center = Pos2::new(0.0, 0.0);
+        self.camera_initialized = false;
 
         for node in &self.nodes {
             if node.kind != NodeKind::Image || node.size.y <= 0.0 {

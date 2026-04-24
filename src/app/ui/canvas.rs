@@ -223,6 +223,8 @@ impl GraphApp {
         let painter = ui.painter_at(rect);
 
         painter.rect_filled(rect, 0.0, Color32::from_rgb(30, 30, 50));
+        self.ensure_camera_initialized(rect);
+        self.maybe_rebase_world(rect);
 
         let is_space_down = ctx.input(|i| i.key_down(egui::Key::Space));
         let is_space_pan = ctx.input(|i| i.key_down(egui::Key::Space) && i.pointer.primary_down());
@@ -264,6 +266,7 @@ impl GraphApp {
 
         self.handle_canvas_image_import(ctx, rect, pointer_pos, pointer_in_canvas);
 
+        let mut just_focused = false;
         if focus_shortcut_pressed
             && !any_popup_open
             && self.editing_text_node.is_none()
@@ -272,6 +275,7 @@ impl GraphApp {
             && self.editing_startup_node.is_none()
         {
             self.focus_selected_or_all(rect);
+            just_focused = true;
         }
 
         let pointer_over_terminal_before_zoom = pointer_pos.is_some_and(|p| {
@@ -289,7 +293,7 @@ impl GraphApp {
                 })
         });
 
-        if pointer_in_canvas && !pointer_over_terminal_before_zoom {
+        if pointer_in_canvas && !pointer_over_terminal_before_zoom && !just_focused {
             let zoom_change = ctx.input(|i| {
                 let pinch = i.zoom_delta();
                 let wheel = (i.raw_scroll_delta.y * 0.0015).exp();
@@ -298,11 +302,13 @@ impl GraphApp {
             if (zoom_change - 1.0).abs() > f32::EPSILON {
                 if let Some(pointer) = pointer_pos {
                     let old_zoom = self.zoom;
-                    let new_zoom = (old_zoom * zoom_change).clamp(0.35, 2.5);
+                    let new_zoom = (old_zoom * zoom_change).max(1e-4);
                     if (new_zoom - old_zoom).abs() > f32::EPSILON {
                         let world_at_pointer = self.screen_to_world_pos(rect, pointer);
                         self.zoom = new_zoom;
-                        self.pan = pointer - rect.min - world_at_pointer.to_vec2() * self.zoom;
+                        self.camera_world_center =
+                            (world_at_pointer.to_vec2() - (pointer - rect.center()) / self.zoom).to_pos2();
+                        self.sync_pan_from_camera(rect);
                     }
                 }
             }
@@ -449,7 +455,8 @@ impl GraphApp {
             self.box_select_subtractive = false;
             self.box_select_base_selection.clear();
             let delta = ctx.input(|i| i.pointer.delta());
-            self.pan += delta;
+            self.camera_world_center -= delta / self.zoom;
+            self.sync_pan_from_camera(rect);
             ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
         }
 

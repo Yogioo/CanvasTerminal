@@ -41,6 +41,8 @@ pub struct GraphApp {
     drag_group_start: Option<(Pos2, Vec<(usize, Pos2)>)>,
     pan: egui::Vec2,
     zoom: f32,
+    camera_world_center: Pos2,
+    camera_initialized: bool,
 
     terminal_backends: HashMap<usize, TerminalBackend>,
     pty_rx: mpsc::Receiver<(u64, PtyEvent)>,
@@ -126,6 +128,8 @@ impl GraphApp {
             drag_group_start: None,
             pan: vec2(0.0, 0.0),
             zoom: 1.0,
+            camera_world_center: Pos2::new(0.0, 0.0),
+            camera_initialized: false,
             terminal_backends: HashMap::new(),
             pty_rx,
             pty_tx,

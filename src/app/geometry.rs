@@ -1,3 +1,4 @@
+use super::history::HistoryEntry;
 use super::GraphApp;
 use crate::constants::TERMINAL_HEADER_HEIGHT;
 use crate::model::{Node, NodeKind};
@@ -43,8 +44,25 @@ impl GraphApp {
         None
     }
 
+    pub(in crate::app) fn ensure_camera_initialized(&mut self, canvas_rect: Rect) {
+        if self.camera_initialized {
+            return;
+        }
+
+        self.camera_world_center = ((canvas_rect.center() - canvas_rect.min - self.pan) / self.zoom).to_pos2();
+        if !self.camera_world_center.x.is_finite() || !self.camera_world_center.y.is_finite() {
+            self.camera_world_center = Pos2::new(0.0, 0.0);
+        }
+        self.camera_initialized = true;
+        self.sync_pan_from_camera(canvas_rect);
+    }
+
+    pub(in crate::app) fn sync_pan_from_camera(&mut self, canvas_rect: Rect) {
+        self.pan = canvas_rect.center() - canvas_rect.min - self.camera_world_center.to_vec2() * self.zoom;
+    }
+
     pub(in crate::app) fn world_to_screen_pos(&self, canvas_rect: Rect, world: Pos2) -> Pos2 {
-        canvas_rect.min + self.pan + world.to_vec2() * self.zoom
+        canvas_rect.center() + (world - self.camera_world_center) * self.zoom
     }
 
     pub(in crate::app) fn world_to_screen_rect(&self, canvas_rect: Rect, world_rect: Rect) -> Rect {
@@ -55,7 +73,117 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn screen_to_world_pos(&self, canvas_rect: Rect, screen: Pos2) -> Pos2 {
-        ((screen - canvas_rect.min - self.pan) / self.zoom).to_pos2()
+        (self.camera_world_center.to_vec2() + (screen - canvas_rect.center()) / self.zoom).to_pos2()
+    }
+
+    pub(in crate::app) fn maybe_rebase_world(&mut self, canvas_rect: Rect) {
+        const REBASE_THRESHOLD: f32 = 50_000.0;
+        const REBASE_CHUNK: f32 = 10_000.0;
+
+        let Some(bounds) = self.all_nodes_world_rect() else {
+            return;
+        };
+
+        let world_center = bounds.center();
+        let mut shift = vec2(0.0, 0.0);
+
+        if world_center.x.abs() > REBASE_THRESHOLD {
+            shift.x = (world_center.x / REBASE_CHUNK).trunc() * REBASE_CHUNK;
+        }
+        if world_center.y.abs() > REBASE_THRESHOLD {
+            shift.y = (world_center.y / REBASE_CHUNK).trunc() * REBASE_CHUNK;
+        }
+
+        if shift == vec2(0.0, 0.0) {
+            return;
+        }
+
+        for node in &mut self.nodes {
+            node.pos -= shift;
+        }
+
+        self.camera_world_center -= shift;
+
+        if let Some((id, pos)) = self.drag_start_pos {
+            self.drag_start_pos = Some((id, pos - shift));
+        }
+
+        if let Some((start_pointer, start_nodes)) = self.drag_group_start.as_mut() {
+            *start_pointer -= shift;
+            for (_, node_pos) in start_nodes {
+                *node_pos -= shift;
+            }
+        }
+
+        if let Some((id, start_pointer, start_size)) = self.resizing {
+            self.resizing = Some((id, start_pointer - shift, start_size));
+        }
+
+        if let Some(pos) = self.context_menu_local_pos {
+            self.context_menu_local_pos = Some(pos - shift);
+        }
+
+        if let Some(pos) = self.linking_pointer_local {
+            self.linking_pointer_local = Some(pos - shift);
+        }
+
+        for p in &mut self.cutting_path_local {
+            *p -= shift;
+        }
+
+        if let Some(pos) = self.last_canvas_pointer_world_pos {
+            self.last_canvas_pointer_world_pos = Some(pos - shift);
+        }
+
+        if let Some(pos) = self.last_drag_hover_world_pos {
+            self.last_drag_hover_world_pos = Some(pos - shift);
+        }
+
+        if let Some(pos) = self.pending_drop_spawn_world_pos {
+            self.pending_drop_spawn_world_pos = Some(pos - shift);
+        }
+
+        if let Some(pos) = self.box_select_start {
+            self.box_select_start = Some(pos - shift);
+        }
+
+        if let Some(pos) = self.box_select_current {
+            self.box_select_current = Some(pos - shift);
+        }
+
+        if let Some(nodes) = self.cut_snapshot_nodes.as_mut() {
+            for node in nodes {
+                node.pos -= shift;
+            }
+        }
+
+        Self::shift_history_entries(&mut self.undo_stack, shift);
+        Self::shift_history_entries(&mut self.redo_stack, shift);
+
+        self.sync_pan_from_camera(canvas_rect);
+    }
+
+    fn shift_history_entries(entries: &mut [HistoryEntry], shift: egui::Vec2) {
+        for entry in entries {
+            match entry {
+                HistoryEntry::CreateBatch { nodes } | HistoryEntry::DeleteBatch { nodes, .. } => {
+                    for node in nodes {
+                        node.pos -= shift;
+                    }
+                }
+                HistoryEntry::MoveNode { from, to, .. } => {
+                    *from -= shift;
+                    *to -= shift;
+                }
+                HistoryEntry::MoveNodes { nodes } => {
+                    for (_, from, to) in nodes {
+                        *from -= shift;
+                        *to -= shift;
+                    }
+                }
+                HistoryEntry::ReorderNodes { .. } => {}
+            }
+        }
     }
 
     fn node_world_rect(node: &Node) -> Rect {
@@ -80,10 +208,40 @@ impl GraphApp {
         let target_w = target_world_rect.width().max(1.0);
         let target_h = target_world_rect.height().max(1.0);
 
-        self.zoom = (view_w / target_w).min(view_h / target_h).clamp(0.35, 2.5);
+        self.zoom = (view_w / target_w).min(view_h / target_h).max(1e-4);
 
         let target_center = target_world_rect.center();
-        self.pan = canvas_rect.center() - canvas_rect.min - target_center.to_vec2() * self.zoom;
+        self.camera_world_center = target_center;
+        self.sync_pan_from_camera(canvas_rect);
+
+        let projected_center = self.world_to_screen_pos(canvas_rect, target_center);
+        let screen_center = canvas_rect.center();
+        let error = projected_center - screen_center;
+
+        eprintln!(
+            "[focus] canvas=({:.2},{:.2},{:.2},{:.2}) target_rect=({:.2},{:.2},{:.2},{:.2}) target_center=({:.4},{:.4}) zoom={:.8} camera=({:.4},{:.4}) pan=({:.4},{:.4}) projected=({:.4},{:.4}) screen_center=({:.4},{:.4}) error=({:.6},{:.6})",
+            canvas_rect.min.x,
+            canvas_rect.min.y,
+            canvas_rect.max.x,
+            canvas_rect.max.y,
+            target_world_rect.min.x,
+            target_world_rect.min.y,
+            target_world_rect.max.x,
+            target_world_rect.max.y,
+            target_center.x,
+            target_center.y,
+            self.zoom,
+            self.camera_world_center.x,
+            self.camera_world_center.y,
+            self.pan.x,
+            self.pan.y,
+            projected_center.x,
+            projected_center.y,
+            screen_center.x,
+            screen_center.y,
+            error.x,
+            error.y
+        );
     }
 
     fn selected_nodes_world_rect(&self) -> Option<Rect> {
@@ -101,12 +259,22 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn focus_selected_or_all(&mut self, canvas_rect: Rect) {
-        let target = self
-            .selected_nodes_world_rect()
-            .or_else(|| self.all_nodes_world_rect());
+        let selected_count = self.selected_nodes.len();
+        let selected_rect = self.selected_nodes_world_rect();
+        let all_rect = self.all_nodes_world_rect();
+        let target = selected_rect.or(all_rect);
+
+        eprintln!(
+            "[focus] trigger selected_count={} has_selected_rect={} has_all_rect={}",
+            selected_count,
+            selected_rect.is_some(),
+            all_rect.is_some()
+        );
 
         if let Some(target_world_rect) = target {
             self.focus_rect(canvas_rect, target_world_rect);
+        } else {
+            eprintln!("[focus] skipped: no target rect");
         }
     }
 

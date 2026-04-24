@@ -68,7 +68,6 @@ impl GraphApp {
     }
 
     pub(in crate::app::ui) fn autosize_text_nodes(&mut self, painter: &Painter) {
-        let zoom_scale = self.zoom.max(0.01);
         for node in self.nodes.iter_mut().filter(|n| n.kind == NodeKind::Text) {
             let visible_text = if node.text_body.trim().is_empty() {
                 "(空文本)"
@@ -77,11 +76,10 @@ impl GraphApp {
             };
             let galley = painter.layout_no_wrap(
                 visible_text.to_owned(),
-                FontId::proportional(15.0 * zoom_scale),
+                FontId::proportional(15.0),
                 Color32::from_rgb(250, 240, 210),
             );
-            let text_size_world = galley.size() / zoom_scale;
-            node.size = vec2(text_size_world.x + 24.0, text_size_world.y + 24.0);
+            node.size = vec2(galley.size().x + 24.0, galley.size().y + 24.0);
         }
     }
 
