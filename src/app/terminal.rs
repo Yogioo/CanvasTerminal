@@ -49,7 +49,7 @@ impl GraphApp {
 
         let injected = Self::build_injected_text_block(&text_body);
         for target_id in downstream_terminal_ids.iter().copied() {
-            self.inject_terminal_text(target_id, &injected);
+            self.inject_terminal_message_and_submit(target_id, &injected);
         }
 
         self.push_toast_notification(format!(
@@ -81,6 +81,15 @@ impl GraphApp {
         }
     }
 
+    fn inject_terminal_submit(&mut self, node_id: usize) {
+        self.inject_terminal_text(node_id, "\r");
+    }
+
+    fn inject_terminal_message_and_submit(&mut self, node_id: usize, message: &str) {
+        self.inject_terminal_text(node_id, message);
+        self.inject_terminal_submit(node_id);
+    }
+
     fn run_terminal_startup_script(&mut self, node_id: usize) {
         let Some(script) = self.terminal_startup_script(node_id) else {
             return;
@@ -91,11 +100,7 @@ impl GraphApp {
     }
 
     fn build_injected_text_block(body: &str) -> String {
-        let mut text = body.to_owned();
-        if !text.ends_with("\n") && !text.ends_with("\r") {
-            text.push_str("\r\n");
-        }
-        text
+        body.trim_end_matches(['\r', '\n']).to_owned()
     }
 
 
@@ -135,7 +140,7 @@ impl GraphApp {
 
         let injected = Self::build_injected_text_block(&event.summary);
         for target_id in downstream_terminal_ids {
-            self.inject_terminal_text(target_id, &injected);
+            self.inject_terminal_message_and_submit(target_id, &injected);
         }
     }
 
