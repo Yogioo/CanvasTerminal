@@ -106,15 +106,24 @@ impl GraphConfig {
 }
 
 impl GraphApp {
-    pub(in crate::app) fn save_graph_to_default_path(&self) -> Result<PathBuf, String> {
-        let path = PathBuf::from(DEFAULT_GRAPH_PATH);
+    fn quick_graph_path(&self) -> PathBuf {
+        self.active_graph_path
+            .clone()
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_GRAPH_PATH))
+    }
+
+    pub(in crate::app) fn save_graph_to_default_path(&mut self) -> Result<PathBuf, String> {
+        let path = self.quick_graph_path();
         self.save_graph_to_path(&path)?;
+        self.active_graph_path = Some(path.clone());
+        self.mark_workspace_clean();
         Ok(path)
     }
 
     pub(in crate::app) fn load_graph_from_default_path(&mut self) -> Result<PathBuf, String> {
-        let path = PathBuf::from(DEFAULT_GRAPH_PATH);
+        let path = self.quick_graph_path();
         self.load_graph_from_path(&path)?;
+        self.active_graph_path = Some(path.clone());
         Ok(path)
     }
 
@@ -141,6 +150,7 @@ impl GraphApp {
         let config: GraphConfig =
             serde_json::from_str(&json).map_err(|err| format!("配置解析失败: {err}"))?;
         self.apply_graph_config(config);
+        self.mark_workspace_clean();
         Ok(())
     }
 

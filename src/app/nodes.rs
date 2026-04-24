@@ -23,6 +23,7 @@ impl GraphApp {
         let id = node.id;
         self.nodes.push(node);
         self.set_single_selection(id);
+        self.mark_workspace_dirty();
         id
     }
 
@@ -297,6 +298,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn remove_node(&mut self, node_id: usize) {
+        self.mark_workspace_dirty();
         self.nodes.retain(|n| n.id != node_id);
         self.edges.retain(|(from, to)| *from != node_id && *to != node_id);
         self.terminal_backends.remove(&node_id);

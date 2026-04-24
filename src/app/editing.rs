@@ -69,11 +69,16 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn commit_title_edit(&mut self, node_id: usize) {
+        let mut changed = false;
         if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
             let trimmed = self.title_edit_buffer.trim();
-            if !trimmed.is_empty() {
+            if !trimmed.is_empty() && node.title != trimmed {
                 node.title = trimmed.to_owned();
+                changed = true;
             }
+        }
+        if changed {
+            self.mark_workspace_dirty();
         }
         self.finish_title_edit(Some(node_id));
     }
@@ -107,6 +112,9 @@ impl GraphApp {
                 identity_changed = true;
             }
         }
+        if identity_changed {
+            self.mark_workspace_dirty();
+        }
         self.finish_identity_edit(Some(node_id));
         self.restart_terminal_if_changed(node_id, identity_changed, ctx);
     }
@@ -139,6 +147,9 @@ impl GraphApp {
                 node.startup_script = next;
                 changed = true;
             }
+        }
+        if changed {
+            self.mark_workspace_dirty();
         }
         self.finish_startup_edit(Some(node_id));
         self.restart_terminal_if_changed(node_id, changed, ctx);

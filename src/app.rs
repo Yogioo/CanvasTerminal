@@ -1,10 +1,12 @@
 mod chrome;
+mod dirty;
 mod editing;
 mod geometry;
 mod history;
 mod images;
 mod menu;
 mod nodes;
+mod notifications;
 mod persistence;
 mod selection;
 mod terminal;
@@ -14,9 +16,11 @@ use crate::event_protocol::DoneEvent;
 use crate::event_server::start_done_event_server;
 use crate::model::Node;
 use self::history::HistoryEntry;
+use self::notifications::ToastNotification;
 use eframe::egui::{self, vec2, Pos2, Rect, TextureHandle};
 use egui_term::{PtyEvent, TerminalBackend};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::mpsc;
 
 #[derive(Clone, Copy)]
@@ -92,6 +96,11 @@ pub struct GraphApp {
     box_select_base_selection: HashSet<usize>,
     window_bar_visible_until: f64,
     command_palette_open: bool,
+    active_graph_path: Option<PathBuf>,
+    toast_notifications: Vec<ToastNotification>,
+    next_toast_id: u64,
+    workspace_dirty: bool,
+    last_title_dirty: Option<bool>,
 }
 
 impl GraphApp {
@@ -170,6 +179,11 @@ impl GraphApp {
             box_select_base_selection: HashSet::new(),
             window_bar_visible_until: 0.0,
             command_palette_open: false,
+            active_graph_path: None,
+            toast_notifications: Vec::new(),
+            next_toast_id: 1,
+            workspace_dirty: false,
+            last_title_dirty: None,
         };
 
         app
@@ -196,6 +210,7 @@ impl eframe::App for GraphApp {
         self.process_terminal_start_queue(ctx);
 
         self.handle_global_shortcuts(ctx);
+        self.apply_workspace_dirty_ui(ctx);
 
         let (now, screen_rect, pointer_near_top, show_window_bar) =
             self.update_window_bar_visibility(ctx);
@@ -211,6 +226,8 @@ impl eframe::App for GraphApp {
         }
 
         self.show_command_palette_if_open(ctx);
+        self.show_workspace_dirty_indicator(ctx);
+        self.show_toast_notifications(ctx);
         self.schedule_repaint(ctx, show_window_bar, pointer_near_top, now);
     }
 }

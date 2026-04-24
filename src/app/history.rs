@@ -33,6 +33,7 @@ impl GraphApp {
     pub(in crate::app) fn push_history(&mut self, entry: HistoryEntry) {
         self.undo_stack.push(entry);
         self.redo_stack.clear();
+        self.mark_workspace_dirty();
     }
 
     pub(in crate::app) fn record_move_history(&mut self, node_id: usize, from: Pos2, to: Pos2) {
@@ -152,6 +153,8 @@ impl GraphApp {
             return;
         };
 
+        self.mark_workspace_dirty();
+
         let redo_entry = match &entry {
             HistoryEntry::DeleteBatch { nodes, edges } => {
                 let cloned = HistoryEntry::DeleteBatch {
@@ -170,6 +173,8 @@ impl GraphApp {
         let Some(entry) = self.redo_stack.pop() else {
             return;
         };
+
+        self.mark_workspace_dirty();
 
         let undo_entry = match &entry {
             HistoryEntry::DeleteBatch { nodes, edges } => {

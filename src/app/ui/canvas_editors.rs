@@ -44,6 +44,10 @@ impl GraphApp {
                 self.pending_text_focus = None;
             }
 
+            if resp.changed() {
+                self.mark_workspace_dirty();
+            }
+
             if resp.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                 self.editing_text_node = None;
             }

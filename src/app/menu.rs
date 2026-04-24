@@ -158,7 +158,7 @@ impl GraphApp {
         })
     }
 
-    fn save_graph_with_dialog(&self) {
+    fn save_graph_with_dialog(&mut self) {
         let Some(path) = FileDialog::new()
             .add_filter("Graph JSON", &["json"])
             .set_file_name("graph.json")
@@ -169,7 +169,12 @@ impl GraphApp {
 
         if let Err(err) = self.save_graph_to_path(&path) {
             eprintln!("save graph failed: {err}");
+            return;
         }
+
+        self.active_graph_path = Some(path.clone());
+        self.mark_workspace_clean();
+        self.push_toast_notification(format!("已保存到: {}", path.display()));
     }
 
     fn load_graph_with_dialog(&mut self) {
@@ -182,16 +187,18 @@ impl GraphApp {
 
         if let Err(err) = self.load_graph_from_path(&path) {
             eprintln!("load graph failed: {err}");
+            return;
         }
+
+        self.active_graph_path = Some(path);
     }
 
     pub(in crate::app) fn run_file_menu_action(&mut self, action_id: usize) {
         match action_id {
-            0 => {
-                if let Err(err) = self.save_graph_to_default_path() {
-                    eprintln!("save graph failed: {err}");
-                }
-            }
+            0 => match self.save_graph_to_default_path() {
+                Ok(path) => self.push_toast_notification(format!("已保存到: {}", path.display())),
+                Err(err) => eprintln!("save graph failed: {err}"),
+            },
             1 => {
                 if let Err(err) = self.load_graph_from_default_path() {
                     eprintln!("load graph failed: {err}");

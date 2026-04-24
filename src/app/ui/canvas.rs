@@ -564,6 +564,11 @@ impl GraphApp {
                     }
                 }
             } else {
+                if let Some(node) = self.nodes.iter().find(|n| n.id == resize_id) {
+                    if (node.size.x - start_size.x).abs() > 0.1 || (node.size.y - start_size.y).abs() > 0.1 {
+                        self.mark_workspace_dirty();
+                    }
+                }
                 self.resizing = None;
             }
         }
@@ -704,6 +709,7 @@ impl GraphApp {
                     if let Some((to, _)) = self.find_node_at(local) {
                         if to != from && !self.has_edge(from, to) {
                             self.edges.push((from, to));
+                            self.mark_workspace_dirty();
                         }
                     }
                 }
