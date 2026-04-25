@@ -211,6 +211,7 @@ impl GraphApp {
             }
             2 => self.save_graph_with_dialog(),
             3 => self.load_graph_with_dialog(),
+            4 => self.reset_workspace(),
             _ => {}
         }
     }

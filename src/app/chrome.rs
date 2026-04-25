@@ -10,6 +10,10 @@ impl GraphApp {
             self.undo_last_change();
         }
 
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::N)) {
+            self.run_file_menu_action(4);
+        }
+
         if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::S)) {
             self.run_file_menu_action(2);
         } else if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
@@ -200,6 +204,7 @@ impl GraphApp {
                 ui.set_min_width(460.0);
 
                 let palette_items = [
+                    ("文件/新建", "文件/新建  Ctrl+N", 4usize),
                     ("文件/快速保存", "文件/快速保存  Ctrl+S", 0usize),
                     ("文件/快速加载", "文件/快速加载  Ctrl+R", 1usize),
                     ("文件/另存为", "文件/另存为  Ctrl+Shift+S", 2usize),
