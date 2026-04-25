@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "nodes": [
     {
       "id": 7,
@@ -8,11 +8,11 @@
       "data": {
         "Terminal": {
           "title": "Planner",
-          "startup_script": "pi --append-system-prompt \"你是Planner, 你将目标拆解成多个任务目标并写入工作目录下的 ./Tasks.md 最后调用命令 canvas done '你完成的摘要信息'\" --model openai-codex/gpt-5.3-codex"
+          "startup_script": "pi --append-system-prompt \"你是Planner。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tasks.md，选择最高优先级未完成任务，生成 artifacts/{feature}_TODO.md（落地步骤）与 artifacts/{feature}_Tests.md（AI可执行验收命令）。若全部完成：git add并commit（消息含feat/fix标签），然后 canvas done \\\"feature=<feature>;all_done\\\"；否则 canvas done \\\"feature=<feature>;task=<任务>;plan_ready\\\"。\" --model openai-codex/gpt-5.4"
         }
       },
-      "pos_x": -133.33258,
-      "pos_y": 265.67548,
+      "pos_x": 411.18414,
+      "pos_y": 901.35876,
       "size_x": 840.0,
       "size_y": 660.0
     },
@@ -23,11 +23,11 @@
       "data": {
         "Terminal": {
           "title": "Executer",
-          "startup_script": "pi --append-system-prompt \"你是Executer, 你将读取工作目录下的 ./Tasks 然后完成所有任务, 完成后调用命令 canvas done '你完成的摘要信息'\" --model openai-codex/gpt-5.3-codex"
+          "startup_script": "pi --append-system-prompt \"你是Executer。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_TODO.md 执行编码任务，并保证编译通过（cargo check或等价命令）。完成后执行 canvas done \\\"feature=<feature>;task=<任务>;exec_done;build=<pass|fail>;summary=<摘要>\\\"。\" --model openai-codex/gpt-5.3-codex"
         }
       },
-      "pos_x": 769.7444,
-      "pos_y": 266.932,
+      "pos_x": 1548.6421,
+      "pos_y": 1174.9282,
       "size_x": 840.0,
       "size_y": 660.0
     },
@@ -37,14 +37,14 @@
       "kind": "Text",
       "data": {
         "Text": {
-          "text_body": "pi --append-system-prompt \"你是Planner, 你将目标拆解成多个任务目标并写入工作目录下的 ./Tasks.md 最后调用命令 canvas done '你完成的摘要信息'\" --model openai-codex/gpt-5.4",
+          "text_body": "pi --append-system-prompt \"你是Planner。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tasks.md，选择最高优先级未完成任务，生成 artifacts/{feature}_TODO.md（落地步骤）与 artifacts/{feature}_Tests.md（AI可执行验收命令）。若全部完成：git add并commit（消息含feat/fix标签），然后 canvas done \\\"feature=<feature>;all_done\\\"；否则 canvas done \\\"feature=<feature>;task=<任务>;plan_ready\\\"。\" --model openai-codex/gpt-5.4",
           "auto_size": false
         }
       },
-      "pos_x": -89.032104,
-      "pos_y": 196.59306,
-      "size_x": 762.7319,
-      "size_y": 60.0
+      "pos_x": 446.14478,
+      "pos_y": 741.12317,
+      "size_x": 767.44257,
+      "size_y": 137.85449
     },
     {
       "id": 11,
@@ -52,14 +52,14 @@
       "kind": "Text",
       "data": {
         "Text": {
-          "text_body": "pi --append-system-prompt \"你是Executer, 你将读取工作目录下的 ./Tasks 然后完成所有任务, 完成后调用命令 canvas done '你完成的摘要信息'\" --model openai-codex/gpt-5.3-codex",
+          "text_body": "pi --append-system-prompt \"你是Executer。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_TODO.md 执行编码任务，并保证编译通过（cargo check或等价命令）。完成后执行 canvas done \\\"feature=<feature>;task=<任务>;exec_done;build=<pass|fail>;summary=<摘要>\\\"。\" --model openai-codex/gpt-5.3-codex",
           "auto_size": false
         }
       },
-      "pos_x": 914.96594,
-      "pos_y": 189.67401,
-      "size_x": 466.97595,
-      "size_y": 60.0
+      "pos_x": 1616.9413,
+      "pos_y": 1045.6907,
+      "size_x": 680.9757,
+      "size_y": 118.12335
     },
     {
       "id": 15,
@@ -68,11 +68,11 @@
       "data": {
         "Terminal": {
           "title": "CEO",
-          "startup_script": "pi --append-system-prompt \"你是项目经理, 你需要先了解我们当前的项目, 然后读取./docs/todo.md 文件,判断我们当前最优先应该做的任务优先级,与用户讨论为什么, 如果用户确认后调用命令 canvas done '讨论得出的结论(也就是需要完成的目标)'\" --model openai-codex/gpt-5.4"
+          "startup_script": "pi --append-system-prompt \"你是AI CEO。先与用户澄清需求是否能在一个Terminal+Pi闭环中实现。确认后定义feature_slug（英文短横线）并写入 artifacts/{feature_slug}_Tasks.md：拆解任务、优先级、完成标准。然后执行 canvas done \\\"feature=<feature_slug>;goal=<一句话目标>\\\"。\" --model openai-codex/gpt-5.4"
         }
       },
-      "pos_x": -1161.2137,
-      "pos_y": 251.66556,
+      "pos_x": -761.5739,
+      "pos_y": 813.76086,
       "size_x": 951.42883,
       "size_y": 685.6636
     },
@@ -82,14 +82,14 @@
       "kind": "Text",
       "data": {
         "Text": {
-          "text_body": "pi --append-system-prompt \"你是项目经理, 你需要先了解我们当前的项目, 然后读取./docs/todo.md 文件,判断我们当前最优先应该做的任务优先级,与用户讨论为什么, 如果用户确认后调用命令 canvas done '讨论得出的结论(也就是需要完成的目标)'\" --model openai-codex/gpt-5.4",
+          "text_body": "pi --append-system-prompt \"你是AI CEO。先与用户澄清需求是否能在一个Terminal+Pi闭环中实现。确认后定义feature_slug（英文短横线）并写入 artifacts/{feature_slug}_Tasks.md：拆解任务、优先级、完成标准。然后执行 canvas done \\\"feature=<feature_slug>;goal=<一句话目标>\\\"。\" --model openai-codex/gpt-5.4",
           "auto_size": false
         }
       },
-      "pos_x": -1137.9308,
-      "pos_y": 176.58653,
+      "pos_x": -738.2909,
+      "pos_y": 717.54614,
       "size_x": 887.43964,
-      "size_y": 60.0
+      "size_y": 82.45679
     },
     {
       "id": 18,
@@ -97,12 +97,12 @@
       "kind": "Text",
       "data": {
         "Text": {
-          "text_body": "当前项目急需解决自动化测试流程. 目前每次都需要人工手动测试, 非常麻烦, 我的一个思路可能是新增一个agent用的cli,比如叫做 debug_canvas_cli 他可以调用获取我们调试用的信息, 也能完成所有人类能做的操作(要能可拓展, 最好是底层方法)",
+          "text_body": "<用户填写任务需求>",
           "auto_size": false
         }
       },
-      "pos_x": -1871.8656,
-      "pos_y": 511.3449,
+      "pos_x": -1500.6036,
+      "pos_y": 880.04614,
       "size_x": 510.4823,
       "size_y": 154.3133
     },
@@ -112,12 +112,12 @@
       "kind": "Terminal",
       "data": {
         "Terminal": {
-          "title": "Terminal",
-          "startup_script": "pi"
+          "title": "Tester",
+          "startup_script": "pi --append-system-prompt \"你是Tester。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tests.md 执行测试。失败时执行 canvas done --route fix \\\"feature=<feature>;task=<任务>;test=fail;reason=<摘要>\\\"；成功时先更新 artifacts/{feature}_Tasks.md 标记完成，再执行 canvas done --route next \\\"feature=<feature>;task=<任务>;test=pass\\\"。\" --model openai-codex/gpt-5.4"
         }
       },
-      "pos_x": 1676.5651,
-      "pos_y": 262.7646,
+      "pos_x": 2281.356,
+      "pos_y": 60.889954,
       "size_x": 840.0,
       "size_y": 660.0
     },
@@ -127,14 +127,14 @@
       "kind": "Text",
       "data": {
         "Text": {
-          "text_body": "你是 Tester 请你使用 canvas-agent-events 技能测试一下我们的任务完成情况",
+          "text_body": "pi --append-system-prompt \"你是Tester。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tests.md 执行测试。失败时执行 canvas done --route fix \\\"feature=<feature>;task=<任务>;test=fail;reason=<摘要>\\\"；成功时先更新 artifacts/{feature}_Tasks.md 标记完成，再执行 canvas done --route next \\\"feature=<feature>;task=<任务>;test=pass\\\"。\" --model openai-codex/gpt-5.4",
           "auto_size": false
         }
       },
-      "pos_x": 1670.9152,
-      "pos_y": 181.81711,
-      "size_x": 650.3286,
-      "size_y": 69.41812
+      "pos_x": 2317.4941,
+      "pos_y": -42.080887,
+      "size_x": 717.699,
+      "size_y": 95.837845
     }
   ],
   "edges": [
@@ -153,11 +153,31 @@
     [
       8,
       19
+    ],
+    [
+      19,
+      7
+    ],
+    [
+      19,
+      8
     ]
   ],
+  "edge_routes": [
+    {
+      "from": 19,
+      "to": 7,
+      "route_key": "next"
+    },
+    {
+      "from": 19,
+      "to": 8,
+      "route_key": "fix"
+    }
+  ],
   "view": {
-    "pan_x": 4728.242,
-    "pan_y": -1056.4054,
-    "zoom": 2.4917612
+    "pan_x": 761.9994,
+    "pan_y": -360.06293,
+    "zoom": 0.8850482
   }
 }
