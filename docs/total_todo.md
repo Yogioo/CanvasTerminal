@@ -12,7 +12,9 @@
   3. 'Planner' 从 `artifacts/Tasks.md` 选择最高优先级任务，产出 `artifacts/{feature}_TODO.md`（技术方案）与 `artifacts/{feature}_Tests.md`（AI 可验收方案）；若任务全完成，执行 git add/commit 并打 `feature/fixed` 等标签
   4. 'Executer' 按 `artifacts/{feature}_TODO.md` 编码并保证编译通过
   5. 'Tester' 按 `artifacts/{feature}_Tests.md` 测试；失败则反馈 'Executer' 修复；成功则回写 `artifacts/{feature}_Tasks.md` 并返回 'Planner' 分配下一任务
-- [ ] 有的时候部分节点之间工作流, 需要加入人工校验确认流程, 现在是否支持? 当前我们好像只能让某个Terminal不调用 canvas触发事件, 然后用户手动去右键文本节点去处理, 感觉好像没有连续性? 我感觉好像可以新增一个终端, 用于接受前面的信息, 然后用户去手动校验结果, 如果接受那么信息可以向某个方向沿着线传递, 如果拒绝可以走另一个线进入另一个流程?
+- [x] 人工校验分流方案已定稿（MVP）
+  - 方案文档：`docs/decision-node-mvp.md`
+  - 范围：新增决策节点（按钮配置 + 事件分流 + 消息展示），先不做权限/超时等高级能力
 
 ---
 
