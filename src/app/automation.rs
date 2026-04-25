@@ -150,6 +150,29 @@ impl GraphApp {
         let mut edges = self.edges.clone();
         edges.sort_unstable();
 
+        let mut edge_routes: Vec<Value> = self
+            .edge_route_keys
+            .iter()
+            .filter_map(|((from, to), route_key)| {
+                let trimmed = route_key.trim();
+                if trimmed.is_empty() || !self.has_edge(*from, *to) {
+                    return None;
+                }
+
+                Some(json!({
+                    "from": from,
+                    "to": to,
+                    "route_key": trimmed,
+                }))
+            })
+            .collect();
+        edge_routes.sort_by_key(|edge| {
+            (
+                edge.get("from").and_then(Value::as_u64).unwrap_or_default(),
+                edge.get("to").and_then(Value::as_u64).unwrap_or_default(),
+            )
+        });
+
         let mut selection: Vec<usize> = self.selected_nodes.iter().copied().collect();
         selection.sort_unstable();
 
@@ -160,6 +183,7 @@ impl GraphApp {
                 "snapshot": {
                     "nodes": nodes,
                     "edges": edges,
+                    "edge_routes": edge_routes,
                     "viewport": {
                         "pan": {"x": self.pan.x, "y": self.pan.y},
                         "zoom": self.zoom,
@@ -345,10 +369,16 @@ impl GraphApp {
     ) -> Result<AutomationOutcome, AutomationResponse> {
         let payload: EdgePayload = Self::parse_payload(request)?;
         if self.has_edge(payload.from, payload.to) {
+            if let Some(route_key) = payload.route_key {
+                self.set_edge_route_key(payload.from, payload.to, route_key);
+                self.mark_workspace_dirty();
+            }
+
             return Ok(AutomationOutcome {
                 data: json!({
                     "status": "already_exists",
                     "edge": [payload.from, payload.to],
+                    "route_key": self.edge_route_key(payload.from, payload.to),
                     "version": self.automation_state_version,
                 }),
                 affected_ids: vec![payload.from, payload.to],
@@ -367,11 +397,15 @@ impl GraphApp {
         }
 
         self.edges.push((payload.from, payload.to));
+        if let Some(route_key) = payload.route_key {
+            self.set_edge_route_key(payload.from, payload.to, route_key);
+        }
         self.mark_workspace_dirty();
 
         Ok(AutomationOutcome {
             data: json!({
                 "edge": [payload.from, payload.to],
+                "route_key": self.edge_route_key(payload.from, payload.to),
                 "version": self.automation_state_version,
             }),
             affected_ids: vec![payload.from, payload.to],
@@ -396,12 +430,25 @@ impl GraphApp {
             ));
         };
 
+        let previous_route_key = self
+            .edge_route_key(payload.from, payload.to)
+            .map(str::to_owned);
+        self.remove_edge_route_key(payload.from, payload.to);
+
         self.edges[existing_idx] = (payload.new_from, payload.new_to);
+
+        if let Some(new_route_key) = payload.new_route_key {
+            self.set_edge_route_key(payload.new_from, payload.new_to, new_route_key);
+        } else if let Some(prev) = previous_route_key {
+            self.set_edge_route_key(payload.new_from, payload.new_to, prev);
+        }
+
         self.mark_workspace_dirty();
 
         Ok(AutomationOutcome {
             data: json!({
                 "edge": [payload.new_from, payload.new_to],
+                "route_key": self.edge_route_key(payload.new_from, payload.new_to),
                 "version": self.automation_state_version,
             }),
             affected_ids: vec![payload.new_from, payload.new_to],
@@ -416,6 +463,7 @@ impl GraphApp {
         let before = self.edges.len();
         self.edges
             .retain(|(from, to)| !(*from == payload.from && *to == payload.to));
+        self.remove_edge_route_key(payload.from, payload.to);
         if self.edges.len() == before {
             return Ok(AutomationOutcome {
                 data: json!({

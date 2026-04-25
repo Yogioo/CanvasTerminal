@@ -178,7 +178,38 @@ impl GraphApp {
         self.edges.iter().any(|(a, b)| *a == from && *b == to)
     }
 
-    fn edge_segment_local(&self, from: usize, to: usize) -> Option<(Pos2, Pos2)> {
+    pub(in crate::app) fn edge_route_key(&self, from: usize, to: usize) -> Option<&str> {
+        self.edge_route_keys
+            .get(&(from, to))
+            .map(|value| value.as_str())
+            .filter(|value| !value.trim().is_empty())
+    }
+
+    pub(in crate::app) fn set_edge_route_key(&mut self, from: usize, to: usize, route_key: String) {
+        let trimmed = route_key.trim();
+        if trimmed.is_empty() {
+            self.edge_route_keys.remove(&(from, to));
+            return;
+        }
+
+        self.edge_route_keys.insert((from, to), trimmed.to_owned());
+    }
+
+    pub(in crate::app) fn remove_edge_route_key(&mut self, from: usize, to: usize) {
+        self.edge_route_keys.remove(&(from, to));
+    }
+
+    pub(in crate::app) fn prune_edge_route_keys(&mut self) {
+        let existing: HashSet<(usize, usize)> = self.edges.iter().copied().collect();
+        self.edge_route_keys
+            .retain(|edge, route| existing.contains(edge) && !route.trim().is_empty());
+    }
+
+    pub(in crate::app) fn edge_segment_local(
+        &self,
+        from: usize,
+        to: usize,
+    ) -> Option<(Pos2, Pos2)> {
         let a = self.nodes.iter().find(|n| n.id == from)?;
         let b = self.nodes.iter().find(|n| n.id == to)?;
         let start = a.pos + vec2(a.size.x, a.size.y * 0.5);
@@ -202,6 +233,7 @@ impl GraphApp {
             idx += 1;
             keep
         });
+        self.prune_edge_route_keys();
     }
 
     pub(in crate::app) fn cut_nodes_intersecting_segment(&mut self, cut_a: Pos2, cut_b: Pos2) {
@@ -342,6 +374,7 @@ impl GraphApp {
         self.nodes.retain(|n| n.id != node_id);
         self.edges
             .retain(|(from, to)| *from != node_id && *to != node_id);
+        self.prune_edge_route_keys();
         self.terminal_backends.remove(&node_id);
         self.terminal_exited.remove(&node_id);
         self.terminal_errors.remove(&node_id);
@@ -389,6 +422,12 @@ impl GraphApp {
         }
         if self.suspend_terminal_focus == Some(node_id) {
             self.suspend_terminal_focus = None;
+        }
+        if self
+            .editing_edge
+            .is_some_and(|(from, to)| from == node_id || to == node_id)
+        {
+            self.cancel_edge_edit();
         }
         if self.linking_from == Some(node_id) {
             self.linking_from = None;

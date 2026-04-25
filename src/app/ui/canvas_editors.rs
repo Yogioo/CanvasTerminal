@@ -213,6 +213,77 @@ impl GraphApp {
         }
     }
 
+    pub(in crate::app::ui) fn handle_edge_editor(
+        &mut self,
+        ui: &mut Ui,
+        ctx: &egui::Context,
+        canvas_rect: Rect,
+        primary_clicked: bool,
+        pointer_pos: Option<Pos2>,
+    ) {
+        let Some((from, to)) = self.editing_edge else {
+            return;
+        };
+
+        if !self.has_edge(from, to) {
+            self.cancel_edge_edit();
+            return;
+        }
+
+        let Some(label_world_pos) = self.edge_label_world_pos(from, to) else {
+            self.cancel_edge_edit();
+            return;
+        };
+
+        let center = self.world_to_screen_pos(canvas_rect, label_world_pos);
+        let width = (200.0 * self.zoom.clamp(0.8, 1.4)).max(140.0);
+        let height = (28.0 * self.zoom.clamp(0.8, 1.4)).max(24.0);
+        let edit_rect = Rect::from_center_size(center, egui::vec2(width, height));
+
+        let edge_edit_id = egui::Id::new(("edge-route-editor", from, to));
+        if self.pending_edge_focus == Some((from, to)) {
+            ctx.memory_mut(|m| m.request_focus(edge_edit_id));
+        }
+
+        let response = ui.put(
+            edit_rect,
+            TextEdit::singleline(&mut self.edge_edit_buffer)
+                .id(edge_edit_id)
+                .font(FontId::proportional((13.0 * self.zoom).max(10.0)))
+                .text_color(Color32::WHITE)
+                .background_color(Color32::BLACK)
+                .hint_text("route_key")
+                .desired_width(f32::INFINITY),
+        );
+
+        if self.pending_edge_focus == Some((from, to)) {
+            if let Some(mut state) = egui::TextEdit::load_state(ctx, edge_edit_id) {
+                let len = self.edge_edit_buffer.chars().count();
+                let range = egui::text::CCursorRange::two(
+                    egui::text::CCursor::new(0),
+                    egui::text::CCursor::new(len),
+                );
+                state.cursor.set_char_range(Some(range));
+                state.store(ctx, edge_edit_id);
+            }
+            self.pending_edge_focus = None;
+        }
+
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.cancel_edge_edit();
+        } else if ctx.input(|i| i.key_pressed(egui::Key::Enter))
+            || (response.lost_focus() && !ctx.input(|i| i.pointer.primary_down()))
+        {
+            self.commit_edge_edit();
+        } else if primary_clicked {
+            if let Some(pointer) = pointer_pos {
+                if !edit_rect.contains(pointer) {
+                    self.commit_edge_edit();
+                }
+            }
+        }
+    }
+
     pub(in crate::app::ui) fn draw_embedded_terminal_for_rect(
         &mut self,
         ui: &mut Ui,
@@ -270,5 +341,4 @@ impl GraphApp {
             term_ui.label("终端未启动，请稍候或通过节点菜单重启。");
         }
     }
-
 }

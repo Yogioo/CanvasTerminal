@@ -43,8 +43,14 @@ description: 使用 canvas debug 协议驱动 CanvasTerminal 自动化测试（g
 
 ## 三、可用命令速查
 
+### Done Event
+- `canvas done [--route <route_key>] <summary>`
+  - 不传 `--route`：广播到所有下游 terminal（兼容旧流程）
+  - 传 `--route`：仅发送到连线 `route_key` 匹配的下游 terminal
+
 ### Graph
 - `canvas debug graph get [--since-version N] [--pretty] [--jsonpath p]`
+  - 快照中可读取 `snapshot.edge_routes[]`：`{from,to,route_key}`
 
 ### Node
 - `canvas debug node create --kind <terminal|text|image> --x <f32> --y <f32> [--text ...] [--title ...] [--startup-script ...] [--image-path ...]`
@@ -53,8 +59,8 @@ description: 使用 canvas debug 协议驱动 CanvasTerminal 自动化测试（g
 - `canvas debug node delete --id <usize>`
 
 ### Edge
-- `canvas debug edge create --from <id> --to <id>`
-- `canvas debug edge reconnect --from <id> --to <id> --new-from <id> --new-to <id>`
+- `canvas debug edge create --from <id> --to <id> [--route <route_key>]`
+- `canvas debug edge reconnect --from <id> --to <id> --new-from <id> --new-to <id> [--new-route <route_key>]`
 - `canvas debug edge delete --from <id> --to <id>`
 
 ### Inject
@@ -73,8 +79,10 @@ description: 使用 canvas debug 协议驱动 CanvasTerminal 自动化测试（g
 推荐最小断言：
 1. 节点创建后，`data.node_id` 存在
 2. 连线创建后，`graph.get.snapshot.edges` 含 `[from,to]`
-3. 文本注入后，目标节点 `data.text_body` 变化
-4. 终端注入后，`exit_code == 0`（或符合预期）
+3. 若设置分流，`graph.get.snapshot.edge_routes` 含 `{from,to,route_key}`
+4. 文本注入后，目标节点 `data.text_body` 变化
+5. 终端注入后，`exit_code == 0`（或符合预期）
+6. route_key 分流时，只有目标下游 terminal 收到消息（非目标不应收到）
 
 ---
 
@@ -141,6 +149,14 @@ description: 使用 canvas debug 协议驱动 CanvasTerminal 自动化测试（g
 1. inject terminal `echo smoke`
 2. 断言 `exit_code=0`
 3. 如超时，记录 `timed_out=true`
+
+### 配方 D：route_key 分流（编程循环关键）
+1. 创建 Tester/Planner/Executer 三个 terminal
+2. 建立两条边：Tester->Planner(route=`next`), Tester->Executer(route=`fix`)
+3. 在 Tester 执行：`canvas done --route next "..."`
+4. 断言：仅 Planner 收到；Executer 未收到
+5. 在 Tester 执行：`canvas done --route fix "..."`
+6. 断言：仅 Executer 收到；Planner 未收到
 
 ---
 

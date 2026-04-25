@@ -167,6 +167,7 @@ impl GraphApp {
         for (from, to) in edges {
             self.edges.retain(|edge| edge != &(*from, *to));
         }
+        self.prune_edge_route_keys();
 
         for node in nodes {
             self.remove_node(node.id);

@@ -79,6 +79,7 @@
 - `snapshot`
   - `nodes[]`：`id/uid/kind/data/pos/size`
   - `edges[]`：`[from, to]`
+  - `edge_routes[]`：`{from,to,route_key}`（可选，存在 route_key 时返回）
   - `viewport`：`pan/zoom`
   - `selection`：`selected/selected_nodes`
 
@@ -171,6 +172,7 @@ canvas debug node update --id 3 --text "new body"
 ### D. 创建连线
 ```bash
 canvas debug edge create --from 3 --to 4
+canvas debug edge create --from 3 --to 4 --route fix
 ```
 
 ### E. 文本注入（append）

@@ -8,6 +8,8 @@ pub const DEFAULT_CANVAS_BIND_ADDR: &str = "127.0.0.1:4545";
 pub struct DoneEvent {
     pub node_uid: String,
     pub summary: String,
+    #[serde(default)]
+    pub route_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,5 +132,20 @@ mod tests {
         let resp = response_error(Some("x".to_owned()), "node.create", "BAD_PAYLOAD", "bad");
         assert!(!resp.ok);
         assert_eq!(resp.error.unwrap().code, "BAD_PAYLOAD");
+    }
+
+    #[test]
+    fn done_event_is_backward_compatible_without_route_key() {
+        let text = r#"{"node_uid":"u1","summary":"ok"}"#;
+        let parsed: DoneEvent = serde_json::from_str(text).unwrap();
+        assert_eq!(parsed.node_uid, "u1");
+        assert_eq!(parsed.route_key, None);
+    }
+
+    #[test]
+    fn done_event_supports_route_key() {
+        let text = r#"{"node_uid":"u1","summary":"ok","route_key":"fix"}"#;
+        let parsed: DoneEvent = serde_json::from_str(text).unwrap();
+        assert_eq!(parsed.route_key.as_deref(), Some("fix"));
     }
 }

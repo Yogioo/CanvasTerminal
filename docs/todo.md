@@ -36,5 +36,10 @@
 3. 'Planner'从 artifacts/Tasks.md 中, 选择一个优先级最高的任务, 生成任务详情规划, 技术落地方案 artifacts/{feature}_TODO.md,还有可用AI验收的验收方案 artifacts/{feature}_Tests.md
 4. 'Executer' 按照 artifacts/{feature}_TODO.md 执行代码编码任务, 并保证编译通过
 5. 'Tester' 按照 artifacts/{feature}_Tests.md 进行测试,确认测试是否成功, 如果失败发送相关信息给 'Executer' 要求修复. 如果成功 修改 artifacts/{feature}_Tasks.md 标记完成任务,然后返回'Planner' 让他加继续分配下一个任务
-- [ ] 当前完成这个我当前缺少
-  - [ ] 分流功能, 就是'Tester'去选择转发给谁的这个地方, 它需要两个连线, 一个连线 'Planner', 一个连线给 'Executer'
+- [x] 当前完成这个我当前缺少
+  - [x] 分流功能（通用 route_key 方案）
+    - [x] 连线支持双击编辑文本标签（即 route_key）
+    - [x] `canvas done` 支持 `--route <route_key>` 参数
+    - [x] 当传入 `--route` 时，仅转发到 route_key 匹配的下游连线
+    - [x] 当未传入 `--route` 时，保持现有广播行为（兼容旧流程）
+    - [x] 编程循环最小验收：Tester 两条连线（`next` -> Planner, `fix` -> Executer）可按 route_key 精确分流

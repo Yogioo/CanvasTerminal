@@ -40,6 +40,10 @@ impl GraphApp {
         self.editing_startup_node = None;
         self.pending_startup_focus = None;
         self.startup_edit_buffer.clear();
+
+        self.editing_edge = None;
+        self.pending_edge_focus = None;
+        self.edge_edit_buffer.clear();
     }
 
     pub(in crate::app) fn start_title_edit(&mut self, node_id: usize) {
@@ -85,14 +89,14 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn start_startup_edit(&mut self, node_id: usize) {
-        let Some(startup_script) = self
-            .nodes
-            .iter()
-            .find(|n| n.id == node_id)
-            .and_then(|n| match &n.data {
-                NodeData::Terminal { startup_script, .. } => Some(startup_script.clone()),
-                _ => None,
-            })
+        let Some(startup_script) =
+            self.nodes
+                .iter()
+                .find(|n| n.id == node_id)
+                .and_then(|n| match &n.data {
+                    NodeData::Terminal { startup_script, .. } => Some(startup_script.clone()),
+                    _ => None,
+                })
         else {
             return;
         };
@@ -119,5 +123,58 @@ impl GraphApp {
         }
         self.finish_startup_edit(Some(node_id));
         self.restart_terminal_if_changed(node_id, changed, ctx);
+    }
+
+    pub(in crate::app) fn start_edge_edit(&mut self, edge: (usize, usize)) {
+        if !self.has_edge(edge.0, edge.1) {
+            return;
+        }
+
+        self.editing_text_node = None;
+        self.pending_text_focus = None;
+        self.editing_title_node = None;
+        self.pending_title_focus = None;
+        self.title_edit_buffer.clear();
+        self.editing_startup_node = None;
+        self.pending_startup_focus = None;
+        self.startup_edit_buffer.clear();
+
+        self.editing_edge = Some(edge);
+        self.pending_edge_focus = Some(edge);
+        self.edge_edit_buffer = self
+            .edge_route_key(edge.0, edge.1)
+            .unwrap_or_default()
+            .to_owned();
+    }
+
+    pub(in crate::app) fn commit_edge_edit(&mut self) {
+        let Some((from, to)) = self.editing_edge else {
+            return;
+        };
+
+        if !self.has_edge(from, to) {
+            self.cancel_edge_edit();
+            return;
+        }
+
+        let prev = self.edge_route_key(from, to).unwrap_or_default().to_owned();
+        let next = self.edge_edit_buffer.trim().to_owned();
+
+        if prev != next {
+            if next.is_empty() {
+                self.remove_edge_route_key(from, to);
+            } else {
+                self.set_edge_route_key(from, to, next);
+            }
+            self.mark_workspace_dirty();
+        }
+
+        self.cancel_edge_edit();
+    }
+
+    pub(in crate::app) fn cancel_edge_edit(&mut self) {
+        self.editing_edge = None;
+        self.pending_edge_focus = None;
+        self.edge_edit_buffer.clear();
     }
 }

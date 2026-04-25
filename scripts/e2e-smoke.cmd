@@ -27,8 +27,14 @@ for /f "tokens=*" %%i in ('"%CANVAS_EXE%" debug node create --kind text --x 380 
 if "%NODE_A%"=="" exit /b 1
 if "%NODE_B%"=="" exit /b 1
 
-echo [smoke] connect edge
-"%CANVAS_EXE%" debug edge create --from %NODE_A% --to %NODE_B% >nul
+echo [smoke] connect edge with route_key
+set ROUTE_KEY=smoke-route-%RANDOM%
+"%CANVAS_EXE%" debug edge create --from %NODE_A% --to %NODE_B% --route %ROUTE_KEY% >nul
+if errorlevel 1 exit /b 1
+
+echo [smoke] verify edge_routes contains route_key
+for /f "tokens=*" %%i in ('"%CANVAS_EXE%" debug graph get --jsonpath data.snapshot.edge_routes') do set EDGE_ROUTES=%%i
+echo !EDGE_ROUTES! | findstr /c:"%ROUTE_KEY%" >nul
 if errorlevel 1 exit /b 1
 
 echo [smoke] inject text
@@ -38,6 +44,12 @@ if errorlevel 1 exit /b 1
 echo [smoke] inject terminal command
 "%CANVAS_EXE%" debug inject terminal --node-id %NODE_A% --command "echo smoke-terminal" --wait --timeout 5000 >nul
 if errorlevel 1 exit /b 1
+
+echo [smoke] done event with route_key
+set CANVAS_NODE_UID=smoke-e2e
+"%CANVAS_EXE%" done --route %ROUTE_KEY% "smoke-route-done" >nul
+if errorlevel 1 exit /b 1
+set CANVAS_NODE_UID=
 
 echo [smoke] restart built-in terminal node
 "%CANVAS_EXE%" debug terminal restart --node-id 1 >nul

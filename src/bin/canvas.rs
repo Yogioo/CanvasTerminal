@@ -7,7 +7,7 @@ use std::env;
 
 fn print_help() {
     println!(
-        "canvas - agent/debug CLI\n\nUSAGE:\n  canvas <COMMAND> [ARGS]\n\nCOMMANDS:\n  help                                  Show this help\n  ping                                  Check whether Canvas app event server is reachable\n  done <summary>                        Emit a done event from the current terminal node\n  debug graph get [--pretty] [--jsonpath p]\n  debug node create|update|move|delete ...\n  debug edge create|reconnect|delete ...\n  debug inject text|terminal ...\n  debug terminal restart --node-id <id>\n\nENVIRONMENT:\n  CANVAS_NODE_UID      Current terminal node uid\n  CANVAS_API           Canvas app API base URL (default: http://127.0.0.1:4545)\n\nEXAMPLES:\n  canvas debug graph get --pretty\n  canvas debug node create --kind text --x 200 --y 120 --text \"hello\"\n  canvas debug inject terminal --node-id 2 --command \"echo ok\" --wait"
+        "canvas - agent/debug CLI\n\nUSAGE:\n  canvas <COMMAND> [ARGS]\n\nCOMMANDS:\n  help                                  Show this help\n  ping                                  Check whether Canvas app event server is reachable\n  done [--route <route_key>] <summary>  Emit a done event from the current terminal node\n  debug graph get [--pretty] [--jsonpath p]\n  debug node create|update|move|delete ...\n  debug edge create|reconnect|delete ...\n  debug inject text|terminal ...\n  debug terminal restart --node-id <id>\n\nENVIRONMENT:\n  CANVAS_NODE_UID      Current terminal node uid\n  CANVAS_API           Canvas app API base URL (default: http://127.0.0.1:4545)\n\nEXAMPLES:\n  canvas done --route fix \"build failed, please fix\"\n  canvas debug graph get --pretty\n  canvas debug node create --kind text --x 200 --y 120 --text \"hello\"\n  canvas debug inject terminal --node-id 2 --command \"echo ok\" --wait"
     );
 }
 
@@ -16,9 +16,19 @@ fn api_base() -> String {
 }
 
 fn command_done(args: Vec<String>) {
-    let summary = args.join(" ").trim().to_owned();
+    let mut args = VecDeque::from(args);
+    let route_key = pop_flag_value(&mut args, "--route")
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty());
+
+    let summary = args
+        .into_iter()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_owned();
     if summary.is_empty() {
-        eprintln!("usage: canvas done \"summary\"");
+        eprintln!("usage: canvas done [--route <route_key>] \"summary\"");
         std::process::exit(1);
     }
 
@@ -28,7 +38,11 @@ fn command_done(args: Vec<String>) {
     });
 
     let url = format!("{}/done", api_base().trim_end_matches('/'));
-    let response = ureq::post(&url).send_json(serde_json::json!(DoneEvent { node_uid, summary }));
+    let response = ureq::post(&url).send_json(serde_json::json!(DoneEvent {
+        node_uid,
+        summary,
+        route_key
+    }));
     match response {
         Ok(_) => println!("ok"),
         Err(err) => {
@@ -175,13 +189,18 @@ fn build_debug_action(args: Vec<String>) -> (AutomationRequest, bool, Option<Str
         ("edge", "create") => {
             let from = parse_usize(pop_flag_value(&mut args, "--from"), "--from");
             let to = parse_usize(pop_flag_value(&mut args, "--to"), "--to");
-            ("edge.create", json!({"from": from, "to": to}))
+            let route_key = pop_flag_value(&mut args, "--route");
+            (
+                "edge.create",
+                json!({"from": from, "to": to, "route_key": route_key}),
+            )
         }
         ("edge", "reconnect") => {
             let from = parse_usize(pop_flag_value(&mut args, "--from"), "--from");
             let to = parse_usize(pop_flag_value(&mut args, "--to"), "--to");
             let new_from = parse_usize(pop_flag_value(&mut args, "--new-from"), "--new-from");
             let new_to = parse_usize(pop_flag_value(&mut args, "--new-to"), "--new-to");
+            let new_route_key = pop_flag_value(&mut args, "--new-route");
             (
                 "edge.reconnect",
                 json!({
@@ -189,6 +208,7 @@ fn build_debug_action(args: Vec<String>) -> (AutomationRequest, bool, Option<Str
                     "to": to,
                     "new_from": new_from,
                     "new_to": new_to,
+                    "new_route_key": new_route_key,
                 }),
             )
         }

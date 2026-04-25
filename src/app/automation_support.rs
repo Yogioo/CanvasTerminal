@@ -53,6 +53,8 @@ pub(in crate::app) struct NodeUpdatePayload {
 pub(in crate::app) struct EdgePayload {
     pub from: usize,
     pub to: usize,
+    #[serde(default)]
+    pub route_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -61,6 +63,8 @@ pub(in crate::app) struct EdgeReconnectPayload {
     pub to: usize,
     pub new_from: usize,
     pub new_to: usize,
+    #[serde(default)]
+    pub new_route_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

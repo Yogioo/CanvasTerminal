@@ -261,6 +261,31 @@ impl GraphApp {
         Some(Rect::from_min_max(inner_min, inner_max))
     }
 
+    pub(in crate::app) fn find_edge_at(&self, local: Pos2, tolerance_world: f32) -> Option<(usize, usize)> {
+        self.edges.iter().rev().copied().find(|(from, to)| {
+            self.edge_segment_local(*from, *to)
+                .is_some_and(|(a, b)| Self::distance_to_segment(local, a, b) <= tolerance_world)
+        })
+    }
+
+    pub(in crate::app) fn edge_label_world_pos(&self, from: usize, to: usize) -> Option<Pos2> {
+        self.edge_segment_local(from, to).map(|(a, b)| {
+            Pos2::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5)
+        })
+    }
+
+    fn distance_to_segment(point: Pos2, a: Pos2, b: Pos2) -> f32 {
+        let ab = b - a;
+        let ab_len_sq = ab.length_sq();
+        if ab_len_sq <= f32::EPSILON {
+            return point.distance(a);
+        }
+
+        let t = ((point - a).dot(ab) / ab_len_sq).clamp(0.0, 1.0);
+        let projection = a + ab * t;
+        point.distance(projection)
+    }
+
     pub(in crate::app) fn segment_intersects_rect(a: Pos2, b: Pos2, rect: Rect) -> bool {
         if rect.contains(a) || rect.contains(b) {
             return true;

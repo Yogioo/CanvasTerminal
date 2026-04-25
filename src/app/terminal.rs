@@ -135,16 +135,45 @@ impl GraphApp {
             return;
         };
 
+        let route_key = event
+            .route_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
         let downstream_terminal_ids: Vec<usize> = self
             .edges
             .iter()
-            .filter_map(|(from, to)| (*from == source_id).then_some(*to))
+            .filter(|(from, to)| {
+                if *from != source_id {
+                    return false;
+                }
+
+                if let Some(expected) = route_key {
+                    let actual = self.edge_route_key(*from, *to).unwrap_or_default();
+                    if actual != expected {
+                        return false;
+                    }
+                }
+
+                true
+            })
+            .map(|(_, to)| *to)
             .filter(|target_id| {
                 self.nodes
                     .iter()
                     .any(|n| n.id == *target_id && matches!(n.kind, NodeKind::Terminal))
             })
             .collect();
+
+        if downstream_terminal_ids.is_empty() {
+            if let Some(expected) = route_key {
+                self.push_toast_notification(format!(
+                    "未找到 route_key = '{expected}' 的下游终端连线"
+                ));
+            }
+            return;
+        }
 
         let injected = Self::build_injected_text_block(&event.summary);
         for target_id in downstream_terminal_ids {

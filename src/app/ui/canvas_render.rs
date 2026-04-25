@@ -29,6 +29,17 @@ impl GraphApp {
                     [right, end],
                     Stroke::new(edge_stroke, Color32::from_rgb(110, 170, 255)),
                 );
+
+                if let Some(route_key) = self.edge_route_key(*from, *to) {
+                    let label_pos = Pos2::new((start.x + end.x) * 0.5, (start.y + end.y) * 0.5);
+                    painter.text(
+                        label_pos + vec2(0.0, -8.0 * self.zoom),
+                        Align2::CENTER_BOTTOM,
+                        route_key,
+                        FontId::proportional((13.0 * self.zoom).max(9.0)),
+                        Color32::from_rgb(236, 232, 255),
+                    );
+                }
             }
         }
     }

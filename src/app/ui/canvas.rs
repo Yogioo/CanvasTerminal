@@ -784,7 +784,12 @@ impl GraphApp {
                         }
                     }
                 } else {
-                    self.create_text_node(local, true);
+                    let edge_hit_tolerance = (10.0 / self.zoom.max(1e-4)).max(4.0);
+                    if let Some(edge) = self.find_edge_at(local, edge_hit_tolerance) {
+                        self.start_edge_edit(edge);
+                    } else {
+                        self.create_text_node(local, true);
+                    }
                 }
                 self.last_primary_click_time = None;
                 self.last_primary_click_pos = None;
@@ -844,6 +849,7 @@ impl GraphApp {
         self.handle_text_node_editor(ui, ctx, text_edit_rect);
         self.handle_title_editor(ui, ctx, title_edit_rect, primary_clicked, pointer_pos);
         self.handle_startup_editor(ui, ctx, startup_edit_rect, primary_clicked, pointer_pos);
+        self.handle_edge_editor(ui, ctx, rect, primary_clicked, pointer_pos);
 
         if !is_panning && self.resizing.is_none() && resize_handle_hit.is_none() {
             if let Some(pos) = response.hover_pos() {

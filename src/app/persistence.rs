@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const GRAPH_CONFIG_VERSION: u32 = 3;
+const GRAPH_CONFIG_VERSION: u32 = 4;
 const DEFAULT_GRAPH_PATH: &str = "./graph.json";
 const IMAGE_ARTIFACT_DIR: &str = "artifacts/img";
 static IMAGE_FILE_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -22,7 +22,17 @@ struct GraphConfig {
     #[serde(default)]
     edges: Vec<(usize, usize)>,
     #[serde(default)]
+    edge_routes: Vec<EdgeRouteConfig>,
+    #[serde(default)]
     view: ViewConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EdgeRouteConfig {
+    from: usize,
+    to: usize,
+    #[serde(default)]
+    route_key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,10 +92,28 @@ impl GraphConfig {
             })
             .collect();
 
+        let edge_routes = app
+            .edge_route_keys
+            .iter()
+            .filter_map(|((from, to), route_key)| {
+                let trimmed = route_key.trim();
+                if trimmed.is_empty() || !app.has_edge(*from, *to) {
+                    return None;
+                }
+
+                Some(EdgeRouteConfig {
+                    from: *from,
+                    to: *to,
+                    route_key: trimmed.to_owned(),
+                })
+            })
+            .collect();
+
         Self {
             version: GRAPH_CONFIG_VERSION,
             nodes,
             edges: app.edges.clone(),
+            edge_routes,
             view: ViewConfig {
                 pan_x: app.pan.x,
                 pan_y: app.pan.y,
@@ -181,8 +209,23 @@ impl GraphApp {
             .filter(|(from, to)| node_ids.contains(from) && node_ids.contains(to))
             .collect();
 
+        let mut edge_route_keys = std::collections::HashMap::new();
+        for route in config.edge_routes {
+            let trimmed = route.route_key.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if edges
+                .iter()
+                .any(|(from, to)| *from == route.from && *to == route.to)
+            {
+                edge_route_keys.insert((route.from, route.to), trimmed.to_owned());
+            }
+        }
+
         self.nodes = nodes;
         self.edges = edges;
+        self.edge_route_keys = edge_route_keys;
         self.selected = None;
         self.selected_nodes.clear();
         self.dragging = None;
@@ -208,6 +251,9 @@ impl GraphApp {
         self.editing_startup_node = None;
         self.pending_startup_focus = None;
         self.startup_edit_buffer.clear();
+        self.editing_edge = None;
+        self.pending_edge_focus = None;
+        self.edge_edit_buffer.clear();
         self.suspend_terminal_focus = None;
 
         self.terminal_backends.clear();
