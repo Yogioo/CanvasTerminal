@@ -117,6 +117,7 @@ impl GraphApp {
             && primary_pressed
         {
             if let Some((edge, handle)) = edge_handle_hit {
+                self.editing_text_node = None;
                 self.set_edge_selection(edge);
                 self.dragging = None;
                 self.drag_start_pos = None;
@@ -133,6 +134,9 @@ impl GraphApp {
                     self.edge_control_offset(edge.0, edge.1, handle),
                 ));
             } else if let Some((id, local, size)) = resize_handle_hit {
+                if Some(id) != self.editing_text_node {
+                    self.editing_text_node = None;
+                }
                 self.resizing = Some((id, local, size));
                 self.dragging = None;
                 self.drag_start_pos = None;
@@ -143,7 +147,18 @@ impl GraphApp {
                 if let Some(pointer) = pointer_pos {
                     let local = self.screen_to_world_pos(rect, pointer);
                     if let Some((id, node_pos, can_drag)) = self.find_node_hit(local) {
-                        if subtract_select_modifier {
+                        if Some(id) != self.editing_text_node {
+                            self.editing_text_node = None;
+                        }
+
+                        if Some(id) == self.editing_text_node {
+                            self.dragging = None;
+                            self.drag_start_pos = None;
+                            self.drag_group_start = None;
+                            self.dragging_edge_control = None;
+                            self.box_select_start = None;
+                            self.box_select_current = None;
+                        } else if subtract_select_modifier {
                             self.remove_from_selection(id);
                             self.dragging = None;
                             self.drag_start_pos = None;
@@ -185,6 +200,7 @@ impl GraphApp {
                         self.box_select_start = None;
                         self.box_select_current = None;
                     } else if let Some(edge) = self.find_edge_at(local, edge_hit_tolerance) {
+                        self.editing_text_node = None;
                         self.dragging = None;
                         self.drag_start_pos = None;
                         self.drag_group_start = None;
@@ -196,6 +212,7 @@ impl GraphApp {
                         self.box_select_base_selection.clear();
                         self.set_edge_selection(edge);
                     } else {
+                        self.editing_text_node = None;
                         self.dragging = None;
                         self.drag_start_pos = None;
                         self.drag_group_start = None;
@@ -471,8 +488,12 @@ impl GraphApp {
                 self.context_menu_edge = context_menu_edge;
 
                 if let Some(node_id) = context_menu_node {
+                    if Some(node_id) != self.editing_text_node {
+                        self.editing_text_node = None;
+                    }
                     self.set_single_selection(node_id);
                 } else if let Some(edge) = context_menu_edge {
+                    self.editing_text_node = None;
                     self.set_edge_selection(edge);
                 } else {
                     self.clear_selection();
