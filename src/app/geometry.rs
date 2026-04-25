@@ -1,6 +1,6 @@
 use super::history::HistoryEntry;
 use super::{EdgeControlHandle, GraphApp};
-use crate::constants::TERMINAL_HEADER_HEIGHT;
+use crate::constants::{DECISION_HEADER_HEIGHT, TERMINAL_HEADER_HEIGHT};
 use crate::model::{Node, NodeKind};
 use eframe::egui::{self, vec2, Pos2, Rect};
 
@@ -129,12 +129,14 @@ fn clamp_edge_control_offset(offset: egui::Vec2) -> egui::Vec2 {
     }
 
     vec2(
-        offset
-            .x
-            .clamp(-EDGE_CONTROL_POINT_OFFSET_MAX, EDGE_CONTROL_POINT_OFFSET_MAX),
-        offset
-            .y
-            .clamp(-EDGE_CONTROL_POINT_OFFSET_MAX, EDGE_CONTROL_POINT_OFFSET_MAX),
+        offset.x.clamp(
+            -EDGE_CONTROL_POINT_OFFSET_MAX,
+            EDGE_CONTROL_POINT_OFFSET_MAX,
+        ),
+        offset.y.clamp(
+            -EDGE_CONTROL_POINT_OFFSET_MAX,
+            EDGE_CONTROL_POINT_OFFSET_MAX,
+        ),
     )
 }
 
@@ -242,6 +244,7 @@ impl GraphApp {
             let can_drag = match n.kind {
                 NodeKind::Text | NodeKind::Image => true,
                 NodeKind::Terminal => local.y <= n.pos.y + TERMINAL_HEADER_HEIGHT,
+                NodeKind::Decision => local.y <= n.pos.y + DECISION_HEADER_HEIGHT,
             };
 
             return Some((n.id, n.pos.to_vec2(), can_drag));

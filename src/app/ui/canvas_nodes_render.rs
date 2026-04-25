@@ -1,4 +1,5 @@
 use super::super::GraphApp;
+use crate::constants::DECISION_HEADER_HEIGHT;
 use crate::model::{NodeData, NodeKind};
 use eframe::egui::{
     self, vec2, Align, Align2, Color32, FontId, Layout, Painter, Pos2, Rect, Stroke,
@@ -16,10 +17,12 @@ impl GraphApp {
         Option<(usize, Rect)>,
         Option<(usize, Rect)>,
         Option<(usize, Rect)>,
+        Option<(usize, Rect)>,
     ) {
         let mut text_edit_rect: Option<(usize, Rect)> = None;
         let mut title_edit_rect: Option<(usize, Rect)> = None;
         let mut startup_edit_rect: Option<(usize, Rect)> = None;
+        let mut decision_edit_rect: Option<(usize, Rect)> = None;
 
         let render_nodes = self.nodes.clone();
         for node in &render_nodes {
@@ -82,6 +85,25 @@ impl GraphApp {
                         Stroke::new(
                             1.0 * zoom_scale.clamp(0.6, 1.6),
                             Color32::from_rgb(78, 145, 160),
+                        )
+                    };
+                    (fill, stroke)
+                }
+                NodeKind::Decision => {
+                    let fill = if is_selected {
+                        Color32::from_rgb(44, 78, 56)
+                    } else {
+                        Color32::from_rgb(34, 62, 45)
+                    };
+                    let stroke = if is_selected {
+                        Stroke::new(
+                            2.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(150, 236, 180),
+                        )
+                    } else {
+                        Stroke::new(
+                            1.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(98, 162, 120),
                         )
                     };
                     (fill, stroke)
@@ -305,6 +327,243 @@ impl GraphApp {
                         painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(255, 220, 130));
                     }
                 }
+                NodeKind::Decision => {
+                    painter.rect_stroke(
+                        node_rect,
+                        8.0 * zoom_scale,
+                        stroke,
+                        egui::StrokeKind::Outside,
+                    );
+
+                    let header_height = DECISION_HEADER_HEIGHT * zoom_scale;
+                    let header_bottom = (node_rect.min.y + header_height).min(node_rect.max.y);
+                    let header_rect = Rect::from_min_max(
+                        node_rect.min,
+                        Pos2::new(node_rect.max.x, header_bottom),
+                    );
+                    painter.rect_filled(header_rect, 8.0 * zoom_scale, fill);
+
+                    let is_title_editing = self.editing_title_node == Some(node.id);
+                    if !is_title_editing {
+                        let title = match &node.data {
+                            NodeData::Decision { title, .. } => title.as_str(),
+                            _ => "Decision",
+                        };
+                        painter.text(
+                            Pos2::new(node_rect.min.x + 12.0 * zoom_scale, header_rect.center().y),
+                            Align2::LEFT_CENTER,
+                            title,
+                            FontId::proportional((16.0 * zoom_scale).max(10.0)),
+                            Color32::from_rgb(230, 255, 238),
+                        );
+                    } else {
+                        let rect_min = node_rect.left_top() + vec2(10.0, 6.0) * zoom_scale;
+                        let rect_max = Pos2::new(
+                            node_rect.max.x - 10.0 * zoom_scale,
+                            (node_rect.min.y + header_height - 6.0 * zoom_scale)
+                                .min(node_rect.max.y),
+                        );
+                        title_edit_rect = Some((node.id, Rect::from_min_max(rect_min, rect_max)));
+                    }
+
+                    painter.line_segment(
+                        [
+                            Pos2::new(node_rect.min.x, header_bottom),
+                            Pos2::new(node_rect.max.x, header_bottom),
+                        ],
+                        Stroke::new(
+                            1.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(98, 162, 120),
+                        ),
+                    );
+
+                    let content_rect = Rect::from_min_max(
+                        Pos2::new(
+                            node_rect.min.x + 12.0 * zoom_scale,
+                            header_bottom + 10.0 * zoom_scale,
+                        ),
+                        node_rect.max - vec2(12.0, 12.0) * zoom_scale,
+                    );
+
+                    let is_decision_editing = self.editing_decision_buttons_node == Some(node.id);
+
+                    if is_decision_editing {
+                        decision_edit_rect = Some((node.id, content_rect));
+                    } else if content_rect.is_positive() {
+                        let mut content_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(content_rect)
+                                .layout(Layout::top_down(Align::Min)),
+                        );
+                        content_ui.set_clip_rect(content_rect);
+                        content_ui.set_width(content_rect.width());
+
+                        if let NodeData::Decision { buttons, .. } = &node.data {
+                            let (queue_len, queue_head_preview) =
+                                self.decision_queue_preview(node.id);
+                            let has_pending = queue_len > 0;
+
+                            let pending_preview = if has_pending {
+                                queue_head_preview.as_str()
+                            } else {
+                                "(暂无待处理消息)"
+                            };
+
+                            content_ui.scope(|ui| {
+                                ui.style_mut().visuals.override_text_color =
+                                    Some(Color32::from_rgb(216, 245, 224));
+                                ui.label(format!("待处理消息（队列: {queue_len}）:"));
+                                egui::ScrollArea::vertical()
+                                    .id_salt(("decision-pending-scroll", node.id))
+                                    .auto_shrink([false, true])
+                                    .max_height((content_rect.height() * 0.40).max(52.0))
+                                    .show(ui, |ui| {
+                                        ui.set_width(ui.available_width());
+                                        ui.label(pending_preview);
+                                        if queue_len > 1 {
+                                            ui.add_space(4.0 * zoom_scale);
+                                            ui.label(format!("... 还有 {} 条", queue_len - 1));
+                                        }
+                                    });
+
+                                let review_all_btn = egui::Button::new(
+                                    egui::RichText::new("查看/编辑全部消息")
+                                        .color(Color32::from_rgb(22, 24, 30))
+                                        .strong(),
+                                )
+                                .fill(Color32::from_rgb(223, 239, 255))
+                                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(120, 146, 185)));
+                                if ui.add(review_all_btn).clicked() {
+                                    self.start_decision_queue_edit(node.id);
+                                }
+
+                                ui.add_space(6.0 * zoom_scale);
+                                ui.label("操作:");
+
+                                ui.scope(|ui| {
+                                    for button in buttons {
+                                        let key = button.event_key.to_ascii_lowercase();
+                                        let (base_fill, base_stroke) =
+                                            if let Some([r, g, b]) = button.color_rgb {
+                                                let fill = Color32::from_rgb(r, g, b);
+                                                let stroke = Color32::from_rgb(
+                                                    r.saturating_sub(30),
+                                                    g.saturating_sub(30),
+                                                    b.saturating_sub(30),
+                                                );
+                                                (fill, stroke)
+                                            } else if key.contains("reject")
+                                                || key.contains("deny")
+                                                || key.contains("decline")
+                                                || key.contains("fail")
+                                            {
+                                                (
+                                                    Color32::from_rgb(248, 208, 208),
+                                                    Color32::from_rgb(224, 150, 150),
+                                                )
+                                            } else if key.contains("approve")
+                                                || key.contains("accept")
+                                                || key.contains("pass")
+                                                || key.contains("ok")
+                                            {
+                                                (
+                                                    Color32::from_rgb(212, 244, 226),
+                                                    Color32::from_rgb(126, 201, 165),
+                                                )
+                                            } else {
+                                                (
+                                                    Color32::from_rgb(224, 232, 242),
+                                                    Color32::from_rgb(163, 177, 196),
+                                                )
+                                            };
+
+                                        let (fill, text, stroke) = if has_pending {
+                                            (base_fill, Color32::BLACK, base_stroke)
+                                        } else {
+                                            (
+                                                Color32::from_rgb(188, 196, 205),
+                                                Color32::from_rgb(83, 94, 108),
+                                                Color32::from_rgb(150, 161, 174),
+                                            )
+                                        };
+
+                                        ui.horizontal(|ui| {
+                                            let row_height = (26.0 * zoom_scale).max(22.0);
+                                            let show_process_all = queue_len > 1;
+                                            let all_btn_width = if show_process_all {
+                                                (58.0 * zoom_scale).max(48.0)
+                                            } else {
+                                                0.0
+                                            };
+                                            let gap = if show_process_all {
+                                                ui.spacing().item_spacing.x
+                                            } else {
+                                                0.0
+                                            };
+                                            let row_width = ui.available_width();
+                                            let main_width =
+                                                (row_width - all_btn_width - gap).max(80.0);
+
+                                            let clicked_one = ui
+                                                .add_enabled(
+                                                    has_pending,
+                                                    egui::Button::new(
+                                                        egui::RichText::new(button.label.as_str())
+                                                            .color(text),
+                                                    )
+                                                    .fill(fill)
+                                                    .stroke(Stroke::new(1.0, stroke))
+                                                    .min_size(vec2(main_width, row_height)),
+                                                )
+                                                .clicked();
+                                            if clicked_one {
+                                                self.forward_decision_message_by_event(
+                                                    node.id,
+                                                    &button.event_key,
+                                                    &button.label,
+                                                    false,
+                                                );
+                                            }
+
+                                            if show_process_all {
+                                                let clicked_all = ui
+                                                    .add_enabled(
+                                                        has_pending,
+                                                        egui::Button::new(
+                                                            egui::RichText::new("全部").color(text),
+                                                        )
+                                                        .fill(fill)
+                                                        .stroke(Stroke::new(1.0, stroke))
+                                                        .min_size(vec2(all_btn_width, row_height)),
+                                                    )
+                                                    .clicked();
+                                                if clicked_all {
+                                                    self.forward_decision_message_by_event(
+                                                        node.id,
+                                                        &button.event_key,
+                                                        &button.label,
+                                                        true,
+                                                    );
+                                                }
+                                            }
+                                        });
+
+                                        ui.add_space((4.0 * zoom_scale).max(2.0));
+                                    }
+                                });
+                            });
+                        }
+                    }
+
+                    if is_selected {
+                        let handle_size = 12.0 * zoom_scale.clamp(0.75, 1.6);
+                        let handle_rect = Rect::from_min_size(
+                            node_rect.right_bottom() - vec2(handle_size + 6.0, handle_size + 6.0),
+                            vec2(handle_size, handle_size),
+                        );
+                        painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(168, 236, 188));
+                    }
+                }
                 NodeKind::Image => {
                     if let Some(texture) = self.image_texture(node.id) {
                         painter.image(
@@ -343,6 +602,11 @@ impl GraphApp {
             }
         }
 
-        (text_edit_rect, title_edit_rect, startup_edit_rect)
+        (
+            text_edit_rect,
+            title_edit_rect,
+            startup_edit_rect,
+            decision_edit_rect,
+        )
     }
 }

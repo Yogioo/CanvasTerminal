@@ -10,6 +10,9 @@ impl GraphApp {
             1 => {
                 self.create_text_node(spawn_pos, true);
             }
+            2 => {
+                self.create_decision_node(spawn_pos);
+            }
             _ => {}
         }
     }
@@ -47,11 +50,13 @@ impl GraphApp {
                 let node_state = self.nodes.iter().find(|n| n.id == node_id).map(|n| {
                     let is_terminal = matches!(n.kind, crate::model::NodeKind::Terminal);
                     let is_text = matches!(n.kind, crate::model::NodeKind::Text);
-                    (is_terminal, is_text)
+                    let is_decision = matches!(n.kind, crate::model::NodeKind::Decision);
+                    (is_terminal, is_text, is_decision)
                 });
 
-                let is_terminal_node = node_state.is_some_and(|(is_terminal, _)| is_terminal);
-                let is_text_node = node_state.is_some_and(|(_, is_text)| is_text);
+                let is_terminal_node = node_state.is_some_and(|(is_terminal, _, _)| is_terminal);
+                let is_text_node = node_state.is_some_and(|(_, is_text, _)| is_text);
+                let is_decision_node = node_state.is_some_and(|(_, _, is_decision)| is_decision);
 
                 if is_terminal_node && ui.button("编辑启动命令").clicked() {
                     self.start_startup_edit(node_id);
@@ -61,6 +66,38 @@ impl GraphApp {
                 if is_text_node && ui.button("完成并传递").clicked() {
                     self.complete_text_node_and_forward(node_id);
                     ui.close_menu();
+                }
+
+                if is_decision_node {
+                    ui.separator();
+                    ui.label("待处理队列");
+
+                    if ui.button("清空前一个（队首）").clicked() {
+                        if self.clear_decision_pending_first(node_id) {
+                            self.push_toast_notification("已清空 1 条队首消息");
+                        } else {
+                            self.push_toast_notification("当前无待处理消息");
+                        }
+                        ui.close_menu();
+                    }
+
+                    if ui.button("清空后一个（队尾）").clicked() {
+                        if self.clear_decision_pending_last(node_id) {
+                            self.push_toast_notification("已清空 1 条队尾消息");
+                        } else {
+                            self.push_toast_notification("当前无待处理消息");
+                        }
+                        ui.close_menu();
+                    }
+
+                    if ui.button("清空全部").clicked() {
+                        if self.clear_decision_pending_all(node_id) {
+                            self.push_toast_notification("已清空全部待处理消息");
+                        } else {
+                            self.push_toast_notification("当前无待处理消息");
+                        }
+                        ui.close_menu();
+                    }
                 }
 
                 if ui.button("置于顶层").clicked() {
@@ -102,6 +139,7 @@ impl GraphApp {
             let items = [
                 ("创建节点/终端节点", "终端节点", 0usize),
                 ("创建节点/文本节点", "文本节点", 1usize),
+                ("创建节点/决策节点", "决策节点", 2usize),
             ];
 
             if let Some(action_id) = self.show_searchable_menu_actions(

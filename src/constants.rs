@@ -1,1 +1,2 @@
 pub const TERMINAL_HEADER_HEIGHT: f32 = 30.0;
+pub const DECISION_HEADER_HEIGHT: f32 = 34.0;

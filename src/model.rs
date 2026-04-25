@@ -6,10 +6,19 @@ pub enum NodeKind {
     Terminal,
     Text,
     Image,
+    Decision,
 }
 
 fn default_text_autosize() -> bool {
     false
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecisionButton {
+    pub label: String,
+    pub event_key: String,
+    #[serde(default)]
+    pub color_rgb: Option<[u8; 3]>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +34,15 @@ pub enum NodeData {
     },
     Image {
         image_path: String,
+    },
+    Decision {
+        title: String,
+        #[serde(default)]
+        buttons: Vec<DecisionButton>,
+        #[serde(default)]
+        pending_message: Option<String>,
+        #[serde(default)]
+        pending_messages: Vec<String>,
     },
 }
 

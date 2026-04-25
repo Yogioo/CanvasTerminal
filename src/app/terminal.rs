@@ -31,31 +31,26 @@ impl GraphApp {
             return;
         }
 
-        let downstream_terminal_ids: Vec<usize> = self
+        let downstream_ids: Vec<usize> = self
             .edges
             .iter()
             .filter_map(|(from, to)| (*from == node_id).then_some(*to))
-            .filter(|target_id| {
-                self.nodes
-                    .iter()
-                    .any(|n| n.id == *target_id && matches!(n.kind, NodeKind::Terminal))
-            })
             .collect();
 
-        if downstream_terminal_ids.is_empty() {
-            self.push_toast_notification("无下游终端节点可接收传递内容");
+        if downstream_ids.is_empty() {
+            self.push_toast_notification("无下游节点可接收传递内容");
             return;
         }
 
         let injected = Self::build_injected_text_block(&text_body);
-        for target_id in downstream_terminal_ids.iter().copied() {
-            self.inject_terminal_message_and_submit(target_id, &injected);
+        let delivered = self.forward_message_to_targets(&downstream_ids, &injected);
+
+        if delivered == 0 {
+            self.push_toast_notification("无可接收消息的下游节点（仅支持终端/决策）");
+            return;
         }
 
-        self.push_toast_notification(format!(
-            "已完成并传递到 {} 个下游终端节点",
-            downstream_terminal_ids.len()
-        ));
+        self.push_toast_notification(format!("已完成并传递到 {delivered} 个下游节点"));
     }
 
     fn terminal_startup_script(&self, node_id: usize) -> Option<String> {
@@ -125,6 +120,291 @@ impl GraphApp {
         }
     }
 
+    fn forward_message_to_targets(&mut self, target_ids: &[usize], message: &str) -> usize {
+        let mut delivered = 0usize;
+        for target_id in target_ids {
+            if self.forward_message_to_node(*target_id, message) {
+                delivered += 1;
+            }
+        }
+        delivered
+    }
+
+    fn forward_message_to_node(&mut self, target_id: usize, message: &str) -> bool {
+        let Some(kind) = self
+            .nodes
+            .iter()
+            .find(|n| n.id == target_id)
+            .map(|n| n.kind.clone())
+        else {
+            return false;
+        };
+
+        match kind {
+            NodeKind::Terminal => {
+                self.inject_terminal_message_and_submit(target_id, message);
+                true
+            }
+            NodeKind::Decision => self.enqueue_decision_message(target_id, message),
+            NodeKind::Text | NodeKind::Image => false,
+        }
+    }
+
+    fn enqueue_decision_message(&mut self, node_id: usize, message: &str) -> bool {
+        let trimmed = message.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+
+        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+            if let NodeData::Decision {
+                pending_message,
+                pending_messages,
+                ..
+            } = &mut node.data
+            {
+                pending_messages.push(trimmed.to_owned());
+                *pending_message = pending_messages.first().cloned();
+                self.mark_workspace_dirty();
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub(in crate::app) fn decision_pending_queue_len(&self, node_id: usize) -> usize {
+        self.nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .and_then(|n| match &n.data {
+                NodeData::Decision {
+                    pending_messages,
+                    pending_message,
+                    ..
+                } => {
+                    if !pending_messages.is_empty() {
+                        Some(pending_messages.len())
+                    } else if pending_message
+                        .as_deref()
+                        .is_some_and(|msg| !msg.trim().is_empty())
+                    {
+                        Some(1)
+                    } else {
+                        Some(0)
+                    }
+                }
+                _ => None,
+            })
+            .unwrap_or(0)
+    }
+
+    fn normalize_decision_queue(node: &mut NodeData) {
+        if let NodeData::Decision {
+            pending_message,
+            pending_messages,
+            ..
+        } = node
+        {
+            if pending_messages.is_empty()
+                && pending_message
+                    .as_deref()
+                    .is_some_and(|msg| !msg.trim().is_empty())
+            {
+                pending_messages.push(pending_message.clone().unwrap_or_default());
+            }
+
+            pending_messages.retain(|msg| !msg.trim().is_empty());
+            *pending_message = pending_messages.first().cloned();
+        }
+    }
+
+    pub(in crate::app) fn decision_queue_preview(&self, node_id: usize) -> (usize, String) {
+        self.nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .and_then(|n| match &n.data {
+                NodeData::Decision {
+                    pending_messages,
+                    pending_message,
+                    ..
+                } => {
+                    if let Some(first) = pending_messages.first() {
+                        Some((pending_messages.len(), first.clone()))
+                    } else if let Some(single) = pending_message
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|msg| !msg.is_empty())
+                    {
+                        Some((1, single.to_owned()))
+                    } else {
+                        Some((0, String::new()))
+                    }
+                }
+                _ => None,
+            })
+            .unwrap_or((0, String::new()))
+    }
+
+    pub(in crate::app) fn clear_decision_pending_first(&mut self, node_id: usize) -> bool {
+        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+            Self::normalize_decision_queue(&mut node.data);
+            if let NodeData::Decision {
+                pending_message,
+                pending_messages,
+                ..
+            } = &mut node.data
+            {
+                if pending_messages.is_empty() {
+                    return false;
+                }
+                pending_messages.remove(0);
+                *pending_message = pending_messages.first().cloned();
+                self.mark_workspace_dirty();
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub(in crate::app) fn clear_decision_pending_last(&mut self, node_id: usize) -> bool {
+        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+            Self::normalize_decision_queue(&mut node.data);
+            if let NodeData::Decision {
+                pending_message,
+                pending_messages,
+                ..
+            } = &mut node.data
+            {
+                if pending_messages.pop().is_none() {
+                    return false;
+                }
+                *pending_message = pending_messages.first().cloned();
+                self.mark_workspace_dirty();
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub(in crate::app) fn clear_decision_pending_all(&mut self, node_id: usize) -> bool {
+        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+            Self::normalize_decision_queue(&mut node.data);
+            if let NodeData::Decision {
+                pending_message,
+                pending_messages,
+                ..
+            } = &mut node.data
+            {
+                if pending_messages.is_empty() && pending_message.is_none() {
+                    return false;
+                }
+                pending_messages.clear();
+                *pending_message = None;
+                self.mark_workspace_dirty();
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub(in crate::app) fn forward_decision_message_by_event(
+        &mut self,
+        node_id: usize,
+        event_key: &str,
+        chosen_label: &str,
+        process_all: bool,
+    ) {
+        let queue_len = self.decision_pending_queue_len(node_id);
+        if queue_len == 0 {
+            self.push_toast_notification("当前无待处理消息");
+            return;
+        }
+
+        let downstream_ids: Vec<usize> = self
+            .edges
+            .iter()
+            .filter_map(|(from, to)| (*from == node_id).then_some(*to))
+            .filter(|to| {
+                self.edge_route_key(node_id, *to)
+                    .is_some_and(|route| route == event_key)
+            })
+            .collect();
+
+        if downstream_ids.is_empty() {
+            self.push_toast_notification(format!(
+                "未找到 route_key = '{event_key}' 的下游连线，消息未丢失"
+            ));
+            return;
+        }
+
+        let mut remaining = queue_len;
+        let mut delivered_messages = 0usize;
+
+        while remaining > 0 {
+            let maybe_message = self
+                .nodes
+                .iter_mut()
+                .find(|n| n.id == node_id)
+                .and_then(|n| {
+                    Self::normalize_decision_queue(&mut n.data);
+                    if let NodeData::Decision {
+                        pending_message,
+                        pending_messages,
+                        ..
+                    } = &mut n.data
+                    {
+                        if pending_messages.is_empty() {
+                            return None;
+                        }
+                        let message = pending_messages.remove(0);
+                        *pending_message = pending_messages.first().cloned();
+                        Some(message)
+                    } else {
+                        None
+                    }
+                });
+
+            let Some(message) = maybe_message else {
+                break;
+            };
+
+            let delivered = self.forward_message_to_targets(&downstream_ids, message.trim());
+            if delivered > 0 {
+                delivered_messages += 1;
+            }
+
+            remaining -= 1;
+            if !process_all {
+                break;
+            }
+        }
+
+        self.mark_workspace_dirty();
+
+        if delivered_messages == 0 {
+            self.push_toast_notification(
+                "匹配连线存在，但无可接收消息的下游节点（仅支持终端/决策）",
+            );
+            return;
+        }
+
+        if process_all {
+            self.push_toast_notification(format!(
+                "已按 '{}' ({event_key}) 一次处理 {delivered_messages} 条消息",
+                chosen_label
+            ));
+        } else {
+            self.push_toast_notification(format!(
+                "已按 '{}' ({event_key}) 分流 1 条消息",
+                chosen_label
+            ));
+        }
+    }
+
     fn handle_done_event(&mut self, event: DoneEvent) {
         let Some(source_id) = self
             .nodes
@@ -141,7 +421,7 @@ impl GraphApp {
             .map(str::trim)
             .filter(|value| !value.is_empty());
 
-        let downstream_terminal_ids: Vec<usize> = self
+        let downstream_ids: Vec<usize> = self
             .edges
             .iter()
             .filter(|(from, to)| {
@@ -159,25 +439,19 @@ impl GraphApp {
                 true
             })
             .map(|(_, to)| *to)
-            .filter(|target_id| {
-                self.nodes
-                    .iter()
-                    .any(|n| n.id == *target_id && matches!(n.kind, NodeKind::Terminal))
-            })
             .collect();
 
-        if downstream_terminal_ids.is_empty() {
+        if downstream_ids.is_empty() {
             if let Some(expected) = route_key {
-                self.push_toast_notification(format!(
-                    "未找到 route_key = '{expected}' 的下游终端连线"
-                ));
+                self.push_toast_notification(format!("未找到 route_key = '{expected}' 的下游连线"));
             }
             return;
         }
 
         let injected = Self::build_injected_text_block(&event.summary);
-        for target_id in downstream_terminal_ids {
-            self.inject_terminal_message_and_submit(target_id, &injected);
+        let delivered = self.forward_message_to_targets(&downstream_ids, &injected);
+        if delivered == 0 {
+            self.push_toast_notification("匹配到连线，但无可接收消息的下游节点（仅支持终端/决策）");
         }
     }
 

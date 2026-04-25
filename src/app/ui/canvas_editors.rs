@@ -1,6 +1,6 @@
 use super::super::GraphApp;
 use crate::model::NodeData;
-use eframe::egui::{self, Align, Color32, FontId, Layout, Pos2, Rect, TextEdit, Ui};
+use eframe::egui::{self, vec2, Align, Color32, FontId, Layout, Pos2, Rect, TextEdit, Ui};
 use egui_term::{TerminalFont, TerminalView};
 
 impl GraphApp {
@@ -281,6 +281,410 @@ impl GraphApp {
                     self.commit_edge_edit();
                 }
             }
+        }
+    }
+
+    pub(in crate::app::ui) fn handle_decision_buttons_editor(
+        &mut self,
+        ui: &mut Ui,
+        ctx: &egui::Context,
+        decision_edit_rect: Option<(usize, Rect)>,
+        primary_clicked: bool,
+        pointer_pos: Option<Pos2>,
+    ) {
+        let Some((id, edit_rect)) = decision_edit_rect else {
+            return;
+        };
+
+        let mut editor_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(edit_rect)
+                .layout(Layout::top_down(Align::Min)),
+        );
+        editor_ui.set_clip_rect(edit_rect);
+
+        editor_ui.scope(|ui| {
+            ui.style_mut().visuals.override_text_color = Some(Color32::from_rgb(216, 245, 224));
+            ui.label("编辑按钮配置");
+
+            egui::ScrollArea::vertical()
+                .id_salt(("decision-buttons-gui-editor", id))
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    let mut remove_row: Option<usize> = None;
+
+                    for (row_idx, row) in self.decision_buttons_edit_rows.iter_mut().enumerate() {
+                        ui.horizontal(|ui| {
+                            let style = ui.style_mut();
+                            style.visuals.override_text_color = Some(Color32::BLACK);
+                            style.visuals.widgets.inactive.bg_fill =
+                                Color32::from_rgb(245, 248, 252);
+                            style.visuals.widgets.hovered.bg_fill =
+                                Color32::from_rgb(236, 242, 250);
+                            style.visuals.widgets.active.bg_fill = Color32::from_rgb(226, 236, 248);
+                            style.visuals.widgets.inactive.fg_stroke.color = Color32::BLACK;
+                            style.visuals.widgets.hovered.fg_stroke.color = Color32::BLACK;
+                            style.visuals.widgets.active.fg_stroke.color = Color32::BLACK;
+
+                            if ui.small_button("-").clicked() {
+                                remove_row = Some(row_idx);
+                            }
+
+                            let label_id = egui::Id::new(("decision-button-label", id, row_idx));
+                            let label_resp = ui.add_sized(
+                                vec2((edit_rect.width() * 0.33).max(110.0), 22.0),
+                                TextEdit::singleline(&mut row.label)
+                                    .id(label_id)
+                                    .text_color(Color32::BLACK)
+                                    .background_color(Color32::from_rgb(248, 251, 255))
+                                    .hint_text("显示名称"),
+                            );
+
+                            if self.pending_decision_buttons_focus == Some(id) && row_idx == 0 {
+                                ctx.memory_mut(|m| m.request_focus(label_id));
+                                self.pending_decision_buttons_focus = None;
+                            }
+
+                            let _ = label_resp.changed();
+
+                            ui.add_sized(
+                                vec2((edit_rect.width() * 0.33).max(110.0), 22.0),
+                                TextEdit::singleline(&mut row.event_key)
+                                    .text_color(Color32::BLACK)
+                                    .background_color(Color32::from_rgb(248, 251, 255))
+                                    .hint_text("事件名"),
+                            );
+
+                            let color_btn = egui::Button::new(egui::RichText::new(""))
+                                .min_size(vec2(28.0, 22.0))
+                                .fill(Color32::from_rgb(
+                                    row.color_rgb[0],
+                                    row.color_rgb[1],
+                                    row.color_rgb[2],
+                                ))
+                                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(90, 90, 90)));
+                            if ui.add(color_btn).clicked() {
+                                row.color_text = GraphApp::decision_color_text_from_rgb(
+                                    self.decision_color_input_mode,
+                                    row.color_rgb,
+                                );
+                                self.decision_color_popup = Some((id, row_idx));
+                                self.decision_color_popup_pos = ctx
+                                    .input(|i| i.pointer.interact_pos().or(i.pointer.latest_pos()));
+                            }
+                        });
+                        ui.add_space(4.0);
+                    }
+
+                    if let Some(row_idx) = remove_row {
+                        self.remove_decision_button_row(row_idx);
+                    }
+
+                    let add_btn =
+                        egui::Button::new(egui::RichText::new("+ 新增一行").color(Color32::BLACK))
+                            .fill(Color32::from_rgb(228, 236, 246))
+                            .stroke(egui::Stroke::new(1.0, Color32::from_rgb(150, 166, 188)));
+                    if ui.add(add_btn).clicked() {
+                        self.add_decision_button_row();
+                    }
+                });
+
+            if let Some((popup_node_id, popup_row_idx)) = self.decision_color_popup {
+                if popup_node_id == id {
+                    if popup_row_idx < self.decision_buttons_edit_rows.len() {
+                        let screen_rect = ctx.screen_rect();
+                        let anchor = self.decision_color_popup_pos.unwrap_or_else(|| {
+                            pointer_pos.unwrap_or(Pos2::new(edit_rect.right(), edit_rect.top()))
+                        });
+
+                        let popup_size = vec2(300.0, 220.0);
+                        let mut popup_pos = anchor + vec2(10.0, 10.0);
+                        popup_pos.x = popup_pos.x.clamp(
+                            screen_rect.left() + 8.0,
+                            screen_rect.right() - popup_size.x - 8.0,
+                        );
+                        popup_pos.y = popup_pos.y.clamp(
+                            screen_rect.top() + 8.0,
+                            screen_rect.bottom() - popup_size.y - 8.0,
+                        );
+
+                        let area_response = egui::Area::new(egui::Id::new((
+                            "decision-color-popup-area",
+                            id,
+                            popup_row_idx,
+                        )))
+                        .order(egui::Order::Foreground)
+                        .fixed_pos(popup_pos)
+                        .show(ctx, |ui| {
+                            egui::Frame::new()
+                                .fill(Color32::from_rgb(34, 38, 54))
+                                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(88, 98, 128)))
+                                .corner_radius(egui::CornerRadius::same(8))
+                                .inner_margin(egui::Margin::same(10))
+                                .show(ui, |ui| {
+                                    ui.set_min_size(popup_size);
+
+                                    let mut mode_changed = false;
+                                    ui.horizontal(|ui| {
+                                        mode_changed |= ui
+                                            .selectable_value(
+                                                &mut self.decision_color_input_mode,
+                                                super::super::DecisionColorInputMode::Rgb,
+                                                "RGB",
+                                            )
+                                            .clicked();
+                                        mode_changed |= ui
+                                            .selectable_value(
+                                                &mut self.decision_color_input_mode,
+                                                super::super::DecisionColorInputMode::Hsv,
+                                                "HSV",
+                                            )
+                                            .clicked();
+                                        if ui.small_button("关闭").clicked() {
+                                            self.decision_color_popup = None;
+                                            self.decision_color_popup_pos = None;
+                                        }
+                                    });
+
+                                    if mode_changed {
+                                        self.sync_decision_color_texts_with_mode();
+                                    }
+
+                                    if let Some(row) =
+                                        self.decision_buttons_edit_rows.get_mut(popup_row_idx)
+                                    {
+                                        let color_hint = match self.decision_color_input_mode {
+                                            super::super::DecisionColorInputMode::Rgb => {
+                                                "r,g,b 例如 212,244,226"
+                                            }
+                                            super::super::DecisionColorInputMode::Hsv => {
+                                                "h,s,v 例如 140,35,96"
+                                            }
+                                        };
+
+                                        let color_resp = ui.add_sized(
+                                            vec2(220.0, 24.0),
+                                            TextEdit::singleline(&mut row.color_text)
+                                                .text_color(Color32::BLACK)
+                                                .background_color(Color32::from_rgb(248, 251, 255))
+                                                .hint_text(color_hint),
+                                        );
+
+                                        if color_resp.changed() {
+                                            if let Some(rgb) = GraphApp::parse_decision_color_text(
+                                                self.decision_color_input_mode,
+                                                &row.color_text,
+                                            ) {
+                                                row.color_rgb = rgb;
+                                            }
+                                        }
+
+                                        ui.add_space(6.0);
+                                        ui.label("调色板:");
+
+                                        let palette: [[u8; 3]; 18] = [
+                                            [255, 99, 71],
+                                            [255, 159, 67],
+                                            [255, 215, 0],
+                                            [144, 238, 144],
+                                            [64, 224, 208],
+                                            [135, 206, 250],
+                                            [70, 130, 180],
+                                            [147, 112, 219],
+                                            [238, 130, 238],
+                                            [255, 182, 193],
+                                            [205, 133, 63],
+                                            [210, 180, 140],
+                                            [176, 196, 222],
+                                            [189, 183, 107],
+                                            [46, 139, 87],
+                                            [95, 158, 160],
+                                            [119, 136, 153],
+                                            [220, 220, 220],
+                                        ];
+
+                                        egui::Grid::new((
+                                            "decision-color-palette-grid",
+                                            id,
+                                            popup_row_idx,
+                                        ))
+                                        .num_columns(6)
+                                        .spacing(vec2(6.0, 6.0))
+                                        .show(ui, |ui| {
+                                            for (idx, rgb) in palette.iter().enumerate() {
+                                                let swatch = egui::Button::new("")
+                                                    .min_size(vec2(22.0, 18.0))
+                                                    .fill(Color32::from_rgb(rgb[0], rgb[1], rgb[2]))
+                                                    .stroke(egui::Stroke::new(
+                                                        1.0,
+                                                        Color32::from_rgb(90, 90, 90),
+                                                    ));
+                                                if ui.add(swatch).clicked() {
+                                                    row.color_rgb = *rgb;
+                                                    row.color_text =
+                                                        GraphApp::decision_color_text_from_rgb(
+                                                            self.decision_color_input_mode,
+                                                            row.color_rgb,
+                                                        );
+                                                }
+
+                                                if (idx + 1) % 6 == 0 {
+                                                    ui.end_row();
+                                                }
+                                            }
+                                        });
+                                    }
+                                });
+                        });
+
+                        let popup_rect = area_response.response.rect;
+                        if primary_clicked {
+                            if let Some(pointer) = pointer_pos {
+                                if !popup_rect.contains(pointer) {
+                                    self.decision_color_popup = None;
+                                    self.decision_color_popup_pos = None;
+                                }
+                            }
+                        }
+                    } else {
+                        self.decision_color_popup = None;
+                        self.decision_color_popup_pos = None;
+                    }
+                }
+            }
+
+            if let Some(err) = &self.decision_buttons_edit_error {
+                ui.colored_label(Color32::from_rgb(255, 120, 120), err);
+            }
+
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.cancel_decision_buttons_edit();
+            } else if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter)) {
+                self.commit_decision_buttons_edit();
+            } else if primary_clicked && self.decision_color_popup.is_none() {
+                if let Some(pointer) = pointer_pos {
+                    if !edit_rect.contains(pointer) {
+                        self.commit_decision_buttons_edit();
+                    }
+                }
+            }
+        });
+    }
+
+    pub(in crate::app::ui) fn handle_decision_queue_editor(&mut self, ctx: &egui::Context) {
+        let Some(node_id) = self.editing_decision_queue_node else {
+            return;
+        };
+
+        let screen_rect = ctx.screen_rect();
+        egui::Area::new(egui::Id::new(("decision-queue-modal-mask", node_id)))
+            .order(egui::Order::Foreground)
+            .interactable(false)
+            .fixed_pos(screen_rect.min)
+            .show(ctx, |ui| {
+                let mask_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, screen_rect.size());
+                ui.painter().rect_filled(
+                    mask_rect,
+                    0.0,
+                    Color32::from_rgba_unmultiplied(8, 10, 18, 210),
+                );
+            });
+
+        let modal_size = vec2(700.0, 500.0);
+        let modal_pos = screen_rect.center() - modal_size * 0.5;
+
+        let mut open = true;
+        let window = egui::Window::new(
+            egui::RichText::new(format!("Decision #{node_id} · 审批消息编辑"))
+                .color(Color32::WHITE)
+                .strong(),
+        )
+        .open(&mut open)
+        .order(egui::Order::Tooltip)
+        .collapsible(false)
+        .resizable(true)
+        .movable(true)
+        .default_size(modal_size)
+        .default_pos(modal_pos)
+        .frame(
+            egui::Frame::new()
+                .fill(Color32::from_rgb(25, 29, 42))
+                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(86, 102, 138)))
+                .corner_radius(egui::CornerRadius::same(10))
+                .inner_margin(egui::Margin::same(12)),
+        );
+
+        let mut save_clicked = false;
+        let mut cancel_clicked = false;
+
+        window.show(ctx, |ui| {
+            ui.visuals_mut().override_text_color = Some(Color32::WHITE);
+            ui.label("按分隔符拆分每条消息（每条消息可直接改文案）：");
+            ui.colored_label(Color32::from_rgb(170, 195, 255), "-----");
+            ui.add_space(8.0);
+
+            let editor_id = egui::Id::new(("decision-queue-editor", node_id));
+            if self.pending_decision_queue_focus == Some(node_id) {
+                ctx.memory_mut(|m| m.request_focus(editor_id));
+            }
+
+            let edit_response = ui.add_sized(
+                vec2(
+                    ui.available_width(),
+                    (ui.available_height() - 74.0).max(260.0),
+                ),
+                TextEdit::multiline(&mut self.decision_queue_edit_buffer)
+                    .id(editor_id)
+                    .desired_width(f32::INFINITY)
+                    .background_color(Color32::from_rgb(14, 18, 30))
+                    .text_color(Color32::WHITE)
+                    .hint_text("消息1\n\n-----\n\n消息2"),
+            );
+
+            if self.pending_decision_queue_focus == Some(node_id) {
+                self.pending_decision_queue_focus = None;
+            }
+
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                let save_btn =
+                    egui::Button::new(egui::RichText::new("保存").color(Color32::BLACK).strong())
+                        .fill(Color32::from_rgb(146, 230, 182));
+                if ui.add(save_btn).clicked() {
+                    save_clicked = true;
+                }
+
+                let cancel_btn =
+                    egui::Button::new(egui::RichText::new("取消").color(Color32::BLACK).strong())
+                        .fill(Color32::from_rgb(235, 198, 203));
+                if ui.add(cancel_btn).clicked() {
+                    cancel_clicked = true;
+                }
+
+                ui.add_space(8.0);
+                ui.colored_label(
+                    Color32::from_rgb(172, 182, 204),
+                    "Ctrl/Cmd + Enter 保存 · Esc 取消",
+                );
+            });
+
+            if edit_response.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                cancel_clicked = true;
+            }
+            if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter)) {
+                save_clicked = true;
+            }
+        });
+
+        if !open {
+            self.cancel_decision_queue_edit();
+            return;
+        }
+
+        if save_clicked {
+            self.commit_decision_queue_edit(node_id);
+        } else if cancel_clicked {
+            self.cancel_decision_queue_edit();
         }
     }
 

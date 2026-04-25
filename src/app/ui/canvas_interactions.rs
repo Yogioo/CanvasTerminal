@@ -67,7 +67,7 @@ impl GraphApp {
             let node = self.nodes.iter().find(|n| n.id == selected_id)?;
             if !matches!(
                 node.kind,
-                NodeKind::Terminal | NodeKind::Image | NodeKind::Text
+                NodeKind::Terminal | NodeKind::Image | NodeKind::Text | NodeKind::Decision
             ) {
                 return None;
             }
@@ -111,6 +111,7 @@ impl GraphApp {
         }
 
         if !is_panning
+            && !any_popup_open
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
             && primary_pressed
@@ -126,8 +127,11 @@ impl GraphApp {
                 self.box_select_additive = false;
                 self.box_select_subtractive = false;
                 self.box_select_base_selection.clear();
-                self.dragging_edge_control =
-                    Some((edge, handle, self.edge_control_offset(edge.0, edge.1, handle)));
+                self.dragging_edge_control = Some((
+                    edge,
+                    handle,
+                    self.edge_control_offset(edge.0, edge.1, handle),
+                ));
             } else if let Some((id, local, size)) = resize_handle_hit {
                 self.resizing = Some((id, local, size));
                 self.dragging = None;
@@ -263,6 +267,11 @@ impl GraphApp {
                                 {
                                     *auto_size = false;
                                 }
+                            }
+                            NodeKind::Decision => {
+                                let width = (start_size.x + delta.x).max(220.0);
+                                let height = (start_size.y + delta.y).max(140.0);
+                                node.size = vec2(width, height);
                             }
                         }
                     }
@@ -474,7 +483,6 @@ impl GraphApp {
                 self.reset_menu_search_state(true);
             }
         }
-
 
         (tolerant_double_click, resize_handle_hit)
     }

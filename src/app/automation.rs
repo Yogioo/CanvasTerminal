@@ -138,6 +138,7 @@ impl GraphApp {
                         NodeKind::Terminal => "terminal",
                         NodeKind::Text => "text",
                         NodeKind::Image => "image",
+                        NodeKind::Decision => "decision",
                     },
                     "data": n.data,
                     "pos": {"x": n.pos.x, "y": n.pos.y},
@@ -310,6 +311,39 @@ impl GraphApp {
                 })?;
                 self.create_image_node_from_path(pos, image_path)
             }
+            "decision" => {
+                let id = self.create_decision_node(pos);
+                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
+                    if let NodeData::Decision {
+                        title,
+                        buttons,
+                        pending_message,
+                        pending_messages,
+                    } = &mut node.data
+                    {
+                        if let Some(next_title) = payload.title {
+                            *title = next_title;
+                        }
+                        if let Some(next_buttons) = payload.buttons {
+                            *buttons = next_buttons;
+                        }
+                        if let Some(next_queue) = payload.pending_messages {
+                            *pending_messages = next_queue;
+                            *pending_message = pending_messages.first().cloned();
+                        } else {
+                            *pending_message = payload.pending_message;
+                            if let Some(single) = pending_message.clone() {
+                                pending_messages.clear();
+                                if !single.trim().is_empty() {
+                                    pending_messages.push(single);
+                                }
+                                *pending_message = pending_messages.first().cloned();
+                            }
+                        }
+                    }
+                }
+                id
+            }
             _ => {
                 return Err(response_error(
                     request.request_id.clone(),
@@ -389,6 +423,32 @@ impl GraphApp {
                 }
             }
             NodeData::Image { .. } => {}
+            NodeData::Decision {
+                title,
+                buttons,
+                pending_message,
+                pending_messages,
+            } => {
+                if let Some(next) = payload.title {
+                    *title = next;
+                }
+                if let Some(next) = payload.buttons {
+                    *buttons = next;
+                }
+                if let Some(next_queue) = payload.pending_messages {
+                    *pending_messages = next_queue;
+                    *pending_message = pending_messages.first().cloned();
+                } else if payload.pending_message.is_some() {
+                    *pending_message = payload.pending_message;
+                    if let Some(single) = pending_message.clone() {
+                        pending_messages.clear();
+                        if !single.trim().is_empty() {
+                            pending_messages.push(single);
+                        }
+                        *pending_message = pending_messages.first().cloned();
+                    }
+                }
+            }
         }
 
         self.mark_workspace_dirty();

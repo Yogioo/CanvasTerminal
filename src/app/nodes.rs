@@ -1,5 +1,5 @@
 use super::{EdgeControlHandle, EdgeControlOffsets, GraphApp, NodeOrderAction};
-use crate::model::{Node, NodeData, NodeKind};
+use crate::model::{DecisionButton, Node, NodeData, NodeKind};
 use chrono::Local;
 use eframe::egui::{self, vec2, ColorImage, Pos2, Rect, TextureOptions};
 use std::collections::{HashMap, HashSet};
@@ -18,6 +18,23 @@ impl GraphApp {
             },
             NodeKind::Image => NodeData::Image {
                 image_path: String::new(),
+            },
+            NodeKind::Decision => NodeData::Decision {
+                title: "Decision".to_owned(),
+                buttons: vec![
+                    DecisionButton {
+                        label: "通过".to_owned(),
+                        event_key: "approve".to_owned(),
+                        color_rgb: Some([212, 244, 226]),
+                    },
+                    DecisionButton {
+                        label: "驳回".to_owned(),
+                        event_key: "reject".to_owned(),
+                        color_rgb: Some([248, 208, 208]),
+                    },
+                ],
+                pending_message: None,
+                pending_messages: Vec::new(),
             },
         };
 
@@ -71,6 +88,11 @@ impl GraphApp {
                 spawn_pos.y = node.pos.y + node.size.y + 16.0;
             }
         }
+    }
+
+    pub(in crate::app) fn create_decision_node(&mut self, pos: Pos2) -> usize {
+        let node = self.new_base_node(NodeKind::Decision, pos, vec2(320.0, 220.0));
+        self.push_node_and_select(node)
     }
 
     pub(in crate::app) fn create_image_node_from_path(
@@ -225,7 +247,11 @@ impl GraphApp {
         self.edge_curve_biases.remove(&(from, to));
     }
 
-    pub(in crate::app) fn edge_control_offsets(&self, from: usize, to: usize) -> EdgeControlOffsets {
+    pub(in crate::app) fn edge_control_offsets(
+        &self,
+        from: usize,
+        to: usize,
+    ) -> EdgeControlOffsets {
         self.edge_control_offsets
             .get(&(from, to))
             .copied()
@@ -534,6 +560,21 @@ impl GraphApp {
         self.image_errors.remove(&node_id);
         self.image_bytes.remove(&node_id);
         self.image_aspects.remove(&node_id);
+
+        if self.editing_decision_buttons_node == Some(node_id) {
+            self.editing_decision_buttons_node = None;
+            self.pending_decision_buttons_focus = None;
+            self.decision_buttons_edit_rows.clear();
+            self.decision_color_popup = None;
+            self.decision_color_popup_pos = None;
+            self.decision_buttons_edit_error = None;
+        }
+
+        if self.editing_decision_queue_node == Some(node_id) {
+            self.editing_decision_queue_node = None;
+            self.pending_decision_queue_focus = None;
+            self.decision_queue_edit_buffer.clear();
+        }
 
         self.selected_nodes.remove(&node_id);
         if self.selected == Some(node_id) {

@@ -1,3 +1,4 @@
+use crate::model::DecisionButton;
 use crate::shell::system_shell;
 use serde::Deserialize;
 use std::process::{Command, Stdio};
@@ -22,6 +23,12 @@ pub(in crate::app) struct NodeCreatePayload {
     pub startup_script: Option<String>,
     #[serde(default)]
     pub image_path: Option<String>,
+    #[serde(default)]
+    pub buttons: Option<Vec<DecisionButton>>,
+    #[serde(default)]
+    pub pending_message: Option<String>,
+    #[serde(default)]
+    pub pending_messages: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,6 +54,12 @@ pub(in crate::app) struct NodeUpdatePayload {
     pub title: Option<String>,
     #[serde(default)]
     pub startup_script: Option<String>,
+    #[serde(default)]
+    pub buttons: Option<Vec<DecisionButton>>,
+    #[serde(default)]
+    pub pending_message: Option<String>,
+    #[serde(default)]
+    pub pending_messages: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]

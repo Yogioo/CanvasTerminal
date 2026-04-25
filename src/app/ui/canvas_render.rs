@@ -1,5 +1,7 @@
 use super::super::{EdgeControlHandle, GraphApp};
-use eframe::egui::{epaint::CubicBezierShape, vec2, Align2, Color32, FontId, Painter, Rect, Stroke};
+use eframe::egui::{
+    epaint::CubicBezierShape, vec2, Align2, Color32, FontId, Painter, Rect, Stroke,
+};
 
 impl GraphApp {
     pub(in crate::app::ui) fn draw_edges(
@@ -195,6 +197,4 @@ impl GraphApp {
             );
         }
     }
-
-
 }

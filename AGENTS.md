@@ -66,3 +66,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
 # 代码一旦超过600行，就应该告诉用户，确定优化后， 尝试 拆文件/抽象复用代码
+
+# UI 文案可读性规则（简短）
+- 浅色按钮必须使用深色文字（优先黑色），提交前自查对比度，避免“文字看不清”。
+- 深色弹窗中的输入框必须使用深色背景 + 浅色文字，禁止白底白字。

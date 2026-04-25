@@ -217,5 +217,4 @@ impl GraphApp {
             }
         }
     }
-
 }

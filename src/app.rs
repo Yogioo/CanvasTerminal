@@ -46,6 +46,20 @@ pub(in crate::app) struct EdgeControlOffsets {
     pub target: egui::Vec2,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum DecisionColorInputMode {
+    Rgb,
+    Hsv,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(in crate::app) struct DecisionButtonDraft {
+    pub label: String,
+    pub event_key: String,
+    pub color_rgb: [u8; 3],
+    pub color_text: String,
+}
+
 pub struct GraphApp {
     nodes: Vec<Node>,
     edges: Vec<(usize, usize)>,
@@ -92,6 +106,16 @@ pub struct GraphApp {
     editing_startup_node: Option<usize>,
     pending_startup_focus: Option<usize>,
     startup_edit_buffer: String,
+    editing_decision_buttons_node: Option<usize>,
+    pending_decision_buttons_focus: Option<usize>,
+    decision_buttons_edit_rows: Vec<DecisionButtonDraft>,
+    decision_color_input_mode: DecisionColorInputMode,
+    decision_color_popup: Option<(usize, usize)>,
+    decision_color_popup_pos: Option<Pos2>,
+    decision_buttons_edit_error: Option<String>,
+    editing_decision_queue_node: Option<usize>,
+    pending_decision_queue_focus: Option<usize>,
+    decision_queue_edit_buffer: String,
     editing_edge: Option<(usize, usize)>,
     pending_edge_focus: Option<(usize, usize)>,
     edge_edit_buffer: String,
@@ -189,6 +213,16 @@ impl GraphApp {
             editing_startup_node: None,
             pending_startup_focus: None,
             startup_edit_buffer: String::new(),
+            editing_decision_buttons_node: None,
+            pending_decision_buttons_focus: None,
+            decision_buttons_edit_rows: Vec::new(),
+            decision_color_input_mode: DecisionColorInputMode::Rgb,
+            decision_color_popup: None,
+            decision_color_popup_pos: None,
+            decision_buttons_edit_error: None,
+            editing_decision_queue_node: None,
+            pending_decision_queue_focus: None,
+            decision_queue_edit_buffer: String::new(),
             editing_edge: None,
             pending_edge_focus: None,
             edge_edit_buffer: String::new(),

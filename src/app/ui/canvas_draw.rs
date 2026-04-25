@@ -1,5 +1,5 @@
 use super::super::{EdgeControlHandle, GraphApp, NodeOrderAction};
-use crate::constants::TERMINAL_HEADER_HEIGHT;
+use crate::constants::{DECISION_HEADER_HEIGHT, TERMINAL_HEADER_HEIGHT};
 use crate::model::NodeKind;
 use eframe::egui::{self, Color32, Rect, Sense, Ui};
 
@@ -23,7 +23,10 @@ impl GraphApp {
             ctx.input(|i| i.pointer.button_released(egui::PointerButton::Secondary));
         let pointer_pos = ctx.input(|i| i.pointer.latest_pos().or_else(|| i.pointer.hover_pos()));
         let pointer_in_canvas = pointer_pos.is_some_and(|p| rect.contains(p));
-        let any_popup_open = ctx.memory(|m| m.any_popup_open());
+        let queue_editor_open = self.editing_decision_queue_node.is_some();
+        let any_popup_open = ctx.memory(|m| m.any_popup_open())
+            || self.decision_color_popup.is_some()
+            || queue_editor_open;
         let multi_select_modifier = ctx.input(|i| i.modifiers.ctrl || i.modifiers.command);
         let subtract_select_modifier = ctx.input(|i| i.modifiers.shift);
         let focus_shortcut_pressed = ctx.input(|i| {
@@ -90,10 +93,21 @@ impl GraphApp {
                 .find(|n| n.id == node_id)
                 .is_some_and(|n| n.kind == NodeKind::Text)
         });
+        let pointer_over_decision_node_before_zoom = pointer_pos.is_some_and(|p| {
+            let local = self.screen_to_world_pos(rect, p);
+            let Some((node_id, _)) = self.find_node_at(local) else {
+                return false;
+            };
+            self.nodes
+                .iter()
+                .find(|n| n.id == node_id)
+                .is_some_and(|n| n.kind == NodeKind::Decision)
+        });
 
         if pointer_in_canvas
             && !pointer_over_terminal_before_zoom
             && !pointer_over_text_node_before_zoom
+            && !pointer_over_decision_node_before_zoom
             && !just_focused
         {
             let zoom_change = ctx.input(|i| {
@@ -140,8 +154,10 @@ impl GraphApp {
         let primary_clicked = ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary));
         let primary_pressed = ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
         let pointer_in_window_top_strip = pointer_pos.is_some_and(|p| p.y <= rect.top() + 32.0);
-        let is_panning =
-            (is_space_pan || is_middle_pan) && pointer_in_canvas && !pointer_over_terminal_content;
+        let is_panning = (is_space_pan || is_middle_pan)
+            && pointer_in_canvas
+            && !pointer_over_terminal_content
+            && !any_popup_open;
         let edge_hit_tolerance = (10.0 / self.zoom.max(1e-4)).max(4.0);
 
         if self
@@ -294,6 +310,12 @@ impl GraphApp {
                             if local.y <= node.pos.y + TERMINAL_HEADER_HEIGHT {
                                 self.start_title_edit(id);
                             }
+                        } else if node.kind == NodeKind::Decision {
+                            if local.y <= node.pos.y + DECISION_HEADER_HEIGHT {
+                                self.start_title_edit(id);
+                            } else {
+                                self.start_decision_buttons_edit(id);
+                            }
                         }
                     }
                 } else {
@@ -359,13 +381,21 @@ impl GraphApp {
 
         self.ensure_image_textures(ctx);
 
-        let (text_edit_rect, title_edit_rect, startup_edit_rect) =
+        let (text_edit_rect, title_edit_rect, startup_edit_rect, decision_edit_rect) =
             self.draw_nodes(ui, ctx, &painter, rect);
         self.draw_selected_edge_controls_overlay(&painter, rect);
         self.handle_text_node_editor(ui, ctx, text_edit_rect);
         self.handle_title_editor(ui, ctx, title_edit_rect, primary_clicked, pointer_pos);
         self.handle_startup_editor(ui, ctx, startup_edit_rect, primary_clicked, pointer_pos);
         self.handle_edge_editor(ui, ctx, rect, primary_clicked, pointer_pos);
+        self.handle_decision_buttons_editor(
+            ui,
+            ctx,
+            decision_edit_rect,
+            primary_clicked,
+            pointer_pos,
+        );
+        self.handle_decision_queue_editor(ctx);
 
         if !is_panning && self.resizing.is_none() && resize_handle_hit.is_none() {
             if let Some(pos) = response.hover_pos() {

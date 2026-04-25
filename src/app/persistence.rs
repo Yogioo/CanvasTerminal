@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const GRAPH_CONFIG_VERSION: u32 = 6;
+const GRAPH_CONFIG_VERSION: u32 = 7;
 const DEFAULT_GRAPH_PATH: &str = "./graph.json";
 const IMAGE_ARTIFACT_DIR: &str = "artifacts/img";
 static IMAGE_FILE_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -245,6 +245,7 @@ impl GraphApp {
             (NodeKind::Terminal, NodeData::Terminal { .. })
                 | (NodeKind::Text, NodeData::Text { .. })
                 | (NodeKind::Image, NodeData::Image { .. })
+                | (NodeKind::Decision, NodeData::Decision { .. })
         )
     }
 
@@ -318,16 +319,18 @@ impl GraphApp {
                 continue;
             }
 
-            let source = Self::clamp_edge_control_offset(vec2(offsets.source_dx, offsets.source_dy));
-            let target = Self::clamp_edge_control_offset(vec2(offsets.target_dx, offsets.target_dy));
+            let source =
+                Self::clamp_edge_control_offset(vec2(offsets.source_dx, offsets.source_dy));
+            let target =
+                Self::clamp_edge_control_offset(vec2(offsets.target_dx, offsets.target_dy));
             if source.length_sq() <= 0.01 && target.length_sq() <= 0.01 {
                 continue;
             }
 
-            edge_control_offsets.insert((offsets.from, offsets.to), super::EdgeControlOffsets {
-                source,
-                target,
-            });
+            edge_control_offsets.insert(
+                (offsets.from, offsets.to),
+                super::EdgeControlOffsets { source, target },
+            );
         }
 
         self.nodes = nodes;
@@ -363,6 +366,15 @@ impl GraphApp {
         self.editing_startup_node = None;
         self.pending_startup_focus = None;
         self.startup_edit_buffer.clear();
+        self.editing_decision_buttons_node = None;
+        self.pending_decision_buttons_focus = None;
+        self.decision_buttons_edit_rows.clear();
+        self.decision_color_popup = None;
+        self.decision_color_popup_pos = None;
+        self.decision_buttons_edit_error = None;
+        self.editing_decision_queue_node = None;
+        self.pending_decision_queue_focus = None;
+        self.decision_queue_edit_buffer.clear();
         self.editing_edge = None;
         self.pending_edge_focus = None;
         self.edge_edit_buffer.clear();
