@@ -26,6 +26,8 @@ Thumbs.db
 # Packaged outputs
 /dist/
 
+.bg-shell
+
 # save cache
 graph.json
 artifacts/
