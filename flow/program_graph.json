@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "nodes": [
     {
       "id": 8,
@@ -11,40 +11,10 @@
           "startup_script": "pi --append-system-prompt \"你是Executer。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_TODO.md 执行编码任务，并保证编译通过（cargo check或等价命令）。完成后执行 canvas done 'feature=<feature>;task=<任务>;exec_done;build=<pass|fail>;summary=<摘要>。\" --model openai-codex/gpt-5.3-codex --thinking medium"
         }
       },
-      "pos_x": 1548.6421,
-      "pos_y": 1174.9282,
+      "pos_x": 2266.1443,
+      "pos_y": 1182.1505,
       "size_x": 840.0,
       "size_y": 660.0
-    },
-    {
-      "id": 10,
-      "uid": "63f32ee2-6711-4d46-a65b-5d406c87c560",
-      "kind": "Text",
-      "data": {
-        "Text": {
-          "text_body": "pi --append-system-prompt \"你是Planner。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tasks.md，选择最高优先级未完成任务，生成 artifacts/{feature}_TODO.md（落地步骤）与 artifacts/{feature}_Tests.md（AI可执行验收命令）。若全部完成：git add并commit（消息含feat/fix标签），然后运行命令 canvas done 'feature=<feature>;all_done'；否则运行命令 canvas done 'feature=<feature>;task=<任务>;plan_ready'。\" --model openai-codex/gpt-5.4 --thinking high",
-          "auto_size": false
-        }
-      },
-      "pos_x": 477.85175,
-      "pos_y": 757.9674,
-      "size_x": 767.44257,
-      "size_y": 137.85449
-    },
-    {
-      "id": 11,
-      "uid": "12031984-1b4a-4df0-9bb3-5102ab3bd9eb",
-      "kind": "Text",
-      "data": {
-        "Text": {
-          "text_body": "pi --append-system-prompt \"你是Executer。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_TODO.md 执行编码任务，并保证编译通过（cargo check或等价命令）。完成后执行 canvas done 'feature=<feature>;task=<任务>;exec_done;build=<pass|fail>;summary=<摘要>。\" --model openai-codex/gpt-5.3-codex  --thinking medium",
-          "auto_size": false
-        }
-      },
-      "pos_x": 1608.4215,
-      "pos_y": 999.3992,
-      "size_x": 680.9757,
-      "size_y": 118.12335
     },
     {
       "id": 15,
@@ -53,28 +23,13 @@
       "data": {
         "Terminal": {
           "title": "CEO",
-          "startup_script": "pi --append-system-prompt \"你是AI CEO。先与用户澄清需求是否能在一个Terminal+Pi闭环中实现。确认后定义feature_slug（英文短横线）并写入 artifacts/{feature_slug}_Tasks.md：拆解任务、优先级、完成标准。然后执行 canvas done 'feature=<feature_slug>;goal=<一句话目标>\" --model openai-codex/gpt-5.4 --thinking xhigh"
+          "startup_script": "pi --append-system-prompt \"你是AI CEO。先与用户澄清需求是否能在一个Terminal+Pi闭环中实现。确认后定义feature_slug（英文短横线）并写入 artifacts/{feature_slug}_Tasks.md：拆解任务、优先级、完成标准。然后执行 canvas done 'feature=<feature_slug>;goal=<一句话目标>\" --model openai-codex/gpt-5.3-codex --thinking xhigh"
         }
       },
-      "pos_x": -761.5739,
-      "pos_y": 813.76086,
+      "pos_x": -903.1813,
+      "pos_y": 853.0964,
       "size_x": 951.42883,
       "size_y": 685.6636
-    },
-    {
-      "id": 16,
-      "uid": "0f8bb29f-c8b7-4d4c-8128-f7f195f26a77",
-      "kind": "Text",
-      "data": {
-        "Text": {
-          "text_body": "pi --append-system-prompt \"你是AI CEO。先与用户澄清需求是否能在一个Terminal+Pi闭环中实现。确认后定义feature_slug（英文短横线）并写入 artifacts/{feature_slug}_Tasks.md：拆解任务、优先级、完成标准。然后执行 canvas done 'feature=<feature_slug>;goal=<一句话目标>\" --model openai-codex/gpt-5.4 --thinking xhigh",
-          "auto_size": false
-        }
-      },
-      "pos_x": -741.7792,
-      "pos_y": 715.56647,
-      "size_x": 937.593,
-      "size_y": 86.357666
     },
     {
       "id": 18,
@@ -82,12 +37,12 @@
       "kind": "Text",
       "data": {
         "Text": {
-          "text_body": "- [ ] 连线需要能默认显示成贝塞尔曲线, 当前直线感觉不好, 而且当前默认左侧中心是终点,右侧中心是起点感觉怪怪的, 有啥推荐优化思路吗\n",
+          "text_body": "",
           "auto_size": false
         }
       },
-      "pos_x": -1456.2031,
-      "pos_y": 1004.21985,
+      "pos_x": -1666.3578,
+      "pos_y": 1120.6023,
       "size_x": 510.4823,
       "size_y": 154.3133
     },
@@ -101,25 +56,10 @@
           "startup_script": "pi --append-system-prompt \"你是Tester。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tests.md 执行测试。失败时执行 canvas done --route fix 'feature=<feature>;task=<任务>;test=fail;reason=<摘要>'；成功时先更新 artifacts/{feature}_Tasks.md 标记完成，再执行 canvas done --route next 'feature=<feature>;task=<任务>;test=pass' \" --model openai-codex/gpt-5.3-codex --thinking medium"
         }
       },
-      "pos_x": 2262.2522,
-      "pos_y": 79.99365,
+      "pos_x": 1748.598,
+      "pos_y": 223.37149,
       "size_x": 840.0,
       "size_y": 660.0
-    },
-    {
-      "id": 20,
-      "uid": "19da866e-2659-4e66-bc39-3a51c80fa069",
-      "kind": "Text",
-      "data": {
-        "Text": {
-          "text_body": "pi --append-system-prompt \"你是Tester。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tests.md 执行测试。失败时执行 canvas done --route fix 'feature=<feature>;task=<任务>;test=fail;reason=<摘要>'；成功时先更新 artifacts/{feature}_Tasks.md 标记完成，再执行 canvas done --route next 'feature=<feature>;task=<任务>;test=pass' \" --model openai-codex/gpt-5.3-codex --thinking medium",
-          "auto_size": false
-        }
-      },
-      "pos_x": 2318.6404,
-      "pos_y": -44.37314,
-      "size_x": 717.699,
-      "size_y": 95.837845
     },
     {
       "id": 7,
@@ -131,17 +71,49 @@
           "startup_script": "pi --append-system-prompt \"你是Planner。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tasks.md，选择最高优先级未完成任务，生成 artifacts/{feature}_TODO.md（落地步骤）与 artifacts/{feature}_Tests.md（AI可执行验收命令）。若全部完成：git add并commit（消息含feat/fix标签），然后运行命令 canvas done 'feature=<feature>;all_done'；否则运行命令 canvas done 'feature=<feature>;task=<任务>;plan_ready'。\" --model openai-codex/gpt-5.4 --thinking high"
         }
       },
-      "pos_x": 411.18414,
-      "pos_y": 901.35876,
+      "pos_x": 483.95465,
+      "pos_y": 889.55817,
       "size_x": 840.0,
       "size_y": 660.0
+    },
+    {
+      "id": 22,
+      "uid": "e716a3f2-b25a-4ff6-847d-2a8e3b62729f",
+      "kind": "Decision",
+      "data": {
+        "Decision": {
+          "title": "确认执决策节点",
+          "buttons": [
+            {
+              "label": "通过",
+              "event_key": "approve",
+              "color_rgb": [
+                212,
+                244,
+                226
+              ]
+            },
+            {
+              "label": "驳回",
+              "event_key": "reject",
+              "color_rgb": [
+                248,
+                208,
+                208
+              ]
+            }
+          ],
+          "pending_message": null,
+          "pending_messages": []
+        }
+      },
+      "pos_x": 1582.3291,
+      "pos_y": 1276.1459,
+      "size_x": 502.0702,
+      "size_y": 357.42334
     }
   ],
   "edges": [
-    [
-      7,
-      8
-    ],
     [
       15,
       7
@@ -151,52 +123,82 @@
       15
     ],
     [
-      8,
-      19
-    ],
-    [
       19,
       7
     ],
     [
       19,
       8
+    ],
+    [
+      22,
+      8
+    ],
+    [
+      7,
+      22
+    ],
+    [
+      22,
+      7
+    ],
+    [
+      8,
+      19
     ]
   ],
   "edge_routes": [
+    {
+      "from": 19,
+      "to": 7,
+      "route_key": "next"
+    },
     {
       "from": 19,
       "to": 8,
       "route_key": "fix"
     },
     {
-      "from": 19,
+      "from": 22,
+      "to": 8,
+      "route_key": "approve"
+    },
+    {
+      "from": 22,
       "to": 7,
-      "route_key": "next"
+      "route_key": "reject"
     }
   ],
   "edge_curve_biases": [],
   "edge_control_offsets": [
     {
-      "from": 8,
-      "to": 19,
-      "source_dx": 260.0,
-      "source_dy": 33.986694,
-      "target_dx": 50.89966,
-      "target_dy": 260.0
-    },
-    {
       "from": 19,
       "to": 8,
+      "source_dx": -260.0,
+      "source_dy": -63.98346,
+      "target_dx": -205.00635,
+      "target_dy": 38.808594
+    },
+    {
+      "from": 22,
+      "to": 7,
+      "source_dx": 145.30981,
+      "source_dy": 102.35974,
+      "target_dx": -228.219,
+      "target_dy": 127.795166
+    },
+    {
+      "from": 8,
+      "to": 19,
       "source_dx": 0.0,
       "source_dy": 0.0,
-      "target_dx": 54.43701,
-      "target_dy": -260.0
+      "target_dx": 260.0,
+      "target_dy": -105.6568
     }
   ],
   "view": {
-    "pan_x": 127.25348,
-    "pan_y": -3.9918518,
-    "zoom": 0.4509526
+    "pan_x": -442.84473,
+    "pan_y": -292.3504,
+    "zoom": 0.57542294
   }
 }

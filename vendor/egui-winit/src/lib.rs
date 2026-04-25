@@ -101,6 +101,12 @@ pub struct State {
     /// track ime state
     has_sent_ime_enabled: bool,
 
+    /// Windows-only: physical keys whose `Pressed` event was already handled by IME
+    /// (`logical_key == NamedKey::Process`). Their matching `Released` should also be
+    /// filtered to avoid leaking IME-internal keys to egui widgets.
+    #[cfg(target_os = "windows")]
+    pressed_processed_physical_keys: HashSet<winit::keyboard::PhysicalKey>,
+
     #[cfg(feature = "accesskit")]
     accesskit: Option<accesskit_winit::Adapter>,
 
@@ -142,6 +148,9 @@ impl State {
             pointer_touch_id: None,
 
             has_sent_ime_enabled: false,
+
+            #[cfg(target_os = "windows")]
+            pressed_processed_physical_keys: HashSet::default(),
 
             #[cfg(feature = "accesskit")]
             accesskit: None,
@@ -368,7 +377,10 @@ impl State {
                             .push(egui::Event::Ime(egui::ImeEvent::Commit(text.clone())));
                         self.ime_event_disable();
                     }
-                    winit::event::Ime::Disabled | winit::event::Ime::Preedit(_, None) => {
+                    winit::event::Ime::Preedit(_, None) => {
+                        self.ime_event_disable();
+                    }
+                    winit::event::Ime::Disabled => {
                         self.ime_event_disable();
                     }
                 };
@@ -392,6 +404,8 @@ impl State {
                         repaint: true,
                         consumed: false,
                     }
+                } else if let Some(response) = self.try_on_ime_processed_keyboard_input(event) {
+                    response
                 } else {
                     self.on_keyboard_input(event);
 
@@ -712,6 +726,55 @@ impl State {
         }
     }
 
+    fn try_on_ime_processed_keyboard_input(
+        &mut self,
+        event: &winit::event::KeyEvent,
+    ) -> Option<EventResponse> {
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = event;
+            None
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            use winit::keyboard::{Key, NamedKey};
+
+            if !self.allow_ime {
+                return None;
+            }
+
+            let consumed = self.egui_ctx.wants_keyboard_input();
+            let is_ime_processed = event.logical_key == Key::Named(NamedKey::Process);
+            if is_ime_processed {
+                if event.state == ElementState::Pressed {
+                    self.pressed_processed_physical_keys
+                        .insert(event.physical_key.clone());
+                } else {
+                    self.pressed_processed_physical_keys
+                        .remove(&event.physical_key);
+                }
+                return Some(EventResponse {
+                    repaint: true,
+                    consumed,
+                });
+            }
+
+            if event.state == ElementState::Released
+                && self
+                    .pressed_processed_physical_keys
+                    .remove(&event.physical_key)
+            {
+                return Some(EventResponse {
+                    repaint: true,
+                    consumed,
+                });
+            }
+
+            None
+        }
+    }
+
     fn on_keyboard_input(&mut self, event: &winit::event::KeyEvent) {
         let winit::event::KeyEvent {
             // Represents the position of a key independent of the currently active layout.
@@ -868,6 +931,10 @@ impl State {
         let allow_ime = ime.is_some();
         if self.allow_ime != allow_ime {
             self.allow_ime = allow_ime;
+            #[cfg(target_os = "windows")]
+            if !allow_ime {
+                self.pressed_processed_physical_keys.clear();
+            }
             profiling::scope!("set_ime_allowed");
             window.set_ime_allowed(allow_ime);
         }
