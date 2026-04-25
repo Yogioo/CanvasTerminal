@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "nodes": [
     {
       "id": 8,
@@ -41,8 +41,8 @@
           "auto_size": false
         }
       },
-      "pos_x": 1625.9235,
-      "pos_y": 1039.4032,
+      "pos_x": 1608.4215,
+      "pos_y": 999.3992,
       "size_x": 680.9757,
       "size_y": 118.12335
     },
@@ -166,19 +166,37 @@
   "edge_routes": [
     {
       "from": 19,
+      "to": 8,
+      "route_key": "fix"
+    },
+    {
+      "from": 19,
       "to": 7,
       "route_key": "next"
+    }
+  ],
+  "edge_curve_biases": [],
+  "edge_control_offsets": [
+    {
+      "from": 8,
+      "to": 19,
+      "source_dx": 260.0,
+      "source_dy": 33.986694,
+      "target_dx": 50.89966,
+      "target_dy": 260.0
     },
     {
       "from": 19,
       "to": 8,
-      "route_key": "fix"
+      "source_dx": 0.0,
+      "source_dy": 0.0,
+      "target_dx": 54.43701,
+      "target_dy": -260.0
     }
   ],
-  "edge_curve_biases": [],
   "view": {
-    "pan_x": -2112.3008,
-    "pan_y": -19.8721,
-    "zoom": 1.0484848
+    "pan_x": 127.25348,
+    "pan_y": -3.9918518,
+    "zoom": 0.4509526
   }
 }
