@@ -272,6 +272,92 @@ impl GraphApp {
         id
     }
 
+    pub(in crate::app) fn reset_workspace(&mut self) {
+        self.nodes.clear();
+        self.edges.clear();
+        self.edge_route_keys.clear();
+        self.edge_curve_biases.clear();
+        self.edge_control_offsets.clear();
+        self.selected = None;
+        self.selected_nodes.clear();
+        self.selected_edge = None;
+        self.dragging = None;
+        self.dragging_edge_control = None;
+        self.drag_start_pos = None;
+        self.drag_group_start = None;
+        self.pan = vec2(0.0, 0.0);
+        self.zoom = 1.0;
+        self.camera_world_center = Pos2::new(0.0, 0.0);
+        self.camera_initialized = false;
+
+        self.terminal_backends.clear();
+        self.terminal_exited.clear();
+        self.terminal_errors.clear();
+        self.pending_terminal_injections.clear();
+        self.pending_terminal_starts.clear();
+
+        self.image_textures.clear();
+        self.image_errors.clear();
+        self.image_bytes.clear();
+        self.image_aspects.clear();
+
+        self.next_node_id = 1;
+        self.menu_search_text.clear();
+        self.menu_search_selected = 0;
+        self.pending_menu_search_focus = false;
+        self.editing_text_node = None;
+        self.pending_text_focus = None;
+        self.editing_title_node = None;
+        self.pending_title_focus = None;
+        self.title_edit_buffer.clear();
+        self.editing_startup_node = None;
+        self.pending_startup_focus = None;
+        self.startup_edit_buffer.clear();
+        self.editing_decision_buttons_node = None;
+        self.pending_decision_buttons_focus = None;
+        self.decision_buttons_edit_rows.clear();
+        self.decision_color_popup = None;
+        self.decision_color_popup_pos = None;
+        self.decision_buttons_edit_error = None;
+        self.editing_decision_queue_node = None;
+        self.pending_decision_queue_focus = None;
+        self.decision_queue_edit_buffer.clear();
+        self.editing_edge = None;
+        self.pending_edge_focus = None;
+        self.edge_edit_buffer.clear();
+        self.suspend_terminal_focus = None;
+        self.resizing = None;
+        self.context_menu_node = None;
+        self.context_menu_edge = None;
+        self.context_menu_local_pos = None;
+        self.linking_from = None;
+        self.linking_pointer_local = None;
+        self.cutting_path_local.clear();
+        self.right_drag_moved = false;
+        self.cut_snapshot_nodes = None;
+        self.cut_snapshot_edges = None;
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.last_primary_click_time = None;
+        self.last_primary_click_pos = None;
+        self.last_canvas_pointer_world_pos = None;
+        self.last_drag_hover_world_pos = None;
+        self.pending_dropped_files.clear();
+        self.pending_drop_spawn_world_pos = None;
+        self.pending_drop_requested_at = None;
+        self.box_select_start = None;
+        self.box_select_current = None;
+        self.box_select_additive = false;
+        self.box_select_subtractive = false;
+        self.box_select_base_selection.clear();
+        self.window_bar_visible_until = 0.0;
+        self.command_palette_open = false;
+
+        self.active_graph_path = None;
+        self.mark_workspace_clean();
+        self.bump_automation_state_version();
+    }
+
     fn paint_grid(&self, _painter: &egui::Painter, _rect: Rect, _pan: egui::Vec2, _zoom: f32) {}
 }
 
