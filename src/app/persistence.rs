@@ -29,6 +29,8 @@ struct GraphConfig {
     edge_control_offsets: Vec<EdgeControlOffsetConfig>,
     #[serde(default)]
     view: ViewConfig,
+    #[serde(default)]
+    workspace_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,6 +190,7 @@ impl GraphConfig {
                 pan_y: app.pan.y,
                 zoom: app.zoom,
             },
+            workspace_name: Some(app.workspace_name().to_owned()),
         }
     }
 }
@@ -234,7 +237,7 @@ impl GraphApp {
             .map_err(|err| format!("读取配置文件失败 ({}): {err}", path.display()))?;
         let config: GraphConfig =
             serde_json::from_str(&json).map_err(|err| format!("配置解析失败: {err}"))?;
-        self.apply_graph_config(config);
+        self.apply_graph_config(config, Some(path));
         self.mark_workspace_clean();
         Ok(())
     }
@@ -249,7 +252,7 @@ impl GraphApp {
         )
     }
 
-    fn apply_graph_config(&mut self, config: GraphConfig) {
+    fn apply_graph_config(&mut self, config: GraphConfig, fallback_path: Option<&Path>) {
         let mut seen_ids = HashSet::new();
         let mut seen_uids = HashSet::new();
         let mut nodes = Vec::with_capacity(config.nodes.len());
@@ -399,6 +402,14 @@ impl GraphApp {
             .map(|id| id + 1)
             .unwrap_or(1);
 
+        self.set_workspace_name(&Self::resolve_workspace_name(
+            config.workspace_name.as_deref(),
+            fallback_path,
+        ));
+        self.editing_workspace_name = false;
+        self.pending_workspace_name_focus = false;
+        self.workspace_name_edit_buffer.clear();
+
         self.pan = vec2(config.view.pan_x, config.view.pan_y);
         self.zoom = if config.view.zoom.is_finite() && config.view.zoom >= 1e-4 {
             config.view.zoom
@@ -476,6 +487,7 @@ impl GraphApp {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::path::Path;
 
     fn sample_node(id: usize) -> NodeConfig {
         NodeConfig {
@@ -494,6 +506,24 @@ mod tests {
     }
 
     #[test]
+    fn workspace_name_roundtrip_is_preserved() {
+        let config = GraphConfig {
+            version: GRAPH_CONFIG_VERSION,
+            nodes: vec![sample_node(1)],
+            edges: vec![],
+            edge_routes: vec![],
+            edge_curve_biases: vec![],
+            edge_control_offsets: vec![],
+            view: ViewConfig::default(),
+            workspace_name: Some("工作区C".to_owned()),
+        };
+
+        let text = serde_json::to_string(&config).unwrap();
+        let parsed: GraphConfig = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed.workspace_name.as_deref(), Some("工作区C"));
+    }
+
+    #[test]
     fn edge_curve_bias_roundtrip_is_preserved() {
         let config = GraphConfig {
             version: GRAPH_CONFIG_VERSION,
@@ -507,6 +537,7 @@ mod tests {
             }],
             edge_control_offsets: vec![],
             view: ViewConfig::default(),
+            workspace_name: Some("工作区A".to_owned()),
         };
 
         let text = serde_json::to_string(&config).unwrap();
@@ -516,6 +547,7 @@ mod tests {
         assert_eq!(parsed.edge_curve_biases[0].from, 1);
         assert_eq!(parsed.edge_curve_biases[0].to, 2);
         assert!((parsed.edge_curve_biases[0].bias - 72.5).abs() < 0.001);
+        assert_eq!(parsed.workspace_name.as_deref(), Some("工作区A"));
     }
 
     #[test]
@@ -535,6 +567,7 @@ mod tests {
                 target_dy: 16.0,
             }],
             view: ViewConfig::default(),
+            workspace_name: Some("工作区B".to_owned()),
         };
 
         let text = serde_json::to_string(&config).unwrap();
@@ -545,10 +578,69 @@ mod tests {
         assert_eq!(parsed.edge_control_offsets[0].to, 2);
         assert!((parsed.edge_control_offsets[0].source_dx - 24.0).abs() < 0.001);
         assert!((parsed.edge_control_offsets[0].target_dx + 30.0).abs() < 0.001);
+        assert_eq!(parsed.workspace_name.as_deref(), Some("工作区B"));
     }
 
     #[test]
-    fn legacy_config_without_edge_curve_biases_is_supported() {
+    fn workspace_name_saved_name_is_trimmed_on_replay() {
+        let parsed: GraphConfig = serde_json::from_value(json!({
+            "version": GRAPH_CONFIG_VERSION,
+            "nodes": [
+                {
+                    "id": 1,
+                    "uid": "u-1",
+                    "kind": "Text",
+                    "data": {"Text": {"text_body": "", "auto_size": false}},
+                    "pos_x": 0.0,
+                    "pos_y": 0.0,
+                    "size_x": 120.0,
+                    "size_y": 80.0
+                }
+            ],
+            "edges": [],
+            "edge_routes": [],
+            "view": {"pan_x": 0.0, "pan_y": 0.0, "zoom": 1.0},
+            "workspace_name": "  画布命名A  "
+        }))
+        .unwrap();
+
+        assert_eq!(
+            GraphApp::resolve_workspace_name(parsed.workspace_name.as_deref(), None),
+            "画布命名A"
+        );
+    }
+
+    #[test]
+    fn workspace_name_malformed_blank_field_falls_back_to_default() {
+        let parsed: GraphConfig = serde_json::from_value(json!({
+            "version": GRAPH_CONFIG_VERSION,
+            "nodes": [
+                {
+                    "id": 1,
+                    "uid": "u-1",
+                    "kind": "Text",
+                    "data": {"Text": {"text_body": "", "auto_size": false}},
+                    "pos_x": 0.0,
+                    "pos_y": 0.0,
+                    "size_x": 120.0,
+                    "size_y": 80.0
+                }
+            ],
+            "edges": [],
+            "edge_routes": [],
+            "view": {"pan_x": 0.0, "pan_y": 0.0, "zoom": 1.0},
+            "workspace_name": "   "
+        }))
+        .unwrap();
+
+        assert_eq!(
+            GraphApp::resolve_workspace_name(parsed.workspace_name.as_deref(), None),
+            GraphApp::default_workspace_name()
+        );
+    }
+
+    #[test]
+    fn workspace_name_legacy_config_without_field_is_supported() {
         let legacy = json!({
             "version": 4,
             "nodes": [
@@ -581,5 +673,13 @@ mod tests {
         let parsed: GraphConfig = serde_json::from_value(legacy).unwrap();
         assert!(parsed.edge_curve_biases.is_empty());
         assert!(parsed.edge_control_offsets.is_empty());
+        assert_eq!(parsed.workspace_name, None);
+        assert_eq!(
+            GraphApp::resolve_workspace_name(
+                parsed.workspace_name.as_deref(),
+                Some(Path::new("/tmp/legacy.graph.json")),
+            ),
+            "legacy.graph"
+        );
     }
 }

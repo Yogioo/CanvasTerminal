@@ -79,6 +79,7 @@ impl GraphApp {
     ) -> Result<AutomationOutcome, AutomationResponse> {
         match request.action.as_str() {
             "graph.get" => self.automation_graph_get(request),
+            "metrics" => self.automation_metrics(request),
             "node.create" => self.automation_node_create(request),
             "node.move" => self.automation_node_move(request),
             "node.update" => self.automation_node_update(request),
@@ -108,6 +109,16 @@ impl GraphApp {
                 "BAD_PAYLOAD",
                 format!("invalid payload: {err}"),
             )
+        })
+    }
+
+    fn automation_metrics(
+        &mut self,
+        _request: &AutomationRequest,
+    ) -> Result<AutomationOutcome, AutomationResponse> {
+        Ok(AutomationOutcome {
+            data: metrics_payload(self.performance_metrics.fps(), self.performance_metrics.cpu_usage()),
+            affected_ids: Vec::new(),
         })
     }
 
@@ -771,5 +782,61 @@ impl GraphApp {
         {
             let _ = file.write_all(text.as_bytes());
         }
+    }
+}
+
+fn normalize_fps(fps: f32) -> f32 {
+    if fps.is_finite() && fps >= 0.0 {
+        fps
+    } else {
+        0.0
+    }
+}
+
+fn normalize_cpu_usage(cpu_usage: Option<f32>) -> Option<f32> {
+    cpu_usage.filter(|value| value.is_finite() && *value >= 0.0)
+}
+
+fn metrics_payload(fps: f32, cpu_usage: Option<f32>) -> Value {
+    json!({
+        "fps": normalize_fps(fps),
+        "cpu_usage": normalize_cpu_usage(cpu_usage),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn automation_metrics_payload_keeps_expected_shape() {
+        let payload = metrics_payload(59.8, Some(17.4));
+
+        let fps = payload
+            .get("fps")
+            .and_then(Value::as_f64)
+            .expect("fps number");
+        let cpu = payload
+            .get("cpu_usage")
+            .and_then(Value::as_f64)
+            .expect("cpu number");
+        assert!((fps - 59.8).abs() < 0.001);
+        assert!((cpu - 17.4).abs() < 0.001);
+    }
+
+    #[test]
+    fn automation_metrics_payload_gracefully_falls_back_when_cpu_missing() {
+        let payload = metrics_payload(42.0, None);
+
+        assert_eq!(payload.get("fps").and_then(Value::as_f64), Some(42.0));
+        assert_eq!(payload.get("cpu_usage"), Some(&Value::Null));
+    }
+
+    #[test]
+    fn automation_metrics_payload_sanitizes_malformed_samples() {
+        let payload = metrics_payload(f32::NAN, Some(f32::INFINITY));
+
+        assert_eq!(payload.get("fps").and_then(Value::as_f64), Some(0.0));
+        assert_eq!(payload.get("cpu_usage"), Some(&Value::Null));
     }
 }

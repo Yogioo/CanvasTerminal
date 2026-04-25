@@ -15,6 +15,57 @@ fn json_header() -> Option<Header> {
     .ok()
 }
 
+fn response_json_or_fallback(response: crate::event_protocol::AutomationResponse) -> String {
+    serde_json::to_string(&response).unwrap_or_else(|_| "{\"ok\":false}".to_owned())
+}
+
+fn dispatch_automation_request_with_timeout(
+    tx: &mpsc::Sender<AppEvent>,
+    request_body: AutomationRequest,
+    timeout: Duration,
+) -> String {
+    let (resp_tx, resp_rx) = mpsc::channel();
+    let call = AutomationCall {
+        request: request_body.clone(),
+        received_at_ms: now_timestamp_ms(),
+        response_tx: resp_tx,
+    };
+
+    if tx.send(AppEvent::Automation(call)).is_err() {
+        return response_json_or_fallback(response_error(
+            request_body.request_id,
+            &request_body.action,
+            "INTERNAL_CHANNEL_CLOSED",
+            "automation request channel closed",
+        ));
+    }
+
+    match resp_rx.recv_timeout(timeout) {
+        Ok(resp) => response_json_or_fallback(resp),
+        Err(_) => response_json_or_fallback(response_error(
+            request_body.request_id,
+            &request_body.action,
+            "TIMEOUT",
+            "automation request timed out",
+        )),
+    }
+}
+
+fn dispatch_automation_request(
+    tx: &mpsc::Sender<AppEvent>,
+    request_body: AutomationRequest,
+) -> String {
+    dispatch_automation_request_with_timeout(tx, request_body, Duration::from_secs(60))
+}
+
+fn respond_automation_json(request: tiny_http::Request, response_json: String) {
+    let mut response = Response::from_string(response_json).with_status_code(StatusCode(200));
+    if let Some(h) = json_header() {
+        response = response.with_header(h);
+    }
+    let _ = request.respond(response);
+}
+
 pub fn start_event_server() -> Result<mpsc::Receiver<AppEvent>, String> {
     let server =
         Server::http(DEFAULT_CANVAS_BIND_ADDR).map_err(|e| format!("事件服务启动失败: {e}"))?;
@@ -46,6 +97,19 @@ pub fn start_event_server() -> Result<mpsc::Receiver<AppEvent>, String> {
                     continue;
                 }
 
+                if request.method() == &Method::Get && request.url() == "/automation/metrics" {
+                    let automation_request = AutomationRequest {
+                        action: "metrics".to_owned(),
+                        payload: serde_json::Value::Object(serde_json::Map::new()),
+                        request_id: None,
+                        timestamp_ms: Some(now_timestamp_ms()),
+                    };
+
+                    let response_json = dispatch_automation_request(&tx, automation_request);
+                    respond_automation_json(request, response_json);
+                    continue;
+                }
+
                 if request.method() == &Method::Post && request.url() == "/automation" {
                     let mut body = String::new();
                     let parse_result = request
@@ -55,50 +119,17 @@ pub fn start_event_server() -> Result<mpsc::Receiver<AppEvent>, String> {
                         .and_then(|_| serde_json::from_str::<AutomationRequest>(&body).ok());
 
                     let response_json = if let Some(request_body) = parse_result {
-                        let (resp_tx, resp_rx) = mpsc::channel();
-                        let call = AutomationCall {
-                            request: request_body.clone(),
-                            received_at_ms: now_timestamp_ms(),
-                            response_tx: resp_tx,
-                        };
-
-                        if tx.send(AppEvent::Automation(call)).is_err() {
-                            serde_json::to_string(&response_error(
-                                request_body.request_id,
-                                &request_body.action,
-                                "INTERNAL_CHANNEL_CLOSED",
-                                "automation request channel closed",
-                            ))
-                            .unwrap_or_else(|_| "{\"ok\":false}".to_owned())
-                        } else {
-                            match resp_rx.recv_timeout(Duration::from_secs(60)) {
-                                Ok(resp) => serde_json::to_string(&resp)
-                                    .unwrap_or_else(|_| "{\"ok\":false}".to_owned()),
-                                Err(_) => serde_json::to_string(&response_error(
-                                    request_body.request_id,
-                                    &request_body.action,
-                                    "TIMEOUT",
-                                    "automation request timed out",
-                                ))
-                                .unwrap_or_else(|_| "{\"ok\":false}".to_owned()),
-                            }
-                        }
+                        dispatch_automation_request(&tx, request_body)
                     } else {
-                        serde_json::to_string(&response_error(
+                        response_json_or_fallback(response_error(
                             None,
                             "invalid",
                             "BAD_REQUEST",
                             "invalid automation request payload",
                         ))
-                        .unwrap_or_else(|_| "{\"ok\":false}".to_owned())
                     };
 
-                    let mut response =
-                        Response::from_string(response_json).with_status_code(StatusCode(200));
-                    if let Some(h) = json_header() {
-                        response = response.with_header(h);
-                    }
-                    let _ = request.respond(response);
+                    respond_automation_json(request, response_json);
                     continue;
                 }
 
@@ -109,4 +140,186 @@ pub fn start_event_server() -> Result<mpsc::Receiver<AppEvent>, String> {
         .map_err(|e| format!("事件服务线程启动失败: {e}"))?;
 
     Ok(rx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event_protocol::{empty_diagnostics, AutomationError, AutomationResponse};
+    use serde_json::Value;
+    use std::sync::mpsc::{self, Receiver};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    fn wait_for_automation_call(rx: &Receiver<AppEvent>) -> AutomationCall {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .unwrap_or_else(|| Duration::from_millis(0));
+            if remaining.is_zero() {
+                panic!("timeout waiting for automation call");
+            }
+
+            match rx.recv_timeout(remaining) {
+                Ok(AppEvent::Automation(call)) => return call,
+                Ok(AppEvent::Done(_)) => continue,
+                Err(err) => panic!("failed to receive automation call: {err}"),
+            }
+        }
+    }
+
+    #[test]
+    fn event_server_metrics_dispatch_returns_channel_closed_error() {
+        let (tx, rx) = mpsc::channel();
+        drop(rx);
+
+        let response: Value = serde_json::from_str(&dispatch_automation_request(
+            &tx,
+            AutomationRequest {
+                action: "metrics".to_owned(),
+                payload: Value::Object(serde_json::Map::new()),
+                request_id: Some("req-closed".to_owned()),
+                timestamp_ms: None,
+            },
+        ))
+        .expect("response json");
+
+        assert_eq!(response.get("ok").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            response
+                .get("error")
+                .and_then(|error| error.get("code"))
+                .and_then(Value::as_str),
+            Some("INTERNAL_CHANNEL_CLOSED")
+        );
+    }
+
+    #[test]
+    fn event_server_metrics_dispatch_returns_timeout_error() {
+        let (tx, _rx) = mpsc::channel();
+
+        let started = Instant::now();
+        let response: Value = serde_json::from_str(&dispatch_automation_request_with_timeout(
+            &tx,
+            AutomationRequest {
+                action: "metrics".to_owned(),
+                payload: Value::Object(serde_json::Map::new()),
+                request_id: Some("req-timeout".to_owned()),
+                timestamp_ms: None,
+            },
+            Duration::from_millis(20),
+        ))
+        .expect("response json");
+
+        assert!(started.elapsed() >= Duration::from_millis(20));
+        assert_eq!(response.get("ok").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            response
+                .get("error")
+                .and_then(|error| error.get("code"))
+                .and_then(Value::as_str),
+            Some("TIMEOUT")
+        );
+    }
+
+    #[test]
+    fn event_server_metrics_get_and_automation_error_paths() {
+        let rx = match start_event_server() {
+            Ok(rx) => rx,
+            Err(err) if err.contains("Address already in use") => {
+                eprintln!("skip event_server_metrics test: {err}");
+                return;
+            }
+            Err(err) => panic!("start_event_server failed: {err}"),
+        };
+
+        let (done_tx, done_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let get_metrics = wait_for_automation_call(&rx);
+            assert_eq!(get_metrics.request.action, "metrics");
+            assert_eq!(get_metrics.request.payload, Value::Object(serde_json::Map::new()));
+            get_metrics
+                .response_tx
+                .send(AutomationResponse {
+                    request_id: get_metrics.request.request_id.clone(),
+                    ok: true,
+                    data: serde_json::json!({"fps": 61.0, "cpu_usage": Value::Null}),
+                    error: None,
+                    diagnostics: empty_diagnostics("metrics"),
+                })
+                .expect("send metrics response");
+
+            let bad_payload = wait_for_automation_call(&rx);
+            assert_eq!(bad_payload.request.action, "node.create");
+            bad_payload
+                .response_tx
+                .send(AutomationResponse {
+                    request_id: bad_payload.request.request_id.clone(),
+                    ok: false,
+                    data: Value::Null,
+                    error: Some(AutomationError {
+                        code: "BAD_PAYLOAD".to_owned(),
+                        message: "invalid payload".to_owned(),
+                        details: None,
+                    }),
+                    diagnostics: empty_diagnostics("node.create"),
+                })
+                .expect("send bad payload response");
+
+            done_tx.send(()).expect("notify done");
+        });
+
+        let metrics_response: Value = ureq::get("http://127.0.0.1:4545/automation/metrics")
+            .call()
+            .expect("GET /automation/metrics should succeed")
+            .into_json()
+            .expect("metrics response json");
+        assert_eq!(metrics_response.get("ok").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            metrics_response
+                .get("data")
+                .and_then(|data| data.get("fps"))
+                .and_then(Value::as_f64),
+            Some(61.0)
+        );
+        assert_eq!(
+            metrics_response
+                .get("data")
+                .and_then(|data| data.get("cpu_usage")),
+            Some(&Value::Null)
+        );
+
+        let bad_payload_response: Value = ureq::post("http://127.0.0.1:4545/automation")
+            .send_string("{\"action\":\"node.create\",\"payload\":\"oops\"}")
+            .expect("POST /automation should return JSON envelope")
+            .into_json()
+            .expect("bad payload response json");
+        assert_eq!(bad_payload_response.get("ok").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            bad_payload_response
+                .get("error")
+                .and_then(|error| error.get("code"))
+                .and_then(Value::as_str),
+            Some("BAD_PAYLOAD")
+        );
+
+        let malformed_response: Value = ureq::post("http://127.0.0.1:4545/automation")
+            .send_string("{not-json}")
+            .expect("malformed POST /automation should return BAD_REQUEST JSON")
+            .into_json()
+            .expect("malformed response json");
+        assert_eq!(malformed_response.get("ok").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            malformed_response
+                .get("error")
+                .and_then(|error| error.get("code"))
+                .and_then(Value::as_str),
+            Some("BAD_REQUEST")
+        );
+
+        done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("handler thread should finish");
+    }
 }

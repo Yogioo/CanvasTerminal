@@ -32,6 +32,10 @@ impl GraphApp {
             self.command_palette_open = true;
             self.reset_menu_search_state(true);
         }
+
+        if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::M)) {
+            self.performance_metrics.toggle_visible();
+        }
     }
 
     pub(in crate::app) fn update_window_bar_visibility(
@@ -56,6 +60,31 @@ impl GraphApp {
             pointer_near_top || keep_top_bar || now <= self.window_bar_visible_until;
 
         (now, screen_rect, pointer_near_top, show_window_bar)
+    }
+
+    fn split_drag_regions(
+        bar_rect: Rect,
+        drag_left: f32,
+        drag_right: f32,
+        title_rect: Rect,
+    ) -> (Option<Rect>, Option<Rect>) {
+        let left_max = (title_rect.left() - 4.0).min(drag_right);
+        let right_min = (title_rect.right() + 4.0).max(drag_left);
+
+        let left_region = (left_max - drag_left > 1.0).then(|| {
+            Rect::from_min_max(
+                Pos2::new(drag_left, bar_rect.top()),
+                Pos2::new(left_max, bar_rect.bottom()),
+            )
+        });
+        let right_region = (drag_right - right_min > 1.0).then(|| {
+            Rect::from_min_max(
+                Pos2::new(right_min, bar_rect.top()),
+                Pos2::new(drag_right, bar_rect.bottom()),
+            )
+        });
+
+        (left_region, right_region)
     }
 
     pub(in crate::app) fn draw_window_controls_overlay(
@@ -87,32 +116,128 @@ impl GraphApp {
 
                 let drag_left = bar_rect.left() + 8.0;
                 let drag_right = (minim_rect.left() - 8.0).max(drag_left);
-                let drag_rect = Rect::from_min_max(
-                    Pos2::new(drag_left, bar_rect.top()),
-                    Pos2::new(drag_right, bar_rect.bottom()),
+                let title_font = egui::FontId::proportional(13.0);
+                let title_color = egui::Color32::from_rgba_unmultiplied(236, 240, 255, 220);
+
+                let title_text = if self.editing_workspace_name {
+                    self.workspace_name_edit_buffer.clone()
+                } else {
+                    self.workspace_name().to_owned()
+                };
+                let title_galley =
+                    ui.painter()
+                        .layout_no_wrap(title_text.clone(), title_font.clone(), title_color);
+                let title_width = (title_galley.size().x + 18.0).clamp(120.0, 300.0);
+                let title_center_x = bar_rect.center().x;
+                let title_left = if drag_right - drag_left <= title_width {
+                    drag_left
+                } else {
+                    (title_center_x - title_width * 0.5).clamp(drag_left, drag_right - title_width)
+                };
+                let title_rect = Rect::from_min_max(
+                    Pos2::new(title_left, bar_rect.top() + 4.0),
+                    Pos2::new(title_left + title_width, bar_rect.bottom() - 4.0),
                 );
 
-                let drag_response = ui.interact(
-                    drag_rect,
-                    ui.id().with("window_drag_area"),
-                    egui::Sense::click_and_drag(),
-                );
+                let (left_drag_rect, right_drag_rect) =
+                    Self::split_drag_regions(bar_rect, drag_left, drag_right, title_rect);
                 let start_drag =
                     ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
-                if drag_response.hovered() {
+
+                let left_drag_response = left_drag_rect.map(|rect| {
+                    ui.interact(
+                        rect,
+                        ui.id().with("window_drag_area_left"),
+                        egui::Sense::click_and_drag(),
+                    )
+                });
+                let right_drag_response = right_drag_rect.map(|rect| {
+                    ui.interact(
+                        rect,
+                        ui.id().with("window_drag_area_right"),
+                        egui::Sense::click_and_drag(),
+                    )
+                });
+
+                let drag_hovered = left_drag_response.as_ref().is_some_and(|r| r.hovered())
+                    || right_drag_response.as_ref().is_some_and(|r| r.hovered());
+                let drag_active = left_drag_response.as_ref().is_some_and(|r| r.dragged())
+                    || right_drag_response.as_ref().is_some_and(|r| r.dragged());
+                let drag_double_clicked = left_drag_response
+                    .as_ref()
+                    .is_some_and(|r| r.double_clicked())
+                    || right_drag_response
+                        .as_ref()
+                        .is_some_and(|r| r.double_clicked());
+
+                if drag_hovered {
                     ui.output_mut(|o| {
-                        o.cursor_icon = if drag_response.dragged() {
+                        o.cursor_icon = if drag_active {
                             egui::CursorIcon::Grabbing
                         } else {
                             egui::CursorIcon::Grab
                         };
                     });
                 }
-                if drag_response.double_clicked() {
+
+                if drag_double_clicked {
                     let is_maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
-                } else if drag_response.hovered() && start_drag {
+                } else if drag_hovered && start_drag {
                     ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
+
+                if self.editing_workspace_name {
+                    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(title_rect), |ui| {
+                        let editor_id = ui.id().with("window_workspace_name_editor");
+                        if self.pending_workspace_name_focus {
+                            ui.memory_mut(|m| m.request_focus(editor_id));
+                            self.pending_workspace_name_focus = false;
+                        }
+
+                        let response = ui.add_sized(
+                            title_rect.size(),
+                            egui::TextEdit::singleline(&mut self.workspace_name_edit_buffer)
+                                .id(editor_id)
+                                .font(title_font.clone())
+                                .horizontal_align(egui::Align::Center)
+                                .margin(vec2(6.0, 2.0)),
+                        );
+
+                        let submit = response.lost_focus()
+                            && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        let cancel = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                        let click_outside_commit = response.lost_focus()
+                            && !ui.input(|i| i.pointer.primary_down());
+
+                        if cancel {
+                            self.cancel_workspace_name_edit();
+                        } else if submit || click_outside_commit {
+                            self.commit_workspace_name_edit();
+                        }
+                    });
+                } else {
+                    let title_response = ui.interact(
+                        title_rect,
+                        ui.id().with("window_workspace_name_label"),
+                        egui::Sense::click(),
+                    );
+                    if title_response.double_clicked() {
+                        self.start_workspace_name_edit();
+                    }
+
+                    let title_hovered = title_response.hovered();
+                    let bg_color = if title_hovered {
+                        egui::Color32::from_rgba_unmultiplied(66, 76, 104, 180)
+                    } else {
+                        egui::Color32::from_rgba_unmultiplied(52, 60, 86, 120)
+                    };
+                    ui.painter().rect_filled(title_rect, 8.0, bg_color);
+                    ui.painter().galley(
+                        title_rect.center() - title_galley.size() * 0.5,
+                        title_galley,
+                        title_color,
+                    );
                 }
 
                 let stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
@@ -211,6 +336,7 @@ impl GraphApp {
                     ("文件/加载", "文件/加载  Ctrl+O", 3usize),
                     ("编辑/撤销", "编辑/撤销  Ctrl+Z", 100usize),
                     ("编辑/重做", "编辑/重做  Ctrl+U", 101usize),
+                    ("视图/性能浮窗", "视图/性能浮窗  Ctrl+Shift+M", 200usize),
                 ];
 
                 if let Some(action_id) = self.show_searchable_menu_actions(
@@ -224,8 +350,10 @@ impl GraphApp {
                 ) {
                     if action_id < 100 {
                         self.run_file_menu_action(action_id);
-                    } else {
+                    } else if action_id < 200 {
                         self.run_edit_menu_action(action_id - 100);
+                    } else {
+                        self.performance_metrics.toggle_visible();
                     }
                     action_triggered = true;
                 }
@@ -236,6 +364,35 @@ impl GraphApp {
             self.command_palette_open = false;
             self.reset_menu_search_state(false);
         }
+    }
+
+    pub(in crate::app) fn show_performance_overlay(&mut self, ctx: &egui::Context) {
+        if !self.performance_metrics.is_visible() {
+            return;
+        }
+
+        egui::Window::new("性能监控")
+            .id(egui::Id::new("performance_metrics_overlay"))
+            .default_pos(Pos2::new(16.0, 44.0))
+            .resizable(false)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                let fps = self.performance_metrics.fps();
+                let fps_text = if fps.is_finite() && fps > 0.0 {
+                    format!("{fps:.1}")
+                } else {
+                    "--".to_owned()
+                };
+
+                let cpu_text = self
+                    .performance_metrics
+                    .cpu_usage()
+                    .map(|value| format!("{value:.1}%"))
+                    .unwrap_or_else(|| "--".to_owned());
+
+                ui.label(format!("FPS: {fps_text}"));
+                ui.label(format!("CPU: {cpu_text}"));
+            });
     }
 
     pub(in crate::app) fn schedule_repaint(
@@ -255,5 +412,63 @@ impl GraphApp {
         if !self.pending_terminal_starts.is_empty() {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
+
+        if self.performance_metrics.is_visible() {
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn window_bar_rename_boundary_keeps_title_pixel_outside_drag() {
+        let bar = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(600.0, 28.0));
+        let title = Rect::from_min_max(Pos2::new(220.0, 4.0), Pos2::new(380.0, 24.0));
+        let (left, right) = GraphApp::split_drag_regions(bar, 8.0, 500.0, title);
+
+        let left = left.expect("left drag region");
+        let right = right.expect("right drag region");
+
+        assert!(left.max.x <= title.min.x - 4.0);
+        assert!(right.min.x >= title.max.x + 4.0);
+    }
+
+    #[test]
+    fn window_bar_rename_boundary_collapses_drag_when_title_fills_space() {
+        let bar = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(200.0, 28.0));
+        let title = Rect::from_min_max(Pos2::new(8.0, 4.0), Pos2::new(192.0, 24.0));
+        let (left, right) = GraphApp::split_drag_regions(bar, 8.0, 192.0, title);
+
+        assert!(left.is_none());
+        assert!(right.is_none());
+    }
+
+    #[test]
+    fn window_bar_rename_hit_route_text_area_avoids_drag_regions() {
+        let bar = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(600.0, 28.0));
+        let title = Rect::from_min_max(Pos2::new(220.0, 4.0), Pos2::new(380.0, 24.0));
+        let (left, right) = GraphApp::split_drag_regions(bar, 8.0, 500.0, title);
+
+        let title_center = title.center();
+        assert!(title.contains(title_center));
+        assert!(left.map_or(true, |rect| !rect.contains(title_center)));
+        assert!(right.map_or(true, |rect| !rect.contains(title_center)));
+    }
+
+    #[test]
+    fn window_bar_rename_hit_route_blank_area_stays_in_drag_regions() {
+        let bar = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(600.0, 28.0));
+        let title = Rect::from_min_max(Pos2::new(220.0, 4.0), Pos2::new(380.0, 24.0));
+        let (left, right) = GraphApp::split_drag_regions(bar, 8.0, 500.0, title);
+
+        let blank_left = Pos2::new(80.0, 14.0);
+        let blank_right = Pos2::new(460.0, 14.0);
+        assert!(left.is_some_and(|rect| rect.contains(blank_left)));
+        assert!(right.is_some_and(|rect| rect.contains(blank_right)));
+        assert!(!title.contains(blank_left));
+        assert!(!title.contains(blank_right));
     }
 }

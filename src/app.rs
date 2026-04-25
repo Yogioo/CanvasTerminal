@@ -9,6 +9,7 @@ mod images;
 mod menu;
 mod nodes;
 mod notifications;
+mod performance;
 mod persistence;
 mod selection;
 mod terminal;
@@ -16,6 +17,7 @@ mod ui;
 
 use self::history::HistoryEntry;
 use self::notifications::ToastNotification;
+use self::performance::PerformanceMetrics;
 use crate::event_protocol::{AppEvent, AutomationResponse};
 use crate::event_server::start_event_server;
 use crate::model::Node;
@@ -147,13 +149,18 @@ pub struct GraphApp {
     window_bar_visible_until: f64,
     command_palette_open: bool,
     active_graph_path: Option<PathBuf>,
+    workspace_name: String,
+    editing_workspace_name: bool,
+    pending_workspace_name_focus: bool,
+    workspace_name_edit_buffer: String,
     toast_notifications: Vec<ToastNotification>,
     next_toast_id: u64,
     workspace_dirty: bool,
-    last_title_dirty: Option<bool>,
+    last_window_title: Option<String>,
     markdown_cache: CommonMarkCache,
     text_hide_zoom_threshold: f32,
     terminal_hide_zoom_threshold: f32,
+    performance_metrics: PerformanceMetrics,
 }
 
 impl GraphApp {
@@ -254,13 +261,18 @@ impl GraphApp {
             window_bar_visible_until: 0.0,
             command_palette_open: false,
             active_graph_path: None,
+            workspace_name: Self::default_workspace_name().to_owned(),
+            editing_workspace_name: false,
+            pending_workspace_name_focus: false,
+            workspace_name_edit_buffer: String::new(),
             toast_notifications: Vec::new(),
             next_toast_id: 1,
             workspace_dirty: false,
-            last_title_dirty: None,
+            last_window_title: None,
             markdown_cache: CommonMarkCache::default(),
             text_hide_zoom_threshold: 0.55,
             terminal_hide_zoom_threshold: 0.3,
+            performance_metrics: PerformanceMetrics::new(),
         };
 
         app
@@ -354,6 +366,10 @@ impl GraphApp {
         self.command_palette_open = false;
 
         self.active_graph_path = None;
+        self.workspace_name = Self::default_workspace_name().to_owned();
+        self.editing_workspace_name = false;
+        self.pending_workspace_name_focus = false;
+        self.workspace_name_edit_buffer.clear();
         self.mark_workspace_clean();
         self.bump_automation_state_version();
     }
@@ -373,6 +389,8 @@ impl eframe::App for GraphApp {
 
         self.handle_global_shortcuts(ctx);
         self.apply_workspace_dirty_ui(ctx);
+        self.performance_metrics
+            .update(Some(ctx.input(|i| i.unstable_dt).max(0.0)));
 
         let (now, screen_rect, pointer_near_top, show_window_bar) =
             self.update_window_bar_visibility(ctx);
@@ -390,6 +408,7 @@ impl eframe::App for GraphApp {
         self.show_command_palette_if_open(ctx);
         self.show_workspace_dirty_indicator(ctx);
         self.show_toast_notifications(ctx);
+        self.show_performance_overlay(ctx);
         self.schedule_repaint(ctx, show_window_bar, pointer_near_top, now);
     }
 }

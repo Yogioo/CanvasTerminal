@@ -5,10 +5,35 @@ use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::env;
 
+const HELP_TEXT: &str = "canvas - agent/debug CLI
+
+USAGE:
+  canvas <COMMAND> [ARGS]
+
+COMMANDS:
+  help                                  Show this help
+  ping                                  Check whether Canvas app event server is reachable
+  done [--route <route_key>] <summary>  Emit a done event from the current terminal node
+  debug metrics [--pretty] [--jsonpath p]
+  debug graph get [--pretty] [--jsonpath p]
+  debug node create|update|move|delete ...
+  debug edge create|reconnect|delete ...
+  debug inject text|terminal ...
+  debug terminal restart --node-id <id>
+
+ENVIRONMENT:
+  CANVAS_NODE_UID      Current terminal node uid
+  CANVAS_API           Canvas app API base URL (default: http://127.0.0.1:4545)
+
+EXAMPLES:
+  canvas done --route fix \"build failed, please fix\"
+  canvas debug metrics --pretty
+  canvas debug graph get --pretty
+  canvas debug node create --kind text --x 200 --y 120 --text \"hello\"
+  canvas debug inject terminal --node-id 2 --command \"echo ok\" --wait";
+
 fn print_help() {
-    println!(
-        "canvas - agent/debug CLI\n\nUSAGE:\n  canvas <COMMAND> [ARGS]\n\nCOMMANDS:\n  help                                  Show this help\n  ping                                  Check whether Canvas app event server is reachable\n  done [--route <route_key>] <summary>  Emit a done event from the current terminal node\n  debug graph get [--pretty] [--jsonpath p]\n  debug node create|update|move|delete ...\n  debug edge create|reconnect|delete ...\n  debug inject text|terminal ...\n  debug terminal restart --node-id <id>\n\nENVIRONMENT:\n  CANVAS_NODE_UID      Current terminal node uid\n  CANVAS_API           Canvas app API base URL (default: http://127.0.0.1:4545)\n\nEXAMPLES:\n  canvas done --route fix \"build failed, please fix\"\n  canvas debug graph get --pretty\n  canvas debug node create --kind text --x 200 --y 120 --text \"hello\"\n  canvas debug inject terminal --node-id 2 --command \"echo ok\" --wait"
-    );
+    println!("{HELP_TEXT}");
 }
 
 fn api_base() -> String {
@@ -117,28 +142,38 @@ fn parse_f32(value: Option<String>, name: &str) -> f32 {
         })
 }
 
-fn build_debug_action(args: Vec<String>) -> (AutomationRequest, bool, Option<String>) {
+fn try_build_debug_action(
+    args: Vec<String>,
+) -> Result<(AutomationRequest, bool, Option<String>, Vec<String>), String> {
     let mut args = VecDeque::from(args);
     let Some(group) = args.pop_front() else {
-        eprintln!("usage: canvas debug <graph|node|edge|inject|terminal> ...");
-        std::process::exit(1);
+        return Err("usage: canvas debug <metrics|graph|node|edge|inject|terminal> ...".to_owned());
     };
-    let Some(op) = args.pop_front() else {
-        eprintln!("usage: canvas debug {group} <operation> ...");
-        std::process::exit(1);
+
+    let op = if group == "metrics" {
+        if args.front().is_some_and(|value| value == "get") {
+            let _ = args.pop_front();
+        }
+        None
+    } else {
+        Some(
+            args.pop_front()
+                .ok_or_else(|| format!("usage: canvas debug {group} <operation> ..."))?,
+        )
     };
 
     let pretty = pop_flag(&mut args, "--pretty");
     let jsonpath = pop_flag_value(&mut args, "--jsonpath");
     let request_id = pop_flag_value(&mut args, "--request-id");
 
-    let (action, payload) = match (group.as_str(), op.as_str()) {
-        ("graph", "get") => {
+    let (action, payload) = match (group.as_str(), op.as_deref()) {
+        ("metrics", None) => ("metrics", json!({})),
+        ("graph", Some("get")) => {
             let since_version =
                 pop_flag_value(&mut args, "--since-version").and_then(|v| v.parse::<u64>().ok());
             ("graph.get", json!({ "since_version": since_version }))
         }
-        ("node", "create") => {
+        ("node", Some("create")) => {
             let kind = pop_flag_value(&mut args, "--kind").unwrap_or_else(|| "text".to_owned());
             let x = parse_f32(pop_flag_value(&mut args, "--x"), "--x");
             let y = parse_f32(pop_flag_value(&mut args, "--y"), "--y");
@@ -159,7 +194,7 @@ fn build_debug_action(args: Vec<String>) -> (AutomationRequest, bool, Option<Str
                 }),
             )
         }
-        ("node", "update") => {
+        ("node", Some("update")) => {
             let id = parse_usize(pop_flag_value(&mut args, "--id"), "--id");
             let text = pop_flag_value(&mut args, "--text");
             let auto_size = pop_flag_value(&mut args, "--auto-size").map(|v| v == "true");
@@ -176,17 +211,17 @@ fn build_debug_action(args: Vec<String>) -> (AutomationRequest, bool, Option<Str
                 }),
             )
         }
-        ("node", "move") => {
+        ("node", Some("move")) => {
             let id = parse_usize(pop_flag_value(&mut args, "--id"), "--id");
             let x = parse_f32(pop_flag_value(&mut args, "--x"), "--x");
             let y = parse_f32(pop_flag_value(&mut args, "--y"), "--y");
             ("node.move", json!({"id": id, "x": x, "y": y}))
         }
-        ("node", "delete") => {
+        ("node", Some("delete")) => {
             let id = parse_usize(pop_flag_value(&mut args, "--id"), "--id");
             ("node.delete", json!({"id": id}))
         }
-        ("edge", "create") => {
+        ("edge", Some("create")) => {
             let from = parse_usize(pop_flag_value(&mut args, "--from"), "--from");
             let to = parse_usize(pop_flag_value(&mut args, "--to"), "--to");
             let route_key = pop_flag_value(&mut args, "--route");
@@ -195,7 +230,7 @@ fn build_debug_action(args: Vec<String>) -> (AutomationRequest, bool, Option<Str
                 json!({"from": from, "to": to, "route_key": route_key}),
             )
         }
-        ("edge", "reconnect") => {
+        ("edge", Some("reconnect")) => {
             let from = parse_usize(pop_flag_value(&mut args, "--from"), "--from");
             let to = parse_usize(pop_flag_value(&mut args, "--to"), "--to");
             let new_from = parse_usize(pop_flag_value(&mut args, "--new-from"), "--new-from");
@@ -212,12 +247,12 @@ fn build_debug_action(args: Vec<String>) -> (AutomationRequest, bool, Option<Str
                 }),
             )
         }
-        ("edge", "delete") => {
+        ("edge", Some("delete")) => {
             let from = parse_usize(pop_flag_value(&mut args, "--from"), "--from");
             let to = parse_usize(pop_flag_value(&mut args, "--to"), "--to");
             ("edge.delete", json!({"from": from, "to": to}))
         }
-        ("inject", "text") => {
+        ("inject", Some("text")) => {
             let node_id = parse_usize(pop_flag_value(&mut args, "--node-id"), "--node-id");
             let mode = pop_flag_value(&mut args, "--mode").unwrap_or_else(|| "replace".to_owned());
             let text = pop_flag_value(&mut args, "--text").unwrap_or_default();
@@ -226,7 +261,7 @@ fn build_debug_action(args: Vec<String>) -> (AutomationRequest, bool, Option<Str
                 json!({"node_id": node_id, "mode": mode, "text": text}),
             )
         }
-        ("inject", "terminal") => {
+        ("inject", Some("terminal")) => {
             let node_id = parse_usize(pop_flag_value(&mut args, "--node-id"), "--node-id");
             let command = pop_flag_value(&mut args, "--command").unwrap_or_default();
             let wait = pop_flag(&mut args, "--wait");
@@ -242,21 +277,19 @@ fn build_debug_action(args: Vec<String>) -> (AutomationRequest, bool, Option<Str
                 }),
             )
         }
-        ("terminal", "restart") => {
+        ("terminal", Some("restart")) => {
             let node_id = parse_usize(pop_flag_value(&mut args, "--node-id"), "--node-id");
             ("terminal.restart", json!({"node_id": node_id}))
         }
         _ => {
-            eprintln!("error: unknown debug command '{} {}'", group, op);
-            std::process::exit(1);
+            let op_label = op.unwrap_or_else(|| "<none>".to_owned());
+            return Err(format!("error: unknown debug command '{} {}'", group, op_label));
         }
     };
 
-    if !args.is_empty() {
-        eprintln!("warning: ignored args: {:?}", args);
-    }
+    let warnings = args.into_iter().collect::<Vec<_>>();
 
-    (
+    Ok((
         AutomationRequest {
             action: action.to_owned(),
             payload,
@@ -265,7 +298,23 @@ fn build_debug_action(args: Vec<String>) -> (AutomationRequest, bool, Option<Str
         },
         pretty,
         jsonpath,
-    )
+        warnings,
+    ))
+}
+
+fn build_debug_action(args: Vec<String>) -> (AutomationRequest, bool, Option<String>) {
+    match try_build_debug_action(args) {
+        Ok((request, pretty, jsonpath, warnings)) => {
+            if !warnings.is_empty() {
+                eprintln!("warning: ignored args: {:?}", warnings);
+            }
+            (request, pretty, jsonpath)
+        }
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(1);
+        }
+    }
 }
 
 fn value_at_jsonpath<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
@@ -299,6 +348,10 @@ fn print_json(value: &Value, pretty: bool) {
     println!("{text}");
 }
 
+fn decode_automation_response(raw: &str) -> Result<AutomationResponse, serde_json::Error> {
+    serde_json::from_str(raw)
+}
+
 fn command_debug(args: Vec<String>) {
     let (request, pretty, jsonpath) = build_debug_action(args);
     let url = format!("{}/automation", api_base().trim_end_matches('/'));
@@ -312,8 +365,14 @@ fn command_debug(args: Vec<String>) {
             }
         };
 
-    let parsed: AutomationResponse = match response.into_json() {
-        Ok(v) => v,
+    let parsed: AutomationResponse = match response.into_string() {
+        Ok(raw) => match decode_automation_response(&raw) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                eprintln!("error: invalid automation response: {err}");
+                std::process::exit(1);
+            }
+        },
         Err(err) => {
             eprintln!("error: invalid automation response: {err}");
             std::process::exit(1);
@@ -351,5 +410,68 @@ fn main() {
             print_help();
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_metrics_supports_direct_invocation() {
+        let (request, pretty, jsonpath, warnings) =
+            try_build_debug_action(vec!["metrics".to_owned()]).unwrap();
+
+        assert_eq!(request.action, "metrics");
+        assert_eq!(request.payload, json!({}));
+        assert!(!pretty);
+        assert_eq!(jsonpath, None);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn debug_metrics_supports_pretty_and_jsonpath_together() {
+        let (request, pretty, jsonpath, warnings) = try_build_debug_action(vec![
+            "metrics".to_owned(),
+            "--pretty".to_owned(),
+            "--jsonpath".to_owned(),
+            "data.fps".to_owned(),
+        ])
+        .unwrap();
+
+        assert_eq!(request.action, "metrics");
+        assert!(pretty);
+        assert_eq!(jsonpath.as_deref(), Some("data.fps"));
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn debug_metrics_ignores_extra_positional_args_with_warning() {
+        let (request, _pretty, _jsonpath, warnings) = try_build_debug_action(vec![
+            "metrics".to_owned(),
+            "extra".to_owned(),
+            "more".to_owned(),
+        ])
+        .unwrap();
+
+        assert_eq!(request.action, "metrics");
+        assert_eq!(warnings, vec!["extra".to_owned(), "more".to_owned()]);
+    }
+
+    #[test]
+    fn debug_metrics_decode_automation_response_rejects_non_json() {
+        let err = decode_automation_response("not-json").unwrap_err();
+        assert!(err.to_string().contains("line 1"));
+    }
+
+    #[test]
+    fn debug_metrics_requires_subcommand_group() {
+        let err = try_build_debug_action(Vec::new()).unwrap_err();
+        assert!(err.contains("usage: canvas debug"));
+    }
+
+    #[test]
+    fn help_text_mentions_debug_metrics() {
+        assert!(HELP_TEXT.contains("debug metrics [--pretty] [--jsonpath p]"));
     }
 }
