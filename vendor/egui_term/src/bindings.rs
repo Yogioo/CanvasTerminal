@@ -333,6 +333,7 @@ fn platform_keyboard_bindings() -> Vec<(Binding<InputKind>, BindingAction)> {
     generate_bindings!(
         KeyboardBinding;
         C, Modifiers::SHIFT | Modifiers::COMMAND; BindingAction::Copy;
+        V, Modifiers::CTRL; BindingAction::Paste;
         V, Modifiers::SHIFT | Modifiers::COMMAND; BindingAction::Paste;
     )
 }
@@ -486,5 +487,17 @@ mod tests {
             );
             assert_eq!(action, &found_action);
         }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn ctrl_v_maps_to_paste_on_non_macos() {
+        let current_layout = BindingsLayout::default();
+        let action = current_layout.get_action(
+            InputKind::KeyCode(Key::V),
+            Modifiers::CTRL,
+            TerminalMode::empty(),
+        );
+        assert_eq!(action, BindingAction::Paste);
     }
 }
