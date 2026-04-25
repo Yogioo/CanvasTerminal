@@ -62,7 +62,8 @@ impl GraphApp {
         }
 
         let now = Instant::now();
-        self.toast_notifications.retain(|item| !item.is_expired(now));
+        self.toast_notifications
+            .retain(|item| !item.is_expired(now));
         if self.toast_notifications.is_empty() {
             return;
         }

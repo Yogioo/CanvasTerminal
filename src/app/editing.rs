@@ -139,6 +139,12 @@ impl GraphApp {
         self.pending_startup_focus = None;
         self.startup_edit_buffer.clear();
 
+        self.set_edge_selection(edge);
+        self.dragging = None;
+        self.drag_start_pos = None;
+        self.drag_group_start = None;
+        self.resizing = None;
+
         self.editing_edge = Some(edge);
         self.pending_edge_focus = Some(edge);
         self.edge_edit_buffer = self

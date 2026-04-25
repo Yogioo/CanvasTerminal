@@ -76,7 +76,7 @@ pub fn setup_custom_fonts(ctx: &egui::Context) {
 
     // 4) CJK fallback：系统中文字体
     let cjk_candidates = vec![
-        PathBuf::from("C:/Windows/Fonts/msyh.ttc"),   // Microsoft YaHei
+        PathBuf::from("C:/Windows/Fonts/msyh.ttc"), // Microsoft YaHei
         PathBuf::from("C:/Windows/Fonts/simhei.ttf"), // SimHei
         PathBuf::from("C:/Windows/Fonts/simsun.ttc"), // SimSun
     ];

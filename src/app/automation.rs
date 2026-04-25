@@ -173,6 +173,62 @@ impl GraphApp {
             )
         });
 
+        let mut edge_curve_biases: Vec<Value> = self
+            .edge_curve_biases
+            .iter()
+            .filter_map(|((from, to), bias)| {
+                if !self.has_edge(*from, *to) {
+                    return None;
+                }
+
+                let clamped = Self::clamp_edge_curve_bias(*bias);
+                if clamped.abs() <= 0.001 {
+                    return None;
+                }
+
+                Some(json!({
+                    "from": from,
+                    "to": to,
+                    "bias": clamped,
+                }))
+            })
+            .collect();
+        edge_curve_biases.sort_by_key(|edge| {
+            (
+                edge.get("from").and_then(Value::as_u64).unwrap_or_default(),
+                edge.get("to").and_then(Value::as_u64).unwrap_or_default(),
+            )
+        });
+
+        let mut edge_control_offsets: Vec<Value> = self
+            .edge_control_offsets
+            .iter()
+            .filter_map(|((from, to), offsets)| {
+                if !self.has_edge(*from, *to) {
+                    return None;
+                }
+
+                let source = Self::clamp_edge_control_offset(offsets.source);
+                let target = Self::clamp_edge_control_offset(offsets.target);
+                if source.length_sq() <= 0.01 && target.length_sq() <= 0.01 {
+                    return None;
+                }
+
+                Some(json!({
+                    "from": from,
+                    "to": to,
+                    "source": {"x": source.x, "y": source.y},
+                    "target": {"x": target.x, "y": target.y},
+                }))
+            })
+            .collect();
+        edge_control_offsets.sort_by_key(|edge| {
+            (
+                edge.get("from").and_then(Value::as_u64).unwrap_or_default(),
+                edge.get("to").and_then(Value::as_u64).unwrap_or_default(),
+            )
+        });
+
         let mut selection: Vec<usize> = self.selected_nodes.iter().copied().collect();
         selection.sort_unstable();
 
@@ -184,6 +240,8 @@ impl GraphApp {
                     "nodes": nodes,
                     "edges": edges,
                     "edge_routes": edge_routes,
+                    "edge_curve_biases": edge_curve_biases,
+                    "edge_control_offsets": edge_control_offsets,
                     "viewport": {
                         "pan": {"x": self.pan.x, "y": self.pan.y},
                         "zoom": self.zoom,
@@ -191,6 +249,7 @@ impl GraphApp {
                     "selection": {
                         "selected": self.selected,
                         "selected_nodes": selection,
+                        "selected_edge": self.selected_edge,
                     }
                 }
             }),
@@ -433,7 +492,11 @@ impl GraphApp {
         let previous_route_key = self
             .edge_route_key(payload.from, payload.to)
             .map(str::to_owned);
+        let previous_bias = self.edge_curve_bias(payload.from, payload.to);
+        let previous_offsets = self.edge_control_offsets(payload.from, payload.to);
         self.remove_edge_route_key(payload.from, payload.to);
+        self.remove_edge_curve_bias(payload.from, payload.to);
+        self.remove_edge_control_offsets(payload.from, payload.to);
 
         self.edges[existing_idx] = (payload.new_from, payload.new_to);
 
@@ -443,6 +506,16 @@ impl GraphApp {
             self.set_edge_route_key(payload.new_from, payload.new_to, prev);
         }
 
+        if previous_bias.abs() > 0.001 {
+            self.set_edge_curve_bias(payload.new_from, payload.new_to, previous_bias);
+        }
+
+        if previous_offsets.source.length_sq() > 0.01 || previous_offsets.target.length_sq() > 0.01
+        {
+            self.set_edge_control_offsets(payload.new_from, payload.new_to, previous_offsets);
+        }
+
+        self.prune_edge_state();
         self.mark_workspace_dirty();
 
         Ok(AutomationOutcome {
@@ -464,6 +537,9 @@ impl GraphApp {
         self.edges
             .retain(|(from, to)| !(*from == payload.from && *to == payload.to));
         self.remove_edge_route_key(payload.from, payload.to);
+        self.remove_edge_curve_bias(payload.from, payload.to);
+        self.remove_edge_control_offsets(payload.from, payload.to);
+        self.prune_edge_state();
         if self.edges.len() == before {
             return Ok(AutomationOutcome {
                 data: json!({

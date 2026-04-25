@@ -1,4 +1,4 @@
-use super::super::{GraphApp, NodeOrderAction};
+use super::super::{EdgeControlHandle, GraphApp, NodeOrderAction};
 use crate::constants::TERMINAL_HEADER_HEIGHT;
 use crate::model::NodeKind;
 use arboard::Clipboard;
@@ -286,13 +286,16 @@ impl GraphApp {
             let Some((node_id, _)) = self.find_node_at(local) else {
                 return false;
             };
-            self.nodes.iter().find(|n| n.id == node_id).is_some_and(|n| {
-                let terminal_content_visible = self.zoom >= self.terminal_hide_zoom_threshold
-                    || self.editing_startup_node == Some(node_id);
-                n.kind == NodeKind::Terminal
-                    && terminal_content_visible
-                    && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT
-            })
+            self.nodes
+                .iter()
+                .find(|n| n.id == node_id)
+                .is_some_and(|n| {
+                    let terminal_content_visible = self.zoom >= self.terminal_hide_zoom_threshold
+                        || self.editing_startup_node == Some(node_id);
+                    n.kind == NodeKind::Terminal
+                        && terminal_content_visible
+                        && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT
+                })
         });
         let pointer_over_text_node_before_zoom = pointer_pos.is_some_and(|p| {
             let local = self.screen_to_world_pos(rect, p);
@@ -322,8 +325,9 @@ impl GraphApp {
                     if (new_zoom - old_zoom).abs() > f32::EPSILON {
                         let world_at_pointer = self.screen_to_world_pos(rect, pointer);
                         self.zoom = new_zoom;
-                        self.camera_world_center =
-                            (world_at_pointer.to_vec2() - (pointer - rect.center()) / self.zoom).to_pos2();
+                        self.camera_world_center = (world_at_pointer.to_vec2()
+                            - (pointer - rect.center()) / self.zoom)
+                            .to_pos2();
                         self.sync_pan_from_camera(rect);
                     }
                 }
@@ -337,13 +341,16 @@ impl GraphApp {
             let Some((node_id, _)) = self.find_node_at(local) else {
                 return false;
             };
-            self.nodes.iter().find(|n| n.id == node_id).is_some_and(|n| {
-                let terminal_content_visible = self.zoom >= self.terminal_hide_zoom_threshold
-                    || self.editing_startup_node == Some(node_id);
-                n.kind == NodeKind::Terminal
-                    && terminal_content_visible
-                    && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT
-            })
+            self.nodes
+                .iter()
+                .find(|n| n.id == node_id)
+                .is_some_and(|n| {
+                    let terminal_content_visible = self.zoom >= self.terminal_hide_zoom_threshold
+                        || self.editing_startup_node == Some(node_id);
+                    n.kind == NodeKind::Terminal
+                        && terminal_content_visible
+                        && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT
+                })
         });
 
         let current_time = ctx.input(|i| i.time);
@@ -352,6 +359,50 @@ impl GraphApp {
         let pointer_in_window_top_strip = pointer_pos.is_some_and(|p| p.y <= rect.top() + 32.0);
         let is_panning =
             (is_space_pan || is_middle_pan) && pointer_in_canvas && !pointer_over_terminal_content;
+        let edge_hit_tolerance = (10.0 / self.zoom.max(1e-4)).max(4.0);
+
+        if self
+            .selected_edge
+            .is_some_and(|(from, to)| !self.has_edge(from, to))
+        {
+            self.clear_edge_selection();
+        }
+
+        let edge_handle_hit = pointer_pos.and_then(|pointer| {
+            let edge = self.selected_edge?;
+            let radius = (8.0 * self.zoom.clamp(0.75, 1.8)).max(6.0);
+
+            let mut best: Option<(EdgeControlHandle, f32)> = None;
+            for handle in [EdgeControlHandle::Source, EdgeControlHandle::Target] {
+                let Some(handle_world) =
+                    self.edge_control_handle_world_pos_local(edge.0, edge.1, handle)
+                else {
+                    continue;
+                };
+                let handle_screen = self.world_to_screen_pos(rect, handle_world);
+                let distance = pointer.distance(handle_screen);
+                if distance <= radius + 3.0
+                    && best.is_none_or(|(_, current_best)| distance < current_best)
+                {
+                    best = Some((handle, distance));
+                }
+            }
+
+            best.map(|(handle, _)| (edge, handle))
+        });
+
+        let hovered_edge = pointer_pos.and_then(|pointer| {
+            if !rect.contains(pointer) {
+                return None;
+            }
+
+            let local = self.screen_to_world_pos(rect, pointer);
+            if self.find_node_at(local).is_some() {
+                return None;
+            }
+
+            self.find_edge_at(local, edge_hit_tolerance)
+        });
 
         let keyboard_has_focus = ctx.wants_keyboard_input();
         let can_run_layer_shortcuts = pointer_in_canvas
@@ -396,13 +447,36 @@ impl GraphApp {
             }
         }
 
+        if pointer_in_canvas
+            && !any_popup_open
+            && !is_panning
+            && !pointer_over_terminal_content
+            && self.editing_text_node.is_none()
+            && self.editing_title_node.is_none()
+            && self.editing_startup_node.is_none()
+            && self.editing_edge.is_none()
+            && !ctx.wants_keyboard_input()
+            && self.selected_edge.is_some()
+            && ctx.input(|i| {
+                i.modifiers.shift
+                    && !i.modifiers.ctrl
+                    && !i.modifiers.command
+                    && !i.modifiers.alt
+                    && i.key_pressed(egui::Key::R)
+            })
+        {
+            self.reset_selected_edge_curve_bias();
+        }
+
         let mut tolerant_double_click = false;
         if primary_clicked {
             if let Some(pointer) = pointer_pos {
                 let local = self.screen_to_world_pos(rect, pointer);
                 if let Some((node_id, _)) = self.find_node_at(local) {
                     if let Some(node) = self.nodes.iter().find(|n| n.id == node_id) {
-                        if node.kind == NodeKind::Terminal && local.y > node.pos.y + TERMINAL_HEADER_HEIGHT {
+                        if node.kind == NodeKind::Terminal
+                            && local.y > node.pos.y + TERMINAL_HEADER_HEIGHT
+                        {
                             self.set_single_selection(node_id);
                             self.editing_text_node = None;
                             if self.suspend_terminal_focus == Some(node_id) {
@@ -417,10 +491,9 @@ impl GraphApp {
                     && !pointer_over_terminal_content
                     && !pointer_in_window_top_strip
                 {
-                    if let (Some(last_time), Some(last_pos)) = (
-                        self.last_primary_click_time,
-                        self.last_primary_click_pos,
-                    ) {
+                    if let (Some(last_time), Some(last_pos)) =
+                        (self.last_primary_click_time, self.last_primary_click_pos)
+                    {
                         tolerant_double_click =
                             current_time - last_time <= 0.45 && last_pos.distance(pointer) <= 24.0;
                     }
@@ -433,7 +506,10 @@ impl GraphApp {
         let resize_handle_hit = pointer_pos.and_then(|pointer| {
             let selected_id = self.selected?;
             let node = self.nodes.iter().find(|n| n.id == selected_id)?;
-            if !matches!(node.kind, NodeKind::Terminal | NodeKind::Image | NodeKind::Text) {
+            if !matches!(
+                node.kind,
+                NodeKind::Terminal | NodeKind::Image | NodeKind::Text
+            ) {
                 return None;
             }
 
@@ -456,6 +532,7 @@ impl GraphApp {
             self.dragging = None;
             self.drag_start_pos = None;
             self.drag_group_start = None;
+            self.dragging_edge_control = None;
             self.resizing = None;
             self.box_select_start = None;
             self.box_select_current = None;
@@ -470,6 +547,8 @@ impl GraphApp {
 
         if self.resizing.is_none() && resize_handle_hit.is_some() {
             ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::ResizeNwSe);
+        } else if self.dragging_edge_control.is_none() && edge_handle_hit.is_some() {
+            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
         }
 
         if !is_panning
@@ -477,11 +556,25 @@ impl GraphApp {
             && self.editing_startup_node.is_none()
             && primary_pressed
         {
-            if let Some((id, local, size)) = resize_handle_hit {
+            if let Some((edge, handle)) = edge_handle_hit {
+                self.set_edge_selection(edge);
+                self.dragging = None;
+                self.drag_start_pos = None;
+                self.drag_group_start = None;
+                self.resizing = None;
+                self.box_select_start = None;
+                self.box_select_current = None;
+                self.box_select_additive = false;
+                self.box_select_subtractive = false;
+                self.box_select_base_selection.clear();
+                self.dragging_edge_control =
+                    Some((edge, handle, self.edge_control_offset(edge.0, edge.1, handle)));
+            } else if let Some((id, local, size)) = resize_handle_hit {
                 self.resizing = Some((id, local, size));
                 self.dragging = None;
                 self.drag_start_pos = None;
                 self.drag_group_start = None;
+                self.dragging_edge_control = None;
                 self.set_single_selection(id);
             } else if !pointer_over_terminal_content {
                 if let Some(pointer) = pointer_pos {
@@ -492,15 +585,19 @@ impl GraphApp {
                             self.dragging = None;
                             self.drag_start_pos = None;
                             self.drag_group_start = None;
+                            self.dragging_edge_control = None;
                         } else if multi_select_modifier {
                             self.toggle_selection(id);
                             self.dragging = None;
                             self.drag_start_pos = None;
                             self.drag_group_start = None;
+                            self.dragging_edge_control = None;
                         } else {
-                            let multi_drag = self.selected_nodes.len() > 1 && self.selected_nodes.contains(&id);
+                            let multi_drag =
+                                self.selected_nodes.len() > 1 && self.selected_nodes.contains(&id);
                             if multi_drag {
                                 self.selected = Some(id);
+                                self.clear_edge_selection();
                             } else {
                                 self.set_single_selection(id);
                             }
@@ -524,10 +621,22 @@ impl GraphApp {
                         }
                         self.box_select_start = None;
                         self.box_select_current = None;
+                    } else if let Some(edge) = self.find_edge_at(local, edge_hit_tolerance) {
+                        self.dragging = None;
+                        self.drag_start_pos = None;
+                        self.drag_group_start = None;
+                        self.resizing = None;
+                        self.box_select_start = None;
+                        self.box_select_current = None;
+                        self.box_select_additive = false;
+                        self.box_select_subtractive = false;
+                        self.box_select_base_selection.clear();
+                        self.set_edge_selection(edge);
                     } else {
                         self.dragging = None;
                         self.drag_start_pos = None;
                         self.drag_group_start = None;
+                        self.dragging_edge_control = None;
                         self.box_select_start = Some(local);
                         self.box_select_current = Some(local);
                         self.box_select_additive = multi_select_modifier;
@@ -538,8 +647,32 @@ impl GraphApp {
             }
         }
 
+        if let Some(((from, to), handle, start_offset)) = self.dragging_edge_control {
+            if ctx.input(|i| i.pointer.primary_down())
+                && !ctx.input(|i| i.key_down(egui::Key::Space))
+            {
+                ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
+                if let Some(pointer) = pointer_pos {
+                    let local = self.screen_to_world_pos(rect, pointer);
+                    if let Some(next_offset) =
+                        self.edge_control_offset_from_pointer_local(from, to, handle, local)
+                    {
+                        self.set_edge_control_offset(from, to, handle, next_offset);
+                    }
+                }
+            } else {
+                let end_offset = self.edge_control_offset(from, to, handle);
+                if (end_offset - start_offset).length_sq() > 0.01 {
+                    self.mark_workspace_dirty();
+                }
+                self.dragging_edge_control = None;
+            }
+        }
+
         if let Some((resize_id, start_pointer, start_size)) = self.resizing {
-            if ctx.input(|i| i.pointer.primary_down()) && !ctx.input(|i| i.key_down(egui::Key::Space)) {
+            if ctx.input(|i| i.pointer.primary_down())
+                && !ctx.input(|i| i.key_down(egui::Key::Space))
+            {
                 if let Some(pointer) = pointer_pos {
                     let local = self.screen_to_world_pos(rect, pointer);
                     let image_aspect = self
@@ -566,7 +699,9 @@ impl GraphApp {
                                 let width = (start_size.x + delta.x).max(120.0);
                                 let height = (start_size.y + delta.y).max(60.0);
                                 node.size = vec2(width, height);
-                                if let crate::model::NodeData::Text { auto_size, .. } = &mut node.data {
+                                if let crate::model::NodeData::Text { auto_size, .. } =
+                                    &mut node.data
+                                {
                                     *auto_size = false;
                                 }
                             }
@@ -575,7 +710,9 @@ impl GraphApp {
                 }
             } else {
                 if let Some(node) = self.nodes.iter().find(|n| n.id == resize_id) {
-                    if (node.size.x - start_size.x).abs() > 0.1 || (node.size.y - start_size.y).abs() > 0.1 {
+                    if (node.size.x - start_size.x).abs() > 0.1
+                        || (node.size.y - start_size.y).abs() > 0.1
+                    {
                         self.mark_workspace_dirty();
                     }
                 }
@@ -584,7 +721,9 @@ impl GraphApp {
         }
 
         if let Some((drag_id, offset)) = self.dragging {
-            if ctx.input(|i| i.pointer.primary_down()) && !ctx.input(|i| i.key_down(egui::Key::Space)) {
+            if ctx.input(|i| i.pointer.primary_down())
+                && !ctx.input(|i| i.key_down(egui::Key::Space))
+            {
                 if let Some(pointer) = pointer_pos {
                     let local = self.screen_to_world_pos(rect, pointer);
                     if let Some((start_pointer, start_nodes)) = self.drag_group_start.clone() {
@@ -642,11 +781,12 @@ impl GraphApp {
                         })
                         .collect();
 
-                    let mut next_selection = if self.box_select_additive || self.box_select_subtractive {
-                        self.box_select_base_selection.clone()
-                    } else {
-                        HashSet::new()
-                    };
+                    let mut next_selection =
+                        if self.box_select_additive || self.box_select_subtractive {
+                            self.box_select_base_selection.clone()
+                        } else {
+                            HashSet::new()
+                        };
 
                     if self.box_select_subtractive {
                         for id in hit_ids {
@@ -660,6 +800,7 @@ impl GraphApp {
 
                     self.selected_nodes = next_selection;
                     self.selected = self.selected_nodes.iter().copied().next();
+                    self.clear_edge_selection();
                 } else if !self.box_select_additive && !self.box_select_subtractive {
                     self.clear_selection();
                     self.editing_text_node = None;
@@ -728,9 +869,10 @@ impl GraphApp {
             }
 
             if self.right_drag_moved {
-                if let (Some(before_nodes), Some(before_edges)) =
-                    (self.cut_snapshot_nodes.take(), self.cut_snapshot_edges.take())
-                {
+                if let (Some(before_nodes), Some(before_edges)) = (
+                    self.cut_snapshot_nodes.take(),
+                    self.cut_snapshot_edges.take(),
+                ) {
                     self.record_cut_history(before_nodes, before_edges);
                 }
             } else {
@@ -749,13 +891,27 @@ impl GraphApp {
         {
             if let Some(pointer_pos) = response.interact_pointer_pos() {
                 let local = self.screen_to_world_pos(rect, pointer_pos);
+                let context_menu_node = self.find_node_at(local).map(|(id, _)| id);
+                let context_menu_edge = if context_menu_node.is_none() {
+                    self.find_edge_at(local, edge_hit_tolerance)
+                } else {
+                    None
+                };
+
                 self.context_menu_local_pos = Some(local);
-                self.context_menu_node = self.find_node_at(local).map(|(id, _)| id);
-                self.set_selection_from_option(self.context_menu_node);
-                if self.context_menu_node.is_none() {
+                self.context_menu_node = context_menu_node;
+                self.context_menu_edge = context_menu_edge;
+
+                if let Some(node_id) = context_menu_node {
+                    self.set_single_selection(node_id);
+                } else if let Some(edge) = context_menu_edge {
+                    self.set_edge_selection(edge);
+                } else {
+                    self.clear_selection();
                     self.editing_text_node = None;
                     self.pending_text_focus = None;
                 }
+
                 self.reset_menu_search_state(true);
             }
         }
@@ -784,7 +940,6 @@ impl GraphApp {
                         }
                     }
                 } else {
-                    let edge_hit_tolerance = (10.0 / self.zoom.max(1e-4)).max(4.0);
                     if let Some(edge) = self.find_edge_at(local, edge_hit_tolerance) {
                         self.start_edge_edit(edge);
                     } else {
@@ -810,6 +965,9 @@ impl GraphApp {
                     if self.editing_text_node != Some(id) {
                         self.editing_text_node = None;
                     }
+                } else if let Some(edge) = self.find_edge_at(local, edge_hit_tolerance) {
+                    self.set_edge_selection(edge);
+                    self.editing_text_node = None;
                 } else {
                     self.clear_selection();
                     self.editing_text_node = None;
@@ -833,7 +991,7 @@ impl GraphApp {
             );
         }
 
-        self.draw_edges(&painter, rect);
+        self.draw_edges(&painter, rect, hovered_edge);
         self.draw_link_preview(&painter, rect);
         self.draw_cut_path(&painter, rect);
 
@@ -846,6 +1004,7 @@ impl GraphApp {
 
         let (text_edit_rect, title_edit_rect, startup_edit_rect) =
             self.draw_nodes(ui, ctx, &painter, rect);
+        self.draw_selected_edge_controls_overlay(&painter, rect);
         self.handle_text_node_editor(ui, ctx, text_edit_rect);
         self.handle_title_editor(ui, ctx, title_edit_rect, primary_clicked, pointer_pos);
         self.handle_startup_editor(ui, ctx, startup_edit_rect, primary_clicked, pointer_pos);
@@ -856,8 +1015,9 @@ impl GraphApp {
                 let local = self.screen_to_world_pos(rect, pos);
                 if is_space_down && response.hovered() {
                     ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grab);
-                } else if self.find_node_at(local).is_some()
-                {
+                } else if edge_handle_hit.is_some() {
+                    ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
+                } else if self.find_node_at(local).is_some() || hovered_edge.is_some() {
                     ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                 }
             }

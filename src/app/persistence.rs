@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const GRAPH_CONFIG_VERSION: u32 = 4;
+const GRAPH_CONFIG_VERSION: u32 = 6;
 const DEFAULT_GRAPH_PATH: &str = "./graph.json";
 const IMAGE_ARTIFACT_DIR: &str = "artifacts/img";
 static IMAGE_FILE_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -24,6 +24,10 @@ struct GraphConfig {
     #[serde(default)]
     edge_routes: Vec<EdgeRouteConfig>,
     #[serde(default)]
+    edge_curve_biases: Vec<EdgeCurveBiasConfig>,
+    #[serde(default)]
+    edge_control_offsets: Vec<EdgeControlOffsetConfig>,
+    #[serde(default)]
     view: ViewConfig,
 }
 
@@ -33,6 +37,23 @@ struct EdgeRouteConfig {
     to: usize,
     #[serde(default)]
     route_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EdgeCurveBiasConfig {
+    from: usize,
+    to: usize,
+    bias: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EdgeControlOffsetConfig {
+    from: usize,
+    to: usize,
+    source_dx: f32,
+    source_dy: f32,
+    target_dx: f32,
+    target_dy: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,11 +130,59 @@ impl GraphConfig {
             })
             .collect();
 
+        let edge_curve_biases = app
+            .edge_curve_biases
+            .iter()
+            .filter_map(|((from, to), bias)| {
+                if !app.has_edge(*from, *to) {
+                    return None;
+                }
+
+                let clamped = GraphApp::clamp_edge_curve_bias(*bias);
+                if clamped.abs() <= 0.001 {
+                    return None;
+                }
+
+                Some(EdgeCurveBiasConfig {
+                    from: *from,
+                    to: *to,
+                    bias: clamped,
+                })
+            })
+            .collect();
+
+        let edge_control_offsets = app
+            .edge_control_offsets
+            .iter()
+            .filter_map(|((from, to), offsets)| {
+                if !app.has_edge(*from, *to) {
+                    return None;
+                }
+
+                let source = GraphApp::clamp_edge_control_offset(offsets.source);
+                let target = GraphApp::clamp_edge_control_offset(offsets.target);
+                if source.length_sq() <= 0.01 && target.length_sq() <= 0.01 {
+                    return None;
+                }
+
+                Some(EdgeControlOffsetConfig {
+                    from: *from,
+                    to: *to,
+                    source_dx: source.x,
+                    source_dy: source.y,
+                    target_dx: target.x,
+                    target_dy: target.y,
+                })
+            })
+            .collect();
+
         Self {
             version: GRAPH_CONFIG_VERSION,
             nodes,
             edges: app.edges.clone(),
             edge_routes,
+            edge_curve_biases,
+            edge_control_offsets,
             view: ViewConfig {
                 pan_x: app.pan.x,
                 pan_y: app.pan.y,
@@ -223,16 +292,59 @@ impl GraphApp {
             }
         }
 
+        let mut edge_curve_biases = std::collections::HashMap::new();
+        for bias in config.edge_curve_biases {
+            if !edges
+                .iter()
+                .any(|(from, to)| *from == bias.from && *to == bias.to)
+            {
+                continue;
+            }
+
+            let clamped = Self::clamp_edge_curve_bias(bias.bias);
+            if clamped.abs() <= 0.001 {
+                continue;
+            }
+
+            edge_curve_biases.insert((bias.from, bias.to), clamped);
+        }
+
+        let mut edge_control_offsets = std::collections::HashMap::new();
+        for offsets in config.edge_control_offsets {
+            if !edges
+                .iter()
+                .any(|(from, to)| *from == offsets.from && *to == offsets.to)
+            {
+                continue;
+            }
+
+            let source = Self::clamp_edge_control_offset(vec2(offsets.source_dx, offsets.source_dy));
+            let target = Self::clamp_edge_control_offset(vec2(offsets.target_dx, offsets.target_dy));
+            if source.length_sq() <= 0.01 && target.length_sq() <= 0.01 {
+                continue;
+            }
+
+            edge_control_offsets.insert((offsets.from, offsets.to), super::EdgeControlOffsets {
+                source,
+                target,
+            });
+        }
+
         self.nodes = nodes;
         self.edges = edges;
         self.edge_route_keys = edge_route_keys;
+        self.edge_curve_biases = edge_curve_biases;
+        self.edge_control_offsets = edge_control_offsets;
         self.selected = None;
         self.selected_nodes.clear();
+        self.selected_edge = None;
         self.dragging = None;
+        self.dragging_edge_control = None;
         self.drag_start_pos = None;
         self.drag_group_start = None;
         self.resizing = None;
         self.context_menu_node = None;
+        self.context_menu_edge = None;
         self.context_menu_local_pos = None;
         self.linking_from = None;
         self.linking_pointer_local = None;
@@ -345,5 +457,117 @@ impl GraphApp {
     ) -> Result<String, String> {
         let color_image = Self::decode_image_bytes(bytes)?;
         self.persist_color_image_to_artifact(&color_image)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn sample_node(id: usize) -> NodeConfig {
+        NodeConfig {
+            id,
+            uid: format!("u-{id}"),
+            kind: NodeKind::Text,
+            data: NodeData::Text {
+                text_body: String::new(),
+                auto_size: false,
+            },
+            pos_x: 0.0,
+            pos_y: 0.0,
+            size_x: 120.0,
+            size_y: 80.0,
+        }
+    }
+
+    #[test]
+    fn edge_curve_bias_roundtrip_is_preserved() {
+        let config = GraphConfig {
+            version: GRAPH_CONFIG_VERSION,
+            nodes: vec![sample_node(1), sample_node(2)],
+            edges: vec![(1, 2)],
+            edge_routes: vec![],
+            edge_curve_biases: vec![EdgeCurveBiasConfig {
+                from: 1,
+                to: 2,
+                bias: 72.5,
+            }],
+            edge_control_offsets: vec![],
+            view: ViewConfig::default(),
+        };
+
+        let text = serde_json::to_string(&config).unwrap();
+        let parsed: GraphConfig = serde_json::from_str(&text).unwrap();
+
+        assert_eq!(parsed.edge_curve_biases.len(), 1);
+        assert_eq!(parsed.edge_curve_biases[0].from, 1);
+        assert_eq!(parsed.edge_curve_biases[0].to, 2);
+        assert!((parsed.edge_curve_biases[0].bias - 72.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn edge_control_offsets_roundtrip_is_preserved() {
+        let config = GraphConfig {
+            version: GRAPH_CONFIG_VERSION,
+            nodes: vec![sample_node(1), sample_node(2)],
+            edges: vec![(1, 2)],
+            edge_routes: vec![],
+            edge_curve_biases: vec![],
+            edge_control_offsets: vec![EdgeControlOffsetConfig {
+                from: 1,
+                to: 2,
+                source_dx: 24.0,
+                source_dy: -11.0,
+                target_dx: -30.0,
+                target_dy: 16.0,
+            }],
+            view: ViewConfig::default(),
+        };
+
+        let text = serde_json::to_string(&config).unwrap();
+        let parsed: GraphConfig = serde_json::from_str(&text).unwrap();
+
+        assert_eq!(parsed.edge_control_offsets.len(), 1);
+        assert_eq!(parsed.edge_control_offsets[0].from, 1);
+        assert_eq!(parsed.edge_control_offsets[0].to, 2);
+        assert!((parsed.edge_control_offsets[0].source_dx - 24.0).abs() < 0.001);
+        assert!((parsed.edge_control_offsets[0].target_dx + 30.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn legacy_config_without_edge_curve_biases_is_supported() {
+        let legacy = json!({
+            "version": 4,
+            "nodes": [
+                {
+                    "id": 1,
+                    "uid": "u-1",
+                    "kind": "Text",
+                    "data": {"Text": {"text_body": "", "auto_size": false}},
+                    "pos_x": 0.0,
+                    "pos_y": 0.0,
+                    "size_x": 120.0,
+                    "size_y": 80.0
+                },
+                {
+                    "id": 2,
+                    "uid": "u-2",
+                    "kind": "Text",
+                    "data": {"Text": {"text_body": "", "auto_size": false}},
+                    "pos_x": 200.0,
+                    "pos_y": 100.0,
+                    "size_x": 120.0,
+                    "size_y": 80.0
+                }
+            ],
+            "edges": [[1, 2]],
+            "edge_routes": [],
+            "view": {"pan_x": 0.0, "pan_y": 0.0, "zoom": 1.0}
+        });
+
+        let parsed: GraphConfig = serde_json::from_value(legacy).unwrap();
+        assert!(parsed.edge_curve_biases.is_empty());
+        assert!(parsed.edge_control_offsets.is_empty());
     }
 }

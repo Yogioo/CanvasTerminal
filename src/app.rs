@@ -34,13 +34,29 @@ pub(in crate::app) enum NodeOrderAction {
     SendToBack,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum EdgeControlHandle {
+    Source,
+    Target,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(in crate::app) struct EdgeControlOffsets {
+    pub source: egui::Vec2,
+    pub target: egui::Vec2,
+}
+
 pub struct GraphApp {
     nodes: Vec<Node>,
     edges: Vec<(usize, usize)>,
     edge_route_keys: HashMap<(usize, usize), String>,
+    edge_curve_biases: HashMap<(usize, usize), f32>,
+    edge_control_offsets: HashMap<(usize, usize), EdgeControlOffsets>,
     selected: Option<usize>,
     selected_nodes: HashSet<usize>,
+    selected_edge: Option<(usize, usize)>,
     dragging: Option<(usize, egui::Vec2)>,
+    dragging_edge_control: Option<((usize, usize), EdgeControlHandle, egui::Vec2)>,
     drag_start_pos: Option<(usize, Pos2)>,
     drag_group_start: Option<(Pos2, Vec<(usize, Pos2)>)>,
     pan: egui::Vec2,
@@ -82,6 +98,7 @@ pub struct GraphApp {
     suspend_terminal_focus: Option<usize>,
     resizing: Option<(usize, Pos2, egui::Vec2)>,
     context_menu_node: Option<usize>,
+    context_menu_edge: Option<(usize, usize)>,
     context_menu_local_pos: Option<Pos2>,
     linking_from: Option<usize>,
     linking_pointer_local: Option<Pos2>,
@@ -132,9 +149,13 @@ impl GraphApp {
             nodes,
             edges: Vec::new(),
             edge_route_keys: HashMap::new(),
+            edge_curve_biases: HashMap::new(),
+            edge_control_offsets: HashMap::new(),
             selected: None,
             selected_nodes: HashSet::new(),
+            selected_edge: None,
             dragging: None,
+            dragging_edge_control: None,
             drag_start_pos: None,
             drag_group_start: None,
             pan: vec2(0.0, 0.0),
@@ -174,6 +195,7 @@ impl GraphApp {
             suspend_terminal_focus: None,
             resizing: None,
             context_menu_node: None,
+            context_menu_edge: None,
             context_menu_local_pos: None,
             linking_from: None,
             linking_pointer_local: None,

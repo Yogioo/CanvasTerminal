@@ -12,7 +12,11 @@ impl GraphApp {
         label.to_lowercase().contains(&kw.to_lowercase())
     }
 
-    fn menu_item_highlighted_label(&self, label: &str, normal_color: egui::Color32) -> egui::text::LayoutJob {
+    fn menu_item_highlighted_label(
+        &self,
+        label: &str,
+        normal_color: egui::Color32,
+    ) -> egui::text::LayoutJob {
         let kw = self.menu_search_text.trim();
         let mut job = egui::text::LayoutJob::default();
 
@@ -109,7 +113,8 @@ impl GraphApp {
             let normal_color = ui.visuals().widgets.inactive.fg_stroke.color;
             let resp = ui.add_sized(
                 [ui.available_width(), 24.0],
-                egui::Button::new(self.menu_item_highlighted_label(label, normal_color)).selected(selected),
+                egui::Button::new(self.menu_item_highlighted_label(label, normal_color))
+                    .selected(selected),
             );
             if resp.hovered() {
                 self.menu_search_selected = row;

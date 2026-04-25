@@ -1,21 +1,6 @@
 {
-  "version": 4,
+  "version": 5,
   "nodes": [
-    {
-      "id": 7,
-      "uid": "f9826048-766e-4601-b0ee-5ec8c3dbb6f9",
-      "kind": "Terminal",
-      "data": {
-        "Terminal": {
-          "title": "Planner",
-          "startup_script": "pi --append-system-prompt \"你是Planner。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tasks.md，选择最高优先级未完成任务，生成 artifacts/{feature}_TODO.md（落地步骤）与 artifacts/{feature}_Tests.md（AI可执行验收命令）。若全部完成：git add并commit（消息含feat/fix标签），然后 canvas done \\\"feature=<feature>;all_done\\\"；否则 canvas done \\\"feature=<feature>;task=<任务>;plan_ready\\\"。\" --model openai-codex/gpt-5.4"
-        }
-      },
-      "pos_x": 411.18414,
-      "pos_y": 901.35876,
-      "size_x": 840.0,
-      "size_y": 660.0
-    },
     {
       "id": 8,
       "uid": "13d13976-79a3-40b9-a179-f1c83dfd84c1",
@@ -23,7 +8,7 @@
       "data": {
         "Terminal": {
           "title": "Executer",
-          "startup_script": "pi --append-system-prompt \"你是Executer。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_TODO.md 执行编码任务，并保证编译通过（cargo check或等价命令）。完成后执行 canvas done \\\"feature=<feature>;task=<任务>;exec_done;build=<pass|fail>;summary=<摘要>\\\"。\" --model openai-codex/gpt-5.3-codex"
+          "startup_script": "pi --append-system-prompt \"你是Executer。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_TODO.md 执行编码任务，并保证编译通过（cargo check或等价命令）。完成后执行 canvas done 'feature=<feature>;task=<任务>;exec_done;build=<pass|fail>;summary=<摘要>。\" --model openai-codex/gpt-5.3-codex --thinking medium"
         }
       },
       "pos_x": 1548.6421,
@@ -37,12 +22,12 @@
       "kind": "Text",
       "data": {
         "Text": {
-          "text_body": "pi --append-system-prompt \"你是Planner。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tasks.md，选择最高优先级未完成任务，生成 artifacts/{feature}_TODO.md（落地步骤）与 artifacts/{feature}_Tests.md（AI可执行验收命令）。若全部完成：git add并commit（消息含feat/fix标签），然后 canvas done \\\"feature=<feature>;all_done\\\"；否则 canvas done \\\"feature=<feature>;task=<任务>;plan_ready\\\"。\" --model openai-codex/gpt-5.4",
+          "text_body": "pi --append-system-prompt \"你是Planner。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tasks.md，选择最高优先级未完成任务，生成 artifacts/{feature}_TODO.md（落地步骤）与 artifacts/{feature}_Tests.md（AI可执行验收命令）。若全部完成：git add并commit（消息含feat/fix标签），然后运行命令 canvas done 'feature=<feature>;all_done'；否则运行命令 canvas done 'feature=<feature>;task=<任务>;plan_ready'。\" --model openai-codex/gpt-5.4 --thinking high",
           "auto_size": false
         }
       },
-      "pos_x": 446.14478,
-      "pos_y": 741.12317,
+      "pos_x": 477.85175,
+      "pos_y": 757.9674,
       "size_x": 767.44257,
       "size_y": 137.85449
     },
@@ -52,12 +37,12 @@
       "kind": "Text",
       "data": {
         "Text": {
-          "text_body": "pi --append-system-prompt \"你是Executer。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_TODO.md 执行编码任务，并保证编译通过（cargo check或等价命令）。完成后执行 canvas done \\\"feature=<feature>;task=<任务>;exec_done;build=<pass|fail>;summary=<摘要>\\\"。\" --model openai-codex/gpt-5.3-codex",
+          "text_body": "pi --append-system-prompt \"你是Executer。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_TODO.md 执行编码任务，并保证编译通过（cargo check或等价命令）。完成后执行 canvas done 'feature=<feature>;task=<任务>;exec_done;build=<pass|fail>;summary=<摘要>。\" --model openai-codex/gpt-5.3-codex  --thinking medium",
           "auto_size": false
         }
       },
-      "pos_x": 1616.9413,
-      "pos_y": 1045.6907,
+      "pos_x": 1625.9235,
+      "pos_y": 1039.4032,
       "size_x": 680.9757,
       "size_y": 118.12335
     },
@@ -68,7 +53,7 @@
       "data": {
         "Terminal": {
           "title": "CEO",
-          "startup_script": "pi --append-system-prompt \"你是AI CEO。先与用户澄清需求是否能在一个Terminal+Pi闭环中实现。确认后定义feature_slug（英文短横线）并写入 artifacts/{feature_slug}_Tasks.md：拆解任务、优先级、完成标准。然后执行 canvas done \\\"feature=<feature_slug>;goal=<一句话目标>\\\"。\" --model openai-codex/gpt-5.4"
+          "startup_script": "pi --append-system-prompt \"你是AI CEO。先与用户澄清需求是否能在一个Terminal+Pi闭环中实现。确认后定义feature_slug（英文短横线）并写入 artifacts/{feature_slug}_Tasks.md：拆解任务、优先级、完成标准。然后执行 canvas done 'feature=<feature_slug>;goal=<一句话目标>\" --model openai-codex/gpt-5.4 --thinking xhigh"
         }
       },
       "pos_x": -761.5739,
@@ -82,14 +67,14 @@
       "kind": "Text",
       "data": {
         "Text": {
-          "text_body": "pi --append-system-prompt \"你是AI CEO。先与用户澄清需求是否能在一个Terminal+Pi闭环中实现。确认后定义feature_slug（英文短横线）并写入 artifacts/{feature_slug}_Tasks.md：拆解任务、优先级、完成标准。然后执行 canvas done \\\"feature=<feature_slug>;goal=<一句话目标>\\\"。\" --model openai-codex/gpt-5.4",
+          "text_body": "pi --append-system-prompt \"你是AI CEO。先与用户澄清需求是否能在一个Terminal+Pi闭环中实现。确认后定义feature_slug（英文短横线）并写入 artifacts/{feature_slug}_Tasks.md：拆解任务、优先级、完成标准。然后执行 canvas done 'feature=<feature_slug>;goal=<一句话目标>\" --model openai-codex/gpt-5.4 --thinking xhigh",
           "auto_size": false
         }
       },
-      "pos_x": -738.2909,
-      "pos_y": 717.54614,
-      "size_x": 887.43964,
-      "size_y": 82.45679
+      "pos_x": -741.7792,
+      "pos_y": 715.56647,
+      "size_x": 937.593,
+      "size_y": 86.357666
     },
     {
       "id": 18,
@@ -97,12 +82,12 @@
       "kind": "Text",
       "data": {
         "Text": {
-          "text_body": "<用户填写任务需求>",
+          "text_body": "- [ ] 连线需要能默认显示成贝塞尔曲线, 当前直线感觉不好, 而且当前默认左侧中心是终点,右侧中心是起点感觉怪怪的, 有啥推荐优化思路吗\n",
           "auto_size": false
         }
       },
-      "pos_x": -1500.6036,
-      "pos_y": 880.04614,
+      "pos_x": -1456.2031,
+      "pos_y": 1004.21985,
       "size_x": 510.4823,
       "size_y": 154.3133
     },
@@ -113,11 +98,11 @@
       "data": {
         "Terminal": {
           "title": "Tester",
-          "startup_script": "pi --append-system-prompt \"你是Tester。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tests.md 执行测试。失败时执行 canvas done --route fix \\\"feature=<feature>;task=<任务>;test=fail;reason=<摘要>\\\"；成功时先更新 artifacts/{feature}_Tasks.md 标记完成，再执行 canvas done --route next \\\"feature=<feature>;task=<任务>;test=pass\\\"。\" --model openai-codex/gpt-5.4"
+          "startup_script": "pi --append-system-prompt \"你是Tester。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tests.md 执行测试。失败时执行 canvas done --route fix 'feature=<feature>;task=<任务>;test=fail;reason=<摘要>'；成功时先更新 artifacts/{feature}_Tasks.md 标记完成，再执行 canvas done --route next 'feature=<feature>;task=<任务>;test=pass' \" --model openai-codex/gpt-5.3-codex --thinking medium"
         }
       },
-      "pos_x": 2281.356,
-      "pos_y": 60.889954,
+      "pos_x": 2262.2522,
+      "pos_y": 79.99365,
       "size_x": 840.0,
       "size_y": 660.0
     },
@@ -127,14 +112,29 @@
       "kind": "Text",
       "data": {
         "Text": {
-          "text_body": "pi --append-system-prompt \"你是Tester。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tests.md 执行测试。失败时执行 canvas done --route fix \\\"feature=<feature>;task=<任务>;test=fail;reason=<摘要>\\\"；成功时先更新 artifacts/{feature}_Tasks.md 标记完成，再执行 canvas done --route next \\\"feature=<feature>;task=<任务>;test=pass\\\"。\" --model openai-codex/gpt-5.4",
+          "text_body": "pi --append-system-prompt \"你是Tester。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tests.md 执行测试。失败时执行 canvas done --route fix 'feature=<feature>;task=<任务>;test=fail;reason=<摘要>'；成功时先更新 artifacts/{feature}_Tasks.md 标记完成，再执行 canvas done --route next 'feature=<feature>;task=<任务>;test=pass' \" --model openai-codex/gpt-5.3-codex --thinking medium",
           "auto_size": false
         }
       },
-      "pos_x": 2317.4941,
-      "pos_y": -42.080887,
+      "pos_x": 2318.6404,
+      "pos_y": -44.37314,
       "size_x": 717.699,
       "size_y": 95.837845
+    },
+    {
+      "id": 7,
+      "uid": "f9826048-766e-4601-b0ee-5ec8c3dbb6f9",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Planner",
+          "startup_script": "pi --append-system-prompt \"你是Planner。feature/task信息从最近收到的done摘要提取。读取 artifacts/{feature}_Tasks.md，选择最高优先级未完成任务，生成 artifacts/{feature}_TODO.md（落地步骤）与 artifacts/{feature}_Tests.md（AI可执行验收命令）。若全部完成：git add并commit（消息含feat/fix标签），然后运行命令 canvas done 'feature=<feature>;all_done'；否则运行命令 canvas done 'feature=<feature>;task=<任务>;plan_ready'。\" --model openai-codex/gpt-5.4 --thinking high"
+        }
+      },
+      "pos_x": 411.18414,
+      "pos_y": 901.35876,
+      "size_x": 840.0,
+      "size_y": 660.0
     }
   ],
   "edges": [
@@ -175,9 +175,10 @@
       "route_key": "fix"
     }
   ],
+  "edge_curve_biases": [],
   "view": {
-    "pan_x": 761.9994,
-    "pan_y": -360.06293,
-    "zoom": 0.8850482
+    "pan_x": -2112.3008,
+    "pan_y": -19.8721,
+    "zoom": 1.0484848
   }
 }

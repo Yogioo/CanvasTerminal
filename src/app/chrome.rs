@@ -48,19 +48,26 @@ impl GraphApp {
         if pointer_near_top || keep_top_bar {
             self.window_bar_visible_until = now + 1.0;
         }
-        let show_window_bar = pointer_near_top || keep_top_bar || now <= self.window_bar_visible_until;
+        let show_window_bar =
+            pointer_near_top || keep_top_bar || now <= self.window_bar_visible_until;
 
         (now, screen_rect, pointer_near_top, show_window_bar)
     }
 
-    pub(in crate::app) fn draw_window_controls_overlay(&mut self, ctx: &egui::Context, screen_rect: Rect) {
+    pub(in crate::app) fn draw_window_controls_overlay(
+        &mut self,
+        ctx: &egui::Context,
+        screen_rect: Rect,
+    ) {
         egui::Area::new("window_drag_bar_overlay".into())
             .order(egui::Order::Foreground)
             .fixed_pos(screen_rect.min)
             .show(ctx, |ui| {
                 let bar_height = 28.0;
-                let (bar_rect, _) =
-                    ui.allocate_exact_size(vec2(screen_rect.width(), bar_height), egui::Sense::hover());
+                let (bar_rect, _) = ui.allocate_exact_size(
+                    vec2(screen_rect.width(), bar_height),
+                    egui::Sense::hover(),
+                );
 
                 let button_size = vec2(24.0, 18.0);
                 let button_gap = 6.0;
@@ -86,7 +93,8 @@ impl GraphApp {
                     ui.id().with("window_drag_area"),
                     egui::Sense::click_and_drag(),
                 );
-                let start_drag = ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
+                let start_drag =
+                    ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
                 if drag_response.hovered() {
                     ui.output_mut(|o| {
                         o.cursor_icon = if drag_response.dragged() {
@@ -129,10 +137,14 @@ impl GraphApp {
                     egui::Sense::click(),
                 );
                 if is_maximized {
-                    let back =
-                        Rect::from_center_size(maxim_rect.center() + vec2(-1.5, -1.5), vec2(8.5, 7.5));
-                    let front =
-                        Rect::from_center_size(maxim_rect.center() + vec2(1.5, 1.5), vec2(8.5, 7.5));
+                    let back = Rect::from_center_size(
+                        maxim_rect.center() + vec2(-1.5, -1.5),
+                        vec2(8.5, 7.5),
+                    );
+                    let front = Rect::from_center_size(
+                        maxim_rect.center() + vec2(1.5, 1.5),
+                        vec2(8.5, 7.5),
+                    );
                     ui.painter()
                         .rect_stroke(back, 0.0, stroke, egui::StrokeKind::Inside);
                     ui.painter()

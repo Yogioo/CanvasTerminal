@@ -1,4 +1,4 @@
-use super::{GraphApp, NodeOrderAction};
+use super::{EdgeControlHandle, EdgeControlOffsets, GraphApp, NodeOrderAction};
 use crate::model::{Node, NodeData, NodeKind};
 use chrono::Local;
 use eframe::egui::{self, vec2, ColorImage, Pos2, Rect, TextureOptions};
@@ -205,16 +205,162 @@ impl GraphApp {
             .retain(|edge, route| existing.contains(edge) && !route.trim().is_empty());
     }
 
-    pub(in crate::app) fn edge_segment_local(
+    pub(in crate::app) fn edge_curve_bias(&self, from: usize, to: usize) -> f32 {
+        self.edge_curve_biases
+            .get(&(from, to))
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+    pub(in crate::app) fn set_edge_curve_bias(&mut self, from: usize, to: usize, bias: f32) {
+        let clamped = Self::clamp_edge_curve_bias(bias);
+        if clamped.abs() <= 0.001 {
+            self.edge_curve_biases.remove(&(from, to));
+        } else {
+            self.edge_curve_biases.insert((from, to), clamped);
+        }
+    }
+
+    pub(in crate::app) fn remove_edge_curve_bias(&mut self, from: usize, to: usize) {
+        self.edge_curve_biases.remove(&(from, to));
+    }
+
+    pub(in crate::app) fn edge_control_offsets(&self, from: usize, to: usize) -> EdgeControlOffsets {
+        self.edge_control_offsets
+            .get(&(from, to))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub(in crate::app) fn edge_control_offset(
         &self,
         from: usize,
         to: usize,
-    ) -> Option<(Pos2, Pos2)> {
-        let a = self.nodes.iter().find(|n| n.id == from)?;
-        let b = self.nodes.iter().find(|n| n.id == to)?;
-        let start = a.pos + vec2(a.size.x, a.size.y * 0.5);
-        let end = b.pos + vec2(0.0, b.size.y * 0.5);
-        Some((start, end))
+        handle: EdgeControlHandle,
+    ) -> egui::Vec2 {
+        let offsets = self.edge_control_offsets(from, to);
+        match handle {
+            EdgeControlHandle::Source => offsets.source,
+            EdgeControlHandle::Target => offsets.target,
+        }
+    }
+
+    pub(in crate::app) fn set_edge_control_offset(
+        &mut self,
+        from: usize,
+        to: usize,
+        handle: EdgeControlHandle,
+        offset: egui::Vec2,
+    ) {
+        let mut offsets = self.edge_control_offsets(from, to);
+        let clamped = Self::clamp_edge_control_offset(offset);
+        match handle {
+            EdgeControlHandle::Source => offsets.source = clamped,
+            EdgeControlHandle::Target => offsets.target = clamped,
+        }
+        self.set_edge_control_offsets(from, to, offsets);
+    }
+
+    pub(in crate::app) fn set_edge_control_offsets(
+        &mut self,
+        from: usize,
+        to: usize,
+        offsets: EdgeControlOffsets,
+    ) {
+        let source = Self::clamp_edge_control_offset(offsets.source);
+        let target = Self::clamp_edge_control_offset(offsets.target);
+        let is_default = source.length_sq() <= 0.01 && target.length_sq() <= 0.01;
+        if is_default {
+            self.edge_control_offsets.remove(&(from, to));
+        } else {
+            self.edge_control_offsets
+                .insert((from, to), EdgeControlOffsets { source, target });
+        }
+    }
+
+    pub(in crate::app) fn remove_edge_control_offsets(&mut self, from: usize, to: usize) {
+        self.edge_control_offsets.remove(&(from, to));
+    }
+
+    pub(in crate::app) fn edge_has_custom_curve(&self, from: usize, to: usize) -> bool {
+        if self.edge_curve_bias(from, to).abs() > 0.001 {
+            return true;
+        }
+
+        let offsets = self.edge_control_offsets(from, to);
+        offsets.source.length_sq() > 0.01 || offsets.target.length_sq() > 0.01
+    }
+
+    pub(in crate::app) fn prune_edge_curve_biases(&mut self) {
+        let existing: HashSet<(usize, usize)> = self.edges.iter().copied().collect();
+        self.edge_curve_biases
+            .retain(|edge, bias| existing.contains(edge) && bias.is_finite() && bias.abs() > 0.001);
+
+        self.edge_control_offsets.retain(|edge, offsets| {
+            if !existing.contains(edge) {
+                return false;
+            }
+
+            let source = Self::clamp_edge_control_offset(offsets.source);
+            let target = Self::clamp_edge_control_offset(offsets.target);
+            let keep = source.length_sq() > 0.01 || target.length_sq() > 0.01;
+            if keep {
+                *offsets = EdgeControlOffsets { source, target };
+            }
+            keep
+        });
+
+        if self
+            .selected_edge
+            .is_some_and(|(from, to)| !existing.contains(&(from, to)))
+        {
+            self.clear_edge_selection();
+        }
+
+        if self
+            .editing_edge
+            .is_some_and(|(from, to)| !existing.contains(&(from, to)))
+        {
+            self.cancel_edge_edit();
+        }
+
+        if self
+            .dragging_edge_control
+            .is_some_and(|(edge, _, _)| !existing.contains(&edge))
+        {
+            self.dragging_edge_control = None;
+        }
+
+        if self
+            .context_menu_edge
+            .is_some_and(|edge| !existing.contains(&edge))
+        {
+            self.context_menu_edge = None;
+        }
+    }
+
+    pub(in crate::app) fn prune_edge_state(&mut self) {
+        self.prune_edge_route_keys();
+        self.prune_edge_curve_biases();
+    }
+
+    pub(in crate::app) fn reset_selected_edge_curve(&mut self) -> bool {
+        let Some((from, to)) = self.selected_edge else {
+            return false;
+        };
+
+        if !self.edge_has_custom_curve(from, to) {
+            return false;
+        }
+
+        self.remove_edge_curve_bias(from, to);
+        self.remove_edge_control_offsets(from, to);
+        self.mark_workspace_dirty();
+        true
+    }
+
+    pub(in crate::app) fn reset_selected_edge_curve_bias(&mut self) -> bool {
+        self.reset_selected_edge_curve()
     }
 
     pub(in crate::app) fn cut_edges_intersecting_segment(&mut self, cut_a: Pos2, cut_b: Pos2) {
@@ -222,8 +368,12 @@ impl GraphApp {
             .edges
             .iter()
             .map(|(from, to)| {
-                self.edge_segment_local(*from, *to)
-                    .is_some_and(|(a, b)| Self::segments_intersect(cut_a, cut_b, a, b))
+                self.edge_curve_segments_local(*from, *to)
+                    .is_some_and(|segments| {
+                        segments
+                            .windows(2)
+                            .any(|pair| Self::segments_intersect(cut_a, cut_b, pair[0], pair[1]))
+                    })
             })
             .collect();
 
@@ -233,7 +383,7 @@ impl GraphApp {
             idx += 1;
             keep
         });
-        self.prune_edge_route_keys();
+        self.prune_edge_state();
     }
 
     pub(in crate::app) fn cut_nodes_intersecting_segment(&mut self, cut_a: Pos2, cut_b: Pos2) {
@@ -374,7 +524,7 @@ impl GraphApp {
         self.nodes.retain(|n| n.id != node_id);
         self.edges
             .retain(|(from, to)| *from != node_id && *to != node_id);
-        self.prune_edge_route_keys();
+        self.prune_edge_state();
         self.terminal_backends.remove(&node_id);
         self.terminal_exited.remove(&node_id);
         self.terminal_errors.remove(&node_id);
@@ -435,6 +585,12 @@ impl GraphApp {
         }
         if self.context_menu_node == Some(node_id) {
             self.context_menu_node = None;
+        }
+        if self
+            .context_menu_edge
+            .is_some_and(|(from, to)| from == node_id || to == node_id)
+        {
+            self.context_menu_edge = None;
         }
     }
 }

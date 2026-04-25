@@ -82,6 +82,22 @@ impl GraphApp {
                 return;
             }
 
+            if let Some(edge) = self.context_menu_edge {
+                ui.label(format!("连线 {} → {}", edge.0, edge.1));
+                ui.separator();
+
+                let can_reset_curve = self.edge_has_custom_curve(edge.0, edge.1);
+                if ui
+                    .add_enabled(can_reset_curve, egui::Button::new("重置为默认曲率"))
+                    .clicked()
+                {
+                    self.set_edge_selection(edge);
+                    self.reset_selected_edge_curve();
+                    ui.close_menu();
+                }
+                return;
+            }
+
             let spawn_pos = self.context_menu_spawn_pos();
             let items = [
                 ("创建节点/终端节点", "终端节点", 0usize),

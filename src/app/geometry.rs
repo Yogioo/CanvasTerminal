@@ -1,8 +1,225 @@
 use super::history::HistoryEntry;
-use super::GraphApp;
+use super::{EdgeControlHandle, GraphApp};
 use crate::constants::TERMINAL_HEADER_HEIGHT;
 use crate::model::{Node, NodeKind};
 use eframe::egui::{self, vec2, Pos2, Rect};
+
+const EDGE_CURVE_SAMPLE_SEGMENTS: usize = 24;
+const EDGE_CONTROL_OFFSET_MIN: f32 = 36.0;
+const EDGE_CONTROL_OFFSET_MAX: f32 = 180.0;
+const EDGE_CONTROL_OFFSET_REVERSE_MAX: f32 = 260.0;
+const EDGE_CONTROL_OFFSET_REVERSE_BOOST: f32 = 1.35;
+const EDGE_CURVE_BIAS_MIN: f32 = -180.0;
+const EDGE_CURVE_BIAS_MAX: f32 = 180.0;
+const EDGE_CONTROL_POINT_OFFSET_MAX: f32 = 260.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::app) enum EdgeAnchorSide {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+impl EdgeAnchorSide {
+    fn is_horizontal(self) -> bool {
+        matches!(self, Self::Left | Self::Right)
+    }
+
+    fn direction(self) -> egui::Vec2 {
+        match self {
+            Self::Left => vec2(-1.0, 0.0),
+            Self::Right => vec2(1.0, 0.0),
+            Self::Top => vec2(0.0, -1.0),
+            Self::Bottom => vec2(0.0, 1.0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(in crate::app) struct EdgeCurve {
+    pub start: Pos2,
+    pub ctrl1: Pos2,
+    pub ctrl2: Pos2,
+    pub end: Pos2,
+}
+
+fn pick_edge_anchor_sides(
+    source_center: Pos2,
+    target_center: Pos2,
+) -> (EdgeAnchorSide, EdgeAnchorSide) {
+    let delta = target_center - source_center;
+
+    if delta.x.abs() >= delta.y.abs() {
+        if delta.x >= 0.0 {
+            (EdgeAnchorSide::Right, EdgeAnchorSide::Left)
+        } else {
+            (EdgeAnchorSide::Left, EdgeAnchorSide::Right)
+        }
+    } else if delta.y >= 0.0 {
+        (EdgeAnchorSide::Bottom, EdgeAnchorSide::Top)
+    } else {
+        (EdgeAnchorSide::Top, EdgeAnchorSide::Bottom)
+    }
+}
+
+fn node_anchor_on_side(node: &Node, side: EdgeAnchorSide) -> Pos2 {
+    match side {
+        EdgeAnchorSide::Left => node.pos + vec2(0.0, node.size.y * 0.5),
+        EdgeAnchorSide::Right => node.pos + vec2(node.size.x, node.size.y * 0.5),
+        EdgeAnchorSide::Top => node.pos + vec2(node.size.x * 0.5, 0.0),
+        EdgeAnchorSide::Bottom => node.pos + vec2(node.size.x * 0.5, node.size.y),
+    }
+}
+
+fn edge_control_offset(
+    source_center: Pos2,
+    target_center: Pos2,
+    source_side: EdgeAnchorSide,
+) -> f32 {
+    let delta = target_center - source_center;
+    let (primary, secondary) = if source_side.is_horizontal() {
+        (delta.x.abs(), delta.y.abs())
+    } else {
+        (delta.y.abs(), delta.x.abs())
+    };
+
+    let base =
+        (primary * 0.35 + secondary * 0.15).clamp(EDGE_CONTROL_OFFSET_MIN, EDGE_CONTROL_OFFSET_MAX);
+
+    if target_center.x < source_center.x {
+        (base * EDGE_CONTROL_OFFSET_REVERSE_BOOST)
+            .clamp(EDGE_CONTROL_OFFSET_MIN, EDGE_CONTROL_OFFSET_REVERSE_MAX)
+    } else {
+        base
+    }
+}
+
+fn edge_curve_from_nodes(source: &Node, target: &Node) -> EdgeCurve {
+    let source_rect = Rect::from_min_size(source.pos, source.size);
+    let target_rect = Rect::from_min_size(target.pos, target.size);
+
+    let source_center = source_rect.center();
+    let target_center = target_rect.center();
+
+    let (source_side, target_side) = pick_edge_anchor_sides(source_center, target_center);
+    let start = node_anchor_on_side(source, source_side);
+    let end = node_anchor_on_side(target, target_side);
+    let control_offset = edge_control_offset(source_center, target_center, source_side);
+
+    EdgeCurve {
+        start,
+        ctrl1: start + source_side.direction() * control_offset,
+        ctrl2: end + target_side.direction() * control_offset,
+        end,
+    }
+}
+
+fn clamp_edge_curve_bias(bias: f32) -> f32 {
+    if !bias.is_finite() {
+        return 0.0;
+    }
+
+    bias.clamp(EDGE_CURVE_BIAS_MIN, EDGE_CURVE_BIAS_MAX)
+}
+
+fn clamp_edge_control_offset(offset: egui::Vec2) -> egui::Vec2 {
+    if !offset.x.is_finite() || !offset.y.is_finite() {
+        return vec2(0.0, 0.0);
+    }
+
+    vec2(
+        offset
+            .x
+            .clamp(-EDGE_CONTROL_POINT_OFFSET_MAX, EDGE_CONTROL_POINT_OFFSET_MAX),
+        offset
+            .y
+            .clamp(-EDGE_CONTROL_POINT_OFFSET_MAX, EDGE_CONTROL_POINT_OFFSET_MAX),
+    )
+}
+
+fn cubic_bezier_tangent(curve: &EdgeCurve, t: f32) -> egui::Vec2 {
+    let t = t.clamp(0.0, 1.0);
+    let omt = 1.0 - t;
+
+    let a = (curve.ctrl1 - curve.start) * (3.0 * omt * omt);
+    let b = (curve.ctrl2 - curve.ctrl1) * (6.0 * omt * t);
+    let c = (curve.end - curve.ctrl2) * (3.0 * t * t);
+    a + b + c
+}
+
+fn edge_curve_handle_basis(curve: &EdgeCurve) -> (Pos2, egui::Vec2) {
+    let midpoint = cubic_bezier_point(curve, 0.5);
+    let tangent = cubic_bezier_tangent(curve, 0.5);
+
+    let mut normal = vec2(-tangent.y, tangent.x);
+    if normal.length_sq() <= f32::EPSILON {
+        let fallback = curve.end - curve.start;
+        normal = vec2(-fallback.y, fallback.x);
+    }
+
+    if normal.length_sq() <= f32::EPSILON {
+        normal = vec2(0.0, -1.0);
+    } else {
+        normal = normal.normalized();
+    }
+
+    (midpoint, normal)
+}
+
+fn edge_curve_with_bias(base_curve: &EdgeCurve, bias: f32) -> EdgeCurve {
+    let clamped_bias = clamp_edge_curve_bias(bias);
+    if clamped_bias.abs() <= 0.001 {
+        return *base_curve;
+    }
+
+    let (_, normal) = edge_curve_handle_basis(base_curve);
+    let offset = normal * clamped_bias;
+
+    EdgeCurve {
+        start: base_curve.start,
+        ctrl1: base_curve.ctrl1 + offset,
+        ctrl2: base_curve.ctrl2 + offset,
+        end: base_curve.end,
+    }
+}
+
+#[cfg(test)]
+fn edge_curve_handle_world_pos(base_curve: &EdgeCurve, bias: f32) -> Pos2 {
+    let (midpoint, normal) = edge_curve_handle_basis(base_curve);
+    midpoint + normal * clamp_edge_curve_bias(bias)
+}
+
+#[cfg(test)]
+fn edge_curve_bias_from_pointer(base_curve: &EdgeCurve, pointer: Pos2) -> f32 {
+    let (midpoint, normal) = edge_curve_handle_basis(base_curve);
+    clamp_edge_curve_bias((pointer - midpoint).dot(normal))
+}
+
+fn cubic_bezier_point(curve: &EdgeCurve, t: f32) -> Pos2 {
+    let t = t.clamp(0.0, 1.0);
+    let omt = 1.0 - t;
+
+    let w0 = omt * omt * omt;
+    let w1 = 3.0 * omt * omt * t;
+    let w2 = 3.0 * omt * t * t;
+    let w3 = t * t * t;
+
+    Pos2::new(
+        curve.start.x * w0 + curve.ctrl1.x * w1 + curve.ctrl2.x * w2 + curve.end.x * w3,
+        curve.start.y * w0 + curve.ctrl1.y * w1 + curve.ctrl2.y * w2 + curve.end.y * w3,
+    )
+}
+
+fn sample_edge_curve(curve: &EdgeCurve, segments: usize) -> Vec<Pos2> {
+    let segments = segments.max(2);
+    (0..=segments)
+        .map(|idx| {
+            let t = idx as f32 / segments as f32;
+            cubic_bezier_point(curve, t)
+        })
+        .collect()
+}
 
 impl GraphApp {
     pub(in crate::app) fn find_node_at(&self, local: Pos2) -> Option<(usize, egui::Vec2)> {
@@ -37,7 +254,8 @@ impl GraphApp {
             return;
         }
 
-        self.camera_world_center = ((canvas_rect.center() - canvas_rect.min - self.pan) / self.zoom).to_pos2();
+        self.camera_world_center =
+            ((canvas_rect.center() - canvas_rect.min - self.pan) / self.zoom).to_pos2();
         if !self.camera_world_center.x.is_finite() || !self.camera_world_center.y.is_finite() {
             self.camera_world_center = Pos2::new(0.0, 0.0);
         }
@@ -46,7 +264,8 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn sync_pan_from_camera(&mut self, canvas_rect: Rect) {
-        self.pan = canvas_rect.center() - canvas_rect.min - self.camera_world_center.to_vec2() * self.zoom;
+        self.pan =
+            canvas_rect.center() - canvas_rect.min - self.camera_world_center.to_vec2() * self.zoom;
     }
 
     pub(in crate::app) fn world_to_screen_pos(&self, canvas_rect: Rect, world: Pos2) -> Pos2 {
@@ -201,7 +420,6 @@ impl GraphApp {
         let target_center = target_world_rect.center();
         self.camera_world_center = target_center;
         self.sync_pan_from_camera(canvas_rect);
-
     }
 
     fn selected_nodes_world_rect(&self) -> Option<Rect> {
@@ -261,17 +479,107 @@ impl GraphApp {
         Some(Rect::from_min_max(inner_min, inner_max))
     }
 
-    pub(in crate::app) fn find_edge_at(&self, local: Pos2, tolerance_world: f32) -> Option<(usize, usize)> {
+    pub(in crate::app) fn clamp_edge_curve_bias(bias: f32) -> f32 {
+        clamp_edge_curve_bias(bias)
+    }
+
+    pub(in crate::app) fn clamp_edge_control_offset(offset: egui::Vec2) -> egui::Vec2 {
+        clamp_edge_control_offset(offset)
+    }
+
+    pub(in crate::app) fn edge_base_curve_local(
+        &self,
+        from: usize,
+        to: usize,
+    ) -> Option<EdgeCurve> {
+        let source = self.nodes.iter().find(|n| n.id == from)?;
+        let target = self.nodes.iter().find(|n| n.id == to)?;
+        Some(edge_curve_from_nodes(source, target))
+    }
+
+    pub(in crate::app) fn edge_curve_local(&self, from: usize, to: usize) -> Option<EdgeCurve> {
+        let base_curve = self.edge_base_curve_local(from, to)?;
+        let bias = self.edge_curve_bias(from, to);
+        let mut curve = edge_curve_with_bias(&base_curve, bias);
+
+        let offsets = self.edge_control_offsets(from, to);
+        curve.ctrl1 += Self::clamp_edge_control_offset(offsets.source);
+        curve.ctrl2 += Self::clamp_edge_control_offset(offsets.target);
+
+        Some(curve)
+    }
+
+    pub(in crate::app) fn edge_control_handle_world_pos_local(
+        &self,
+        from: usize,
+        to: usize,
+        handle: EdgeControlHandle,
+    ) -> Option<Pos2> {
+        let curve = self.edge_curve_local(from, to)?;
+        Some(match handle {
+            EdgeControlHandle::Source => curve.ctrl1,
+            EdgeControlHandle::Target => curve.ctrl2,
+        })
+    }
+
+    pub(in crate::app) fn edge_target_incoming_direction_local(
+        &self,
+        from: usize,
+        to: usize,
+    ) -> Option<egui::Vec2> {
+        let source = self.nodes.iter().find(|n| n.id == from)?;
+        let target = self.nodes.iter().find(|n| n.id == to)?;
+
+        let source_center = Rect::from_min_size(source.pos, source.size).center();
+        let target_center = Rect::from_min_size(target.pos, target.size).center();
+        let (_, target_side) = pick_edge_anchor_sides(source_center, target_center);
+        let dir = -target_side.direction();
+
+        (dir.length_sq() > f32::EPSILON).then_some(dir.normalized())
+    }
+
+    pub(in crate::app) fn edge_control_offset_from_pointer_local(
+        &self,
+        from: usize,
+        to: usize,
+        handle: EdgeControlHandle,
+        pointer: Pos2,
+    ) -> Option<egui::Vec2> {
+        let base_curve = self.edge_base_curve_local(from, to)?;
+        let biased_curve = edge_curve_with_bias(&base_curve, self.edge_curve_bias(from, to));
+        let anchor = match handle {
+            EdgeControlHandle::Source => biased_curve.ctrl1,
+            EdgeControlHandle::Target => biased_curve.ctrl2,
+        };
+
+        Some(Self::clamp_edge_control_offset(pointer - anchor))
+    }
+
+    pub(in crate::app) fn edge_curve_segments_local(
+        &self,
+        from: usize,
+        to: usize,
+    ) -> Option<Vec<Pos2>> {
+        self.edge_curve_local(from, to)
+            .map(|curve| sample_edge_curve(&curve, EDGE_CURVE_SAMPLE_SEGMENTS))
+    }
+
+    pub(in crate::app) fn find_edge_at(
+        &self,
+        local: Pos2,
+        tolerance_world: f32,
+    ) -> Option<(usize, usize)> {
         self.edges.iter().rev().copied().find(|(from, to)| {
-            self.edge_segment_local(*from, *to)
-                .is_some_and(|(a, b)| Self::distance_to_segment(local, a, b) <= tolerance_world)
+            self.edge_curve_segments_local(*from, *to)
+                .is_some_and(|samples| {
+                    Self::distance_to_polyline(local, &samples) <= tolerance_world
+                })
         })
     }
 
     pub(in crate::app) fn edge_label_world_pos(&self, from: usize, to: usize) -> Option<Pos2> {
-        self.edge_segment_local(from, to).map(|(a, b)| {
-            Pos2::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5)
-        })
+        self.edge_curve_local(from, to)
+            .map(|curve| cubic_bezier_point(&curve, 0.5))
     }
 
     fn distance_to_segment(point: Pos2, a: Pos2, b: Pos2) -> f32 {
@@ -284,6 +592,17 @@ impl GraphApp {
         let t = ((point - a).dot(ab) / ab_len_sq).clamp(0.0, 1.0);
         let projection = a + ab * t;
         point.distance(projection)
+    }
+
+    fn distance_to_polyline(point: Pos2, points: &[Pos2]) -> f32 {
+        if points.len() < 2 {
+            return f32::INFINITY;
+        }
+
+        points
+            .windows(2)
+            .map(|pair| Self::distance_to_segment(point, pair[0], pair[1]))
+            .fold(f32::INFINITY, f32::min)
     }
 
     pub(in crate::app) fn segment_intersects_rect(a: Pos2, b: Pos2, rect: Rect) -> bool {
@@ -332,5 +651,133 @@ impl GraphApp {
             || (d2.abs() <= EPS && on_segment(a1, a2, b2, EPS))
             || (d3.abs() <= EPS && on_segment(b1, b2, a1, EPS))
             || (d4.abs() <= EPS && on_segment(b1, b2, a2, EPS))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{NodeData, NodeKind};
+    use eframe::egui::{pos2, vec2};
+
+    fn test_node(id: usize, pos: Pos2, size: egui::Vec2) -> Node {
+        Node {
+            id,
+            uid: format!("u-{id}"),
+            kind: NodeKind::Text,
+            data: NodeData::Text {
+                text_body: String::new(),
+                auto_size: false,
+            },
+            pos,
+            size,
+        }
+    }
+
+    #[test]
+    fn anchor_side_prefers_horizontal_when_dx_dominant() {
+        let (source, target) = pick_edge_anchor_sides(pos2(0.0, 0.0), pos2(120.0, 10.0));
+        assert_eq!(source, EdgeAnchorSide::Right);
+        assert_eq!(target, EdgeAnchorSide::Left);
+    }
+
+    #[test]
+    fn anchor_side_falls_back_to_vertical_when_dy_dominant() {
+        let (source, target) = pick_edge_anchor_sides(pos2(0.0, 0.0), pos2(10.0, 160.0));
+        assert_eq!(source, EdgeAnchorSide::Bottom);
+        assert_eq!(target, EdgeAnchorSide::Top);
+    }
+
+    #[test]
+    fn reverse_connection_boosts_control_offset() {
+        let source = test_node(1, pos2(0.0, 0.0), vec2(100.0, 60.0));
+        let target_forward = test_node(2, pos2(260.0, 0.0), vec2(100.0, 60.0));
+        let target_reverse = test_node(3, pos2(-260.0, 0.0), vec2(100.0, 60.0));
+
+        let forward_curve = edge_curve_from_nodes(&source, &target_forward);
+        let reverse_curve = edge_curve_from_nodes(&source, &target_reverse);
+
+        let forward_len = (forward_curve.ctrl1 - forward_curve.start).length();
+        let reverse_len = (reverse_curve.ctrl1 - reverse_curve.start).length();
+
+        assert!(reverse_len > forward_len);
+    }
+
+    #[test]
+    fn control_offset_is_clamped() {
+        let min_offset = edge_control_offset(pos2(0.0, 0.0), pos2(1.0, 0.5), EdgeAnchorSide::Right);
+        assert!(min_offset >= EDGE_CONTROL_OFFSET_MIN);
+
+        let max_forward = edge_control_offset(
+            pos2(0.0, 0.0),
+            pos2(20_000.0, 5_000.0),
+            EdgeAnchorSide::Right,
+        );
+        assert!(max_forward <= EDGE_CONTROL_OFFSET_MAX + 0.001);
+
+        let max_reverse = edge_control_offset(
+            pos2(0.0, 0.0),
+            pos2(-20_000.0, 5_000.0),
+            EdgeAnchorSide::Left,
+        );
+        assert!(max_reverse <= EDGE_CONTROL_OFFSET_REVERSE_MAX + 0.001);
+    }
+
+    #[test]
+    fn edge_curve_bias_is_clamped() {
+        assert_eq!(clamp_edge_curve_bias(0.0), 0.0);
+        assert_eq!(clamp_edge_curve_bias(9_999.0), EDGE_CURVE_BIAS_MAX);
+        assert_eq!(clamp_edge_curve_bias(-9_999.0), EDGE_CURVE_BIAS_MIN);
+    }
+
+    #[test]
+    fn pointer_projection_tracks_bias_direction() {
+        let source = test_node(1, pos2(0.0, 0.0), vec2(100.0, 60.0));
+        let target = test_node(2, pos2(260.0, 80.0), vec2(100.0, 60.0));
+        let base_curve = edge_curve_from_nodes(&source, &target);
+        let (midpoint, normal) = edge_curve_handle_basis(&base_curve);
+
+        let positive_pointer = midpoint + normal * 56.0;
+        let negative_pointer = midpoint - normal * 42.0;
+
+        let positive_bias = edge_curve_bias_from_pointer(&base_curve, positive_pointer);
+        let negative_bias = edge_curve_bias_from_pointer(&base_curve, negative_pointer);
+
+        assert!(positive_bias > 50.0);
+        assert!(negative_bias < -36.0);
+    }
+
+    #[test]
+    fn handle_position_changes_with_bias() {
+        let source = test_node(1, pos2(0.0, 0.0), vec2(120.0, 80.0));
+        let target = test_node(2, pos2(300.0, 40.0), vec2(120.0, 80.0));
+        let base_curve = edge_curve_from_nodes(&source, &target);
+
+        let default_handle = edge_curve_handle_world_pos(&base_curve, 0.0);
+        let positive_handle = edge_curve_handle_world_pos(&base_curve, 80.0);
+        let negative_handle = edge_curve_handle_world_pos(&base_curve, -80.0);
+
+        assert!(positive_handle.distance(default_handle) > 60.0);
+        assert!(negative_handle.distance(default_handle) > 60.0);
+        assert!(positive_handle.distance(negative_handle) > 120.0);
+    }
+
+    #[test]
+    fn sampled_curve_hit_distance_matches_near_point() {
+        let source = test_node(1, pos2(0.0, 0.0), vec2(120.0, 80.0));
+        let target = test_node(2, pos2(320.0, 120.0), vec2(120.0, 80.0));
+
+        let curve = edge_curve_from_nodes(&source, &target);
+        let sample = cubic_bezier_point(&curve, 0.5);
+        let sampled_curve = sample_edge_curve(&curve, EDGE_CURVE_SAMPLE_SEGMENTS);
+
+        let near_point = sample + vec2(4.0, -3.0);
+        let far_point = sample + vec2(120.0, 120.0);
+
+        let near_dist = GraphApp::distance_to_polyline(near_point, &sampled_curve);
+        let far_dist = GraphApp::distance_to_polyline(far_point, &sampled_curve);
+
+        assert!(near_dist < 8.0);
+        assert!(far_dist > 40.0);
     }
 }

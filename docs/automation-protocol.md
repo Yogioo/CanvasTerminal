@@ -80,8 +80,10 @@
   - `nodes[]`：`id/uid/kind/data/pos/size`
   - `edges[]`：`[from, to]`
   - `edge_routes[]`：`{from,to,route_key}`（可选，存在 route_key 时返回）
+  - `edge_curve_biases[]`：`{from,to,bias}`（可选，仅返回非默认 bias）
+  - `edge_control_offsets[]`：`{from,to,source:{x,y},target:{x,y}}`（可选，仅返回非默认控制点偏移）
   - `viewport`：`pan/zoom`
-  - `selection`：`selected/selected_nodes`
+  - `selection`：`selected/selected_nodes/selected_edge`
 
 稳定性策略：
 - 节点按 `id` 排序
