@@ -369,6 +369,9 @@ impl GraphApp {
         self.editing_startup_node = None;
         self.pending_startup_focus = None;
         self.startup_edit_buffer.clear();
+        self.editing_working_directory_node = None;
+        self.pending_working_directory_focus = None;
+        self.working_directory_edit_buffer.clear();
         self.editing_decision_buttons_node = None;
         self.pending_decision_buttons_focus = None;
         self.decision_buttons_edit_rows.clear();

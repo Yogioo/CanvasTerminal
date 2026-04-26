@@ -143,6 +143,7 @@ impl GraphApp {
         let suppress_canvas_image_paste = self.editing_text_node.is_some()
             || self.editing_title_node.is_some()
             || self.editing_startup_node.is_some()
+            || self.editing_working_directory_node.is_some()
             || self.editing_decision_buttons_node.is_some()
             || self.editing_decision_queue_node.is_some()
             || self.editing_edge.is_some()

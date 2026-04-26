@@ -26,6 +26,8 @@ pub enum NodeData {
     Terminal {
         title: String,
         startup_script: String,
+        #[serde(default)]
+        working_directory: Option<String>,
     },
     Text {
         text_body: String,

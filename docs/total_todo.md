@@ -16,6 +16,18 @@
   - 方案文档：`docs/decision-node-mvp.md`
   - 范围：新增决策节点（按钮配置 + 事件分流 + 消息展示），先不做权限/超时等高级能力
 
+- git worktree 工作流
+    - 收到 feature/bug（明确验收标准）
+    - 创建 worktree（新分支 + 新目录）
+    - 在该 worktree（对应 cwd）启动 Agent 开发
+          - 简单：Worker ->（迭代 commit）-> Tester -> Human Approval
+                  - 通过 / bug修复回 Worker / 需重计划则升级 Planner / 失败丢弃
+          - 复杂：Planner -> Worker ->（迭代 commit）-> Tester -> Human Approval
+                  - 通过 / bug修复回 Worker / 重新计划回 Planner / 失败丢弃
+    - 集成校验（同步主分支 + 关键测试）
+    - 回主仓库走 PR 合并
+    - 删除 worktree + 本地/远端分支清理
+ ### 已 支 持 （ 可 以 直 接 画 出 来 并 跑 ）                                                                                                                                                                                 - Terminal / Decision 节 点 与 连 线 （ src/model.rs）                                                         - 连 线  route_key 分 流 （ fix/next/approve/reject）                                                         - 终 端 通 过  canvas done --route ... 触 发 路 由 （ src/bin/canvas.rs）                                         - 你 仓 库 里 已 有 类 似 样 例 ： flow/program_graph.json（ Planner/Executer/Tester/Decision + route）                                                                                                                      ### 不 足 （ 你 描 述 流 程 中 的 关 键 缺 口 ）                                                                                                                                                                               1. worktree 自 动 创 建 /回 收 （ 新 分 支 +新 目 录 、 结 束 后 清 理 ）                                                       - 目 前 无 专 门 命 令 /节 点 能 力 ， 一 般 要 在 终 端 里 手 写  git worktree ...                                      2. 每 个 节 点 独 立  cwd/worktree 绑 定                                                                            - 终 端 工 作 目 录 当 前 取 应 用 进 程  current_dir（ src/app/terminal.rs） ， 不 是 节 点 级 可 配 置                    3. PR 合 并 链 路 自 动 化                                                                                         - 没 有 内 建  “提  PR / 合 并  / 删 远 端 分 支 ” 的 平 台 集 成 功 能                                                4. 集 成 校 验 阶 段 模 板 化                                                                                        - 可 在  startup_script 里 写 ， 但 不 是 内 建  stage
 ---
 
 ## P1（高优先级：高频 bug / 基础交互 / 稳定性）

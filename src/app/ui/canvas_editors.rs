@@ -213,6 +213,74 @@ impl GraphApp {
         }
     }
 
+    pub(in crate::app::ui) fn handle_working_directory_editor(
+        &mut self,
+        ui: &mut Ui,
+        ctx: &egui::Context,
+        working_directory_edit_rect: Option<(usize, Rect)>,
+        primary_clicked: bool,
+        pointer_pos: Option<Pos2>,
+    ) {
+        let Some((id, edit_rect)) = working_directory_edit_rect else {
+            return;
+        };
+
+        let editor_id = egui::Id::new(("terminal-working-directory-editor", id));
+        let should_focus_and_select_all = self.pending_working_directory_focus == Some(id);
+        if should_focus_and_select_all {
+            ctx.memory_mut(|m| m.request_focus(editor_id));
+        }
+
+        let text_edit = TextEdit::singleline(&mut self.working_directory_edit_buffer)
+            .id(editor_id)
+            .font(FontId::monospace((13.0 * self.zoom).max(9.0)))
+            .text_color(Color32::WHITE)
+            .background_color(Color32::BLACK)
+            .hint_text("working_directory (留空=默认cwd)")
+            .desired_width(f32::INFINITY)
+            .frame(true);
+        let resp = ui
+            .scope(|ui| {
+                let style = ui.style_mut();
+                style.visuals.override_text_color = Some(Color32::WHITE);
+                style.visuals.widgets.inactive.bg_fill = Color32::BLACK;
+                style.visuals.widgets.hovered.bg_fill = Color32::BLACK;
+                style.visuals.widgets.active.bg_fill = Color32::BLACK;
+                style.visuals.widgets.inactive.fg_stroke.color = Color32::WHITE;
+                style.visuals.widgets.hovered.fg_stroke.color = Color32::WHITE;
+                style.visuals.widgets.active.fg_stroke.color = Color32::WHITE;
+                ui.put(edit_rect, text_edit)
+            })
+            .inner;
+
+        if should_focus_and_select_all {
+            if let Some(mut state) = egui::TextEdit::load_state(ctx, editor_id) {
+                let len = self.working_directory_edit_buffer.chars().count();
+                let range = egui::text::CCursorRange::two(
+                    egui::text::CCursor::new(0),
+                    egui::text::CCursor::new(len),
+                );
+                state.cursor.set_char_range(Some(range));
+                state.store(ctx, editor_id);
+            }
+            self.pending_working_directory_focus = None;
+        }
+
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.cancel_working_directory_edit();
+        } else if ctx.input(|i| i.key_pressed(egui::Key::Enter))
+            || (resp.lost_focus() && !ctx.input(|i| i.pointer.primary_down()))
+        {
+            self.commit_working_directory_edit(id, ctx);
+        } else if primary_clicked {
+            if let Some(pointer) = pointer_pos {
+                if !edit_rect.contains(pointer) {
+                    self.commit_working_directory_edit(id, ctx);
+                }
+            }
+        }
+    }
+
     pub(in crate::app::ui) fn handle_edge_editor(
         &mut self,
         ui: &mut Ui,
@@ -699,6 +767,7 @@ impl GraphApp {
         let is_terminal_focused = self.selected == Some(node_id)
             && self.editing_title_node != Some(node_id)
             && self.editing_startup_node != Some(node_id)
+            && self.editing_working_directory_node != Some(node_id)
             && self.suspend_terminal_focus != Some(node_id);
 
         if let Some(backend) = self.terminal_backends.get(&node_id) {

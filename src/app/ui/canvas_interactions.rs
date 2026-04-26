@@ -114,6 +114,7 @@ impl GraphApp {
             && !any_popup_open
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
+            && self.editing_working_directory_node.is_none()
             && primary_pressed
         {
             if let Some((edge, handle)) = edge_handle_hit {

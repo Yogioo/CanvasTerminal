@@ -115,6 +115,13 @@ impl GraphApp {
         self.suspend_terminal_focus = node_id;
     }
 
+    fn finish_working_directory_edit(&mut self, node_id: Option<usize>) {
+        self.editing_working_directory_node = None;
+        self.pending_working_directory_focus = None;
+        self.working_directory_edit_buffer.clear();
+        self.suspend_terminal_focus = node_id;
+    }
+
     fn restart_terminal_if_changed(&mut self, node_id: usize, changed: bool, ctx: &egui::Context) {
         if changed {
             self.restart_terminal(node_id, ctx);
@@ -138,6 +145,10 @@ impl GraphApp {
         self.editing_startup_node = None;
         self.pending_startup_focus = None;
         self.startup_edit_buffer.clear();
+
+        self.editing_working_directory_node = None;
+        self.pending_working_directory_focus = None;
+        self.working_directory_edit_buffer.clear();
 
         self.editing_decision_buttons_node = None;
         self.pending_decision_buttons_focus = None;
@@ -236,6 +247,61 @@ impl GraphApp {
         }
         self.finish_startup_edit(Some(node_id));
         self.restart_terminal_if_changed(node_id, changed, ctx);
+    }
+
+    pub(in crate::app) fn start_working_directory_edit(&mut self, node_id: usize) {
+        let Some(working_directory) = self
+            .nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .and_then(|n| match &n.data {
+                NodeData::Terminal {
+                    working_directory, ..
+                } => Some(working_directory.clone().unwrap_or_default()),
+                _ => None,
+            })
+        else {
+            return;
+        };
+
+        self.prepare_inline_node_edit(node_id);
+        self.editing_working_directory_node = Some(node_id);
+        self.pending_working_directory_focus = Some(node_id);
+        self.working_directory_edit_buffer = working_directory;
+    }
+
+    pub(in crate::app) fn commit_working_directory_edit(
+        &mut self,
+        node_id: usize,
+        ctx: &egui::Context,
+    ) {
+        let mut changed = false;
+        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+            let next = self.working_directory_edit_buffer.trim();
+            let next_value = if next.is_empty() {
+                None
+            } else {
+                Some(next.to_owned())
+            };
+            if let NodeData::Terminal {
+                working_directory, ..
+            } = &mut node.data
+            {
+                if *working_directory != next_value {
+                    *working_directory = next_value;
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            self.mark_workspace_dirty();
+        }
+        self.finish_working_directory_edit(Some(node_id));
+        self.restart_terminal_if_changed(node_id, changed, ctx);
+    }
+
+    pub(in crate::app) fn cancel_working_directory_edit(&mut self) {
+        self.finish_working_directory_edit(self.editing_working_directory_node);
     }
 
     pub(in crate::app) fn start_decision_buttons_edit(&mut self, node_id: usize) {
@@ -469,6 +535,9 @@ impl GraphApp {
         self.editing_startup_node = None;
         self.pending_startup_focus = None;
         self.startup_edit_buffer.clear();
+        self.editing_working_directory_node = None;
+        self.pending_working_directory_focus = None;
+        self.working_directory_edit_buffer.clear();
         self.editing_decision_buttons_node = None;
         self.pending_decision_buttons_focus = None;
         self.decision_buttons_edit_rows.clear();

@@ -298,6 +298,22 @@ impl GraphApp {
                         }
                     }
                 }
+                if payload.working_directory.is_some() {
+                    if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
+                        if let NodeData::Terminal {
+                            working_directory,
+                            ..
+                        } = &mut node.data
+                        {
+                            *working_directory = payload
+                                .working_directory
+                                .as_deref()
+                                .map(str::trim)
+                                .filter(|value| !value.is_empty())
+                                .map(|value| value.to_owned());
+                        }
+                    }
+                }
                 id
             }
             "text" => {
@@ -410,6 +426,7 @@ impl GraphApp {
             ));
         };
 
+        let mut restart_terminal = false;
         match &mut node.data {
             NodeData::Text {
                 text_body,
@@ -425,12 +442,29 @@ impl GraphApp {
             NodeData::Terminal {
                 title,
                 startup_script,
+                working_directory,
             } => {
                 if let Some(next) = payload.title {
                     *title = next;
                 }
                 if let Some(next) = payload.startup_script {
-                    *startup_script = next;
+                    let next_trimmed = next.trim().to_owned();
+                    if *startup_script != next_trimmed {
+                        *startup_script = next_trimmed;
+                        restart_terminal = true;
+                    }
+                }
+                if payload.working_directory.is_some() {
+                    let next_working_directory = payload
+                        .working_directory
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(|value| value.to_owned());
+                    if *working_directory != next_working_directory {
+                        *working_directory = next_working_directory;
+                        restart_terminal = true;
+                    }
                 }
             }
             NodeData::Image { .. } => {}
@@ -463,6 +497,9 @@ impl GraphApp {
         }
 
         self.mark_workspace_dirty();
+        if restart_terminal {
+            self.restart_terminal_deferred(payload.id);
+        }
         Ok(AutomationOutcome {
             data: json!({"node_id": payload.id, "version": self.automation_state_version}),
             affected_ids: vec![payload.id],

@@ -36,6 +36,7 @@ impl GraphApp {
         let node_clipboard_shortcut_allowed = self.editing_text_node.is_none()
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
+            && self.editing_working_directory_node.is_none()
             && self.editing_decision_buttons_node.is_none()
             && self.editing_decision_queue_node.is_none()
             && self.editing_edge.is_none()

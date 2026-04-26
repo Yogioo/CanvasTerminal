@@ -11,6 +11,7 @@ impl GraphApp {
             NodeKind::Terminal => NodeData::Terminal {
                 title: "Terminal".to_owned(),
                 startup_script: String::new(),
+                working_directory: None,
             },
             NodeKind::Text => NodeData::Text {
                 text_body: String::new(),
@@ -611,6 +612,11 @@ impl GraphApp {
             self.editing_startup_node = None;
             self.pending_startup_focus = None;
             self.startup_edit_buffer.clear();
+        }
+        if self.editing_working_directory_node == Some(node_id) {
+            self.editing_working_directory_node = None;
+            self.pending_working_directory_focus = None;
+            self.working_directory_edit_buffer.clear();
         }
         if self.suspend_terminal_focus == Some(node_id) {
             self.suspend_terminal_focus = None;

@@ -18,11 +18,13 @@ impl GraphApp {
         Option<(usize, Rect)>,
         Option<(usize, Rect)>,
         Option<(usize, Rect)>,
+        Option<(usize, Rect)>,
     ) {
         let mut text_edit_rect: Option<(usize, Rect)> = None;
         let mut title_edit_rect: Option<(usize, Rect)> = None;
         let mut startup_edit_rect: Option<(usize, Rect)> = None;
         let mut decision_edit_rect: Option<(usize, Rect)> = None;
+        let mut working_directory_edit_rect: Option<(usize, Rect)> = None;
 
         let render_nodes = self.nodes.clone();
         for node in &render_nodes {
@@ -176,6 +178,54 @@ impl GraphApp {
                             FontId::proportional((13.0 * zoom_scale).max(8.0)),
                             Color32::from_rgb(225, 220, 255),
                         );
+
+                        if is_selected {
+                            let cwd_value = match &node.data {
+                                NodeData::Terminal {
+                                    working_directory, ..
+                                } => working_directory
+                                    .as_deref()
+                                    .map(str::trim)
+                                    .filter(|value| !value.is_empty())
+                                    .unwrap_or("(默认 cwd)"),
+                                _ => "(默认 cwd)",
+                            };
+                            let cwd_text = format!("cwd: {cwd_value}");
+                            let badge_font = FontId::proportional((11.0 * zoom_scale).max(8.0));
+                            let text_color = Color32::from_rgb(231, 226, 255);
+                            let galley = painter.layout_no_wrap(
+                                cwd_text.clone(),
+                                badge_font.clone(),
+                                text_color,
+                            );
+                            let pad_x = 10.0 * zoom_scale;
+                            let pad_y = 5.0 * zoom_scale;
+                            let badge_size = galley.size() + vec2(pad_x * 2.0, pad_y * 2.0);
+                            let badge_gap = 6.0 * zoom_scale;
+                            let badge_rect = Rect::from_min_size(
+                                Pos2::new(node_rect.min.x, node_rect.min.y - badge_size.y - badge_gap),
+                                badge_size,
+                            );
+
+                            painter.rect_filled(
+                                badge_rect,
+                                7.0 * zoom_scale,
+                                Color32::from_rgba_premultiplied(54, 46, 96, 238),
+                            );
+                            painter.rect_stroke(
+                                badge_rect,
+                                7.0 * zoom_scale,
+                                Stroke::new(1.0 * zoom_scale.clamp(0.6, 1.6), Color32::from_rgb(130, 118, 185)),
+                                egui::StrokeKind::Outside,
+                            );
+                            painter.text(
+                                Pos2::new(badge_rect.min.x + pad_x, badge_rect.min.y + pad_y),
+                                Align2::LEFT_TOP,
+                                cwd_text,
+                                badge_font,
+                                text_color,
+                            );
+                        }
                     }
 
                     painter.line_segment(
@@ -190,16 +240,24 @@ impl GraphApp {
                     );
 
                     let hide_terminal_for_zoom = zoom_scale < self.terminal_hide_zoom_threshold
-                        && self.editing_startup_node != Some(node.id);
+                        && self.editing_startup_node != Some(node.id)
+                        && self.editing_working_directory_node != Some(node.id);
 
                     if let Some(term_rect) = self.terminal_content_rect_screen(node.id, rect) {
                         if !hide_terminal_for_zoom {
-                            if self.editing_startup_node == Some(node.id) {
+                            if self.editing_startup_node == Some(node.id)
+                                || self.editing_working_directory_node == Some(node.id)
+                            {
                                 let overlay_rect = Rect::from_min_max(
                                     term_rect.min + vec2(10.0, 10.0) * zoom_scale,
                                     term_rect.max - vec2(10.0, 10.0) * zoom_scale,
                                 );
-                                startup_edit_rect = Some((node.id, overlay_rect));
+                                if self.editing_startup_node == Some(node.id) {
+                                    startup_edit_rect = Some((node.id, overlay_rect));
+                                }
+                                if self.editing_working_directory_node == Some(node.id) {
+                                    working_directory_edit_rect = Some((node.id, overlay_rect));
+                                }
                             }
                             self.draw_embedded_terminal_for_rect(ui, ctx, rect, node.id, term_rect);
                         }
@@ -607,6 +665,7 @@ impl GraphApp {
             title_edit_rect,
             startup_edit_rect,
             decision_edit_rect,
+            working_directory_edit_rect,
         )
     }
 }

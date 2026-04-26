@@ -63,6 +63,11 @@ impl GraphApp {
                     ui.close_menu();
                 }
 
+                if is_terminal_node && ui.button("编辑工作目录").clicked() {
+                    self.start_working_directory_edit(node_id);
+                    ui.close_menu();
+                }
+
                 if is_text_node && ui.button("完成并传递").clicked() {
                     self.complete_text_node_and_forward(node_id);
                     ui.close_menu();

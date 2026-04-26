@@ -4,6 +4,7 @@ use crate::model::{NodeData, NodeKind};
 use crate::shell::{system_shell, terminal_shell_args};
 use eframe::egui;
 use egui_term::{BackendCommand, BackendSettings, PtyEvent, TerminalBackend};
+use std::path::PathBuf;
 
 impl GraphApp {
     fn terminal_uid(&self, node_id: usize) -> Option<&str> {
@@ -62,7 +63,22 @@ impl GraphApp {
                 _ => None,
             })
             .filter(|script| !script.is_empty())
-            .map(ToOwned::to_owned)
+            .map(|script| script.to_owned())
+    }
+
+    fn terminal_working_directory(&self, node_id: usize) -> Option<PathBuf> {
+        self.nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .and_then(|n| match &n.data {
+                NodeData::Terminal {
+                    working_directory, ..
+                } => working_directory.as_deref(),
+                _ => None,
+            })
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
     }
 
     fn inject_terminal_text(&mut self, node_id: usize, text: &str) {
@@ -473,7 +489,9 @@ impl GraphApp {
             BackendSettings {
                 shell,
                 args: terminal_shell_args(node_id, node_uid),
-                working_directory: std::env::current_dir().ok(),
+                working_directory: self
+                    .terminal_working_directory(node_id)
+                    .or_else(|| std::env::current_dir().ok()),
             },
         ) {
             Ok(backend) => {

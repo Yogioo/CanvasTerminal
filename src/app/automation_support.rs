@@ -22,6 +22,8 @@ pub(in crate::app) struct NodeCreatePayload {
     #[serde(default)]
     pub startup_script: Option<String>,
     #[serde(default)]
+    pub working_directory: Option<String>,
+    #[serde(default)]
     pub image_path: Option<String>,
     #[serde(default)]
     pub buttons: Option<Vec<DecisionButton>>,
@@ -54,6 +56,8 @@ pub(in crate::app) struct NodeUpdatePayload {
     pub title: Option<String>,
     #[serde(default)]
     pub startup_script: Option<String>,
+    #[serde(default)]
+    pub working_directory: Option<String>,
     #[serde(default)]
     pub buttons: Option<Vec<DecisionButton>>,
     #[serde(default)]

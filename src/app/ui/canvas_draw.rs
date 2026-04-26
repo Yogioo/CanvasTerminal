@@ -62,6 +62,7 @@ impl GraphApp {
             && self.editing_text_node.is_none()
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
+            && self.editing_working_directory_node.is_none()
         {
             self.focus_selected_or_all(rect);
             just_focused = true;
@@ -77,7 +78,8 @@ impl GraphApp {
                 .find(|n| n.id == node_id)
                 .is_some_and(|n| {
                     let terminal_content_visible = self.zoom >= self.terminal_hide_zoom_threshold
-                        || self.editing_startup_node == Some(node_id);
+                        || self.editing_startup_node == Some(node_id)
+                        || self.editing_working_directory_node == Some(node_id);
                     n.kind == NodeKind::Terminal
                         && terminal_content_visible
                         && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT
@@ -143,7 +145,8 @@ impl GraphApp {
                 .find(|n| n.id == node_id)
                 .is_some_and(|n| {
                     let terminal_content_visible = self.zoom >= self.terminal_hide_zoom_threshold
-                        || self.editing_startup_node == Some(node_id);
+                        || self.editing_startup_node == Some(node_id)
+                        || self.editing_working_directory_node == Some(node_id);
                     n.kind == NodeKind::Terminal
                         && terminal_content_visible
                         && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT
@@ -211,6 +214,7 @@ impl GraphApp {
             && self.editing_text_node.is_none()
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
+            && self.editing_working_directory_node.is_none()
             && !self.selected_nodes.is_empty()
             && !keyboard_has_focus;
 
@@ -253,6 +257,7 @@ impl GraphApp {
             && self.editing_text_node.is_none()
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
+            && self.editing_working_directory_node.is_none()
             && self.editing_edge.is_none()
             && !ctx.wants_keyboard_input()
             && self.selected_edge.is_some()
@@ -296,6 +301,7 @@ impl GraphApp {
             && !pointer_over_terminal_content
             && !pointer_in_window_top_strip
             && self.editing_startup_node.is_none()
+            && self.editing_working_directory_node.is_none()
             && (response.double_clicked() || tolerant_double_click)
         {
             if let Some(pointer) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
@@ -334,6 +340,7 @@ impl GraphApp {
             && !is_panning
             && !pointer_over_terminal_content
             && self.editing_startup_node.is_none()
+            && self.editing_working_directory_node.is_none()
             && response.clicked()
             && !multi_select_modifier
         {
@@ -381,12 +388,24 @@ impl GraphApp {
 
         self.ensure_image_textures(ctx);
 
-        let (text_edit_rect, title_edit_rect, startup_edit_rect, decision_edit_rect) =
-            self.draw_nodes(ui, ctx, &painter, rect);
+        let (
+            text_edit_rect,
+            title_edit_rect,
+            startup_edit_rect,
+            decision_edit_rect,
+            working_directory_edit_rect,
+        ) = self.draw_nodes(ui, ctx, &painter, rect);
         self.draw_selected_edge_controls_overlay(&painter, rect);
         self.handle_text_node_editor(ui, ctx, text_edit_rect);
         self.handle_title_editor(ui, ctx, title_edit_rect, primary_clicked, pointer_pos);
         self.handle_startup_editor(ui, ctx, startup_edit_rect, primary_clicked, pointer_pos);
+        self.handle_working_directory_editor(
+            ui,
+            ctx,
+            working_directory_edit_rect,
+            primary_clicked,
+            pointer_pos,
+        );
         self.handle_edge_editor(ui, ctx, rect, primary_clicked, pointer_pos);
         self.handle_decision_buttons_editor(
             ui,

@@ -30,6 +30,7 @@ EXAMPLES:
   canvas debug metrics --pretty
   canvas debug graph get --pretty
   canvas debug node create --kind text --x 200 --y 120 --text \"hello\"
+  canvas debug node update --id 2 --working-directory \"../wt-feature-abc\"
   canvas debug inject terminal --node-id 2 --command \"echo ok\" --wait";
 
 fn print_help() {
@@ -180,6 +181,7 @@ fn try_build_debug_action(
             let text = pop_flag_value(&mut args, "--text");
             let title = pop_flag_value(&mut args, "--title");
             let startup_script = pop_flag_value(&mut args, "--startup-script");
+            let working_directory = pop_flag_value(&mut args, "--working-directory");
             let image_path = pop_flag_value(&mut args, "--image-path");
             (
                 "node.create",
@@ -190,6 +192,7 @@ fn try_build_debug_action(
                     "text_body": text,
                     "title": title,
                     "startup_script": startup_script,
+                    "working_directory": working_directory,
                     "image_path": image_path,
                 }),
             )
@@ -200,6 +203,7 @@ fn try_build_debug_action(
             let auto_size = pop_flag_value(&mut args, "--auto-size").map(|v| v == "true");
             let title = pop_flag_value(&mut args, "--title");
             let startup_script = pop_flag_value(&mut args, "--startup-script");
+            let working_directory = pop_flag_value(&mut args, "--working-directory");
             (
                 "node.update",
                 json!({
@@ -208,6 +212,7 @@ fn try_build_debug_action(
                     "auto_size": auto_size,
                     "title": title,
                     "startup_script": startup_script,
+                    "working_directory": working_directory,
                 }),
             )
         }
