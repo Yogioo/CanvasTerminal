@@ -1,7 +1,7 @@
 use super::automation_support::{
-    run_shell_command, EdgePayload, EdgeReconnectPayload, GraphGetPayload, InjectTerminalPayload,
-    InjectTextPayload, NodeCreatePayload, NodeDeletePayload, NodeMovePayload, NodeUpdatePayload,
-    TerminalRestartPayload,
+    run_shell_command, EdgePayload, EdgeReconnectPayload, GraphGetPayload, GroupCreatePayload,
+    InjectTerminalPayload, InjectTextPayload, NodeCreatePayload, NodeDeletePayload,
+    NodeMovePayload, NodeUpdatePayload, TerminalRestartPayload,
 };
 use super::GraphApp;
 use crate::event_protocol::{
@@ -81,6 +81,7 @@ impl GraphApp {
             "graph.get" => self.automation_graph_get(request),
             "metrics" => self.automation_metrics(request),
             "node.create" => self.automation_node_create(request),
+            "group.create" => self.automation_group_create(request),
             "node.move" => self.automation_node_move(request),
             "node.update" => self.automation_node_update(request),
             "node.delete" => self.automation_node_delete(request),
@@ -150,6 +151,7 @@ impl GraphApp {
                         NodeKind::Text => "text",
                         NodeKind::Image => "image",
                         NodeKind::Decision => "decision",
+                        NodeKind::Group => "group",
                     },
                     "data": n.data,
                     "pos": {"x": n.pos.x, "y": n.pos.y},
@@ -389,6 +391,48 @@ impl GraphApp {
         })
     }
 
+    fn automation_group_create(
+        &mut self,
+        request: &AutomationRequest,
+    ) -> Result<AutomationOutcome, AutomationResponse> {
+        let payload: GroupCreatePayload = Self::parse_payload(request)?;
+        if payload.node_ids.len() < 2 {
+            return Err(response_error(
+                request.request_id.clone(),
+                &request.action,
+                "BAD_PAYLOAD",
+                "group.create requires at least two node_ids",
+            ));
+        }
+
+        self.selected_nodes = payload.node_ids.iter().copied().collect();
+        self.selected = payload.node_ids.last().copied();
+        let Some(group_id) = self.create_group_from_selection() else {
+            return Err(response_error(
+                request.request_id.clone(),
+                &request.action,
+                "BAD_PAYLOAD",
+                "cannot create group from provided node_ids",
+            ));
+        };
+
+        if let Some(title) = payload.title {
+            if let Some(node) = self.nodes.iter_mut().find(|node| node.id == group_id) {
+                if let NodeData::Group { title: current, .. } = &mut node.data {
+                    *current = title.trim().to_owned();
+                }
+            }
+        }
+
+        self.sync_group_bounds(group_id);
+        self.bump_automation_state_version();
+
+        Ok(AutomationOutcome {
+            data: json!({"group_id": group_id, "version": self.automation_state_version}),
+            affected_ids: vec![group_id],
+        })
+    }
+
     fn automation_node_move(
         &mut self,
         request: &AutomationRequest,
@@ -492,6 +536,11 @@ impl GraphApp {
                         }
                         *pending_message = pending_messages.first().cloned();
                     }
+                }
+            }
+            NodeData::Group { title, .. } => {
+                if let Some(next) = payload.title {
+                    *title = next;
                 }
             }
         }

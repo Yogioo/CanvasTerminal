@@ -17,6 +17,7 @@ COMMANDS:
   debug metrics [--pretty] [--jsonpath p]
   debug graph get [--pretty] [--jsonpath p]
   debug node create|update|move|delete ...
+  debug group create --node-ids <id,id,...> [--title <name>]
   debug edge create|reconnect|delete ...
   debug inject text|terminal ...
   debug terminal restart --node-id <id>
@@ -148,7 +149,7 @@ fn try_build_debug_action(
 ) -> Result<(AutomationRequest, bool, Option<String>, Vec<String>), String> {
     let mut args = VecDeque::from(args);
     let Some(group) = args.pop_front() else {
-        return Err("usage: canvas debug <metrics|graph|node|edge|inject|terminal> ...".to_owned());
+        return Err("usage: canvas debug <metrics|graph|node|group|edge|inject|terminal> ...".to_owned());
     };
 
     let op = if group == "metrics" {
@@ -225,6 +226,16 @@ fn try_build_debug_action(
         ("node", Some("delete")) => {
             let id = parse_usize(pop_flag_value(&mut args, "--id"), "--id");
             ("node.delete", json!({"id": id}))
+        }
+        ("group", Some("create")) => {
+            let ids_raw = pop_flag_value(&mut args, "--node-ids")
+                .ok_or_else(|| "error: missing --node-ids".to_owned())?;
+            let node_ids: Vec<usize> = ids_raw
+                .split(',')
+                .filter_map(|part| part.trim().parse::<usize>().ok())
+                .collect();
+            let title = pop_flag_value(&mut args, "--title");
+            ("group.create", json!({"node_ids": node_ids, "title": title}))
         }
         ("edge", Some("create")) => {
             let from = parse_usize(pop_flag_value(&mut args, "--from"), "--from");
