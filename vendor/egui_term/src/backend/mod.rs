@@ -188,28 +188,30 @@ impl TerminalBackend {
             .spawn(move || {
                 let mut last_repaint = Instant::now() - Duration::from_millis(100);
                 loop {
-                    if let Ok(event) = event_receiver.recv() {
-                        pty_event_proxy_sender
-                            .send((id, event.clone()))
-                            .unwrap_or_else(|_| {
-                                panic!("pty_event_subscription_{}: sending PtyEvent is failed", id)
-                            });
+                    let Ok(event) = event_receiver.recv() else {
+                        break;
+                    };
 
-                        let min_repaint_interval = Duration::from_millis(
-                            min_repaint_interval_ms_for_thread
-                                .load(Ordering::Relaxed)
-                                .max(1),
-                        );
-                        if last_repaint.elapsed() >= min_repaint_interval
-                            || matches!(event, Event::Exit)
-                        {
-                            app_context.request_repaint();
-                            last_repaint = Instant::now();
-                        }
+                    pty_event_proxy_sender
+                        .send((id, event.clone()))
+                        .unwrap_or_else(|_| {
+                            panic!("pty_event_subscription_{}: sending PtyEvent is failed", id)
+                        });
 
-                        if let Event::Exit = event {
-                            break;
-                        }
+                    let min_repaint_interval = Duration::from_millis(
+                        min_repaint_interval_ms_for_thread
+                            .load(Ordering::Relaxed)
+                            .max(1),
+                    );
+                    if last_repaint.elapsed() >= min_repaint_interval
+                        || matches!(event, Event::Exit)
+                    {
+                        app_context.request_repaint();
+                        last_repaint = Instant::now();
+                    }
+
+                    if let Event::Exit = event {
+                        break;
                     }
                 }
             })?;
