@@ -187,6 +187,10 @@ impl GraphApp {
                     ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
 
+                let primary_clicked =
+                    ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary));
+                let pointer_pos = ui.input(|i| i.pointer.interact_pos().or(i.pointer.latest_pos()));
+
                 if self.editing_workspace_name {
                     ui.allocate_new_ui(egui::UiBuilder::new().max_rect(title_rect), |ui| {
                         let editor_id = ui.id().with("window_workspace_name_editor");
@@ -195,7 +199,7 @@ impl GraphApp {
                             self.pending_workspace_name_focus = false;
                         }
 
-                        let response = ui.add_sized(
+                        ui.add_sized(
                             title_rect.size(),
                             egui::TextEdit::singleline(&mut self.workspace_name_edit_buffer)
                                 .id(editor_id)
@@ -204,16 +208,19 @@ impl GraphApp {
                                 .margin(vec2(6.0, 2.0)),
                         );
 
-                        let submit = response.lost_focus()
-                            && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        let submit = ui.input(|i| i.key_pressed(egui::Key::Enter));
                         let cancel = ui.input(|i| i.key_pressed(egui::Key::Escape));
-                        let click_outside_commit = response.lost_focus()
-                            && !ui.input(|i| i.pointer.primary_down());
 
                         if cancel {
                             self.cancel_workspace_name_edit();
-                        } else if submit || click_outside_commit {
+                        } else if submit {
                             self.commit_workspace_name_edit();
+                        } else if primary_clicked {
+                            if let Some(pointer) = pointer_pos {
+                                if !title_rect.contains(pointer) {
+                                    self.commit_workspace_name_edit();
+                                }
+                            }
                         }
                     });
                 } else {

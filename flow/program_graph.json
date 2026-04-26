@@ -150,11 +150,6 @@
   "edge_routes": [
     {
       "from": 19,
-      "to": 7,
-      "route_key": "next"
-    },
-    {
-      "from": 19,
       "to": 8,
       "route_key": "fix"
     },
@@ -164,6 +159,11 @@
       "route_key": "approve"
     },
     {
+      "from": 19,
+      "to": 7,
+      "route_key": "next"
+    },
+    {
       "from": 22,
       "to": 7,
       "route_key": "reject"
@@ -171,6 +171,14 @@
   ],
   "edge_curve_biases": [],
   "edge_control_offsets": [
+    {
+      "from": 8,
+      "to": 19,
+      "source_dx": 0.0,
+      "source_dy": 0.0,
+      "target_dx": 260.0,
+      "target_dy": -105.6568
+    },
     {
       "from": 19,
       "to": 8,
@@ -186,19 +194,12 @@
       "source_dy": 102.35974,
       "target_dx": -228.219,
       "target_dy": 127.795166
-    },
-    {
-      "from": 8,
-      "to": 19,
-      "source_dx": 0.0,
-      "source_dy": 0.0,
-      "target_dx": 260.0,
-      "target_dy": -105.6568
     }
   ],
   "view": {
-    "pan_x": -442.84473,
-    "pan_y": -292.3504,
+    "pan_x": -409.84485,
+    "pan_y": -91.350525,
     "zoom": 0.57542294
-  }
+  },
+  "workspace_name": "编程Flow"
 }
