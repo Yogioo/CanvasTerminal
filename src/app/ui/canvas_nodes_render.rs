@@ -1,5 +1,5 @@
 use super::super::GraphApp;
-use crate::constants::DECISION_HEADER_HEIGHT;
+use crate::constants::{DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT};
 use crate::model::{NodeData, NodeKind};
 use eframe::egui::{
     self, vec2, Align, Align2, Color32, FontId, Layout, Painter, Pos2, Rect, Stroke,
@@ -686,17 +686,28 @@ impl GraphApp {
                         egui::StrokeKind::Outside,
                     );
 
-                    let title = match &node.data {
-                        NodeData::Group { title, .. } => title.as_str(),
-                        _ => "Group",
-                    };
-                    painter.text(
-                        node_rect.left_top() + vec2(12.0, 10.0) * zoom_scale,
-                        Align2::LEFT_TOP,
-                        title,
-                        FontId::proportional((14.0 * zoom_scale).max(9.0)),
-                        Color32::from_rgb(220, 230, 255),
-                    );
+                    let is_title_editing = self.editing_title_node == Some(node.id);
+                    if !is_title_editing {
+                        let title = match &node.data {
+                            NodeData::Group { title, .. } => title.as_str(),
+                            _ => "Group",
+                        };
+                        painter.text(
+                            node_rect.left_top() + vec2(12.0, 10.0) * zoom_scale,
+                            Align2::LEFT_TOP,
+                            title,
+                            FontId::proportional((14.0 * zoom_scale).max(9.0)),
+                            Color32::from_rgb(220, 230, 255),
+                        );
+                    } else {
+                        let rect_min = node_rect.left_top() + vec2(10.0, 6.0) * zoom_scale;
+                        let rect_max = Pos2::new(
+                            node_rect.max.x - 10.0 * zoom_scale,
+                            (node_rect.min.y + GROUP_HEADER_HEIGHT * zoom_scale - 6.0 * zoom_scale)
+                                .min(node_rect.max.y),
+                        );
+                        title_edit_rect = Some((node.id, Rect::from_min_max(rect_min, rect_max)));
+                    }
                 }
             }
         }

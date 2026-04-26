@@ -1,10 +1,10 @@
 use super::{history::CreatedEdge, GraphApp};
+use crate::constants::GROUP_HEADER_HEIGHT;
 use crate::model::{Node, NodeData, NodeKind};
 use eframe::egui::{vec2, Pos2, Rect};
 use uuid::Uuid;
 
 const GROUP_PADDING: f32 = 20.0;
-const GROUP_HEADER_HEIGHT: f32 = 28.0;
 
 impl GraphApp {
     pub(in crate::app) fn create_group_from_selection(&mut self) -> Option<usize> {
@@ -108,21 +108,23 @@ impl GraphApp {
         self.sync_all_group_bounds();
     }
 
-    pub(in crate::app) fn resolve_alt_group_target(&self, pointer_world: Pos2) -> Option<usize> {
-        let top_hit = self.find_node_id_at(pointer_world)?;
-        let Some(group) = self
-            .nodes
+    pub(in crate::app) fn top_group_id_at(&self, pointer_world: Pos2) -> Option<usize> {
+        self.nodes
             .iter()
-            .find(|node| node.id == top_hit && node.kind == NodeKind::Group)
-        else {
-            return Some(top_hit);
-        };
+            .rev()
+            .find(|node| {
+                node.kind == NodeKind::Group
+                    && Rect::from_min_size(node.pos, node.size).contains(pointer_world)
+            })
+            .map(|node| node.id)
+    }
 
-        let child_ids = match &group.data {
-            NodeData::Group { child_node_ids, .. } => child_node_ids,
-            _ => return Some(top_hit),
-        };
-
+    pub(in crate::app) fn group_child_hit_at(
+        &self,
+        group_id: usize,
+        pointer_world: Pos2,
+    ) -> Option<usize> {
+        let child_ids = self.group_child_ids(group_id)?;
         self.nodes
             .iter()
             .rev()
@@ -132,7 +134,6 @@ impl GraphApp {
                     && Rect::from_min_size(node.pos, node.size).contains(pointer_world)
             })
             .map(|node| node.id)
-            .or(Some(top_hit))
     }
 
     pub(in crate::app) fn group_child_ids(&self, group_id: usize) -> Option<Vec<usize>> {

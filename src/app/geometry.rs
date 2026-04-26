@@ -224,17 +224,19 @@ fn sample_edge_curve(curve: &EdgeCurve, segments: usize) -> Vec<Pos2> {
 }
 
 impl GraphApp {
-    pub(in crate::app) fn find_node_at(&self, local: Pos2) -> Option<(usize, egui::Vec2)> {
-        self.find_node_at_with_alt(local, false)
-    }
-
     pub(in crate::app) fn find_node_at_with_alt(
         &self,
         local: Pos2,
         alt_passthrough: bool,
     ) -> Option<(usize, egui::Vec2)> {
         let node_id = if alt_passthrough {
-            self.resolve_alt_group_target(local)?
+            if let Some(group_id) = self.top_group_id_at(local) {
+                self.group_child_hit_at(group_id, local).unwrap_or(group_id)
+            } else {
+                self.find_node_id_at(local)?
+            }
+        } else if let Some(group_id) = self.top_group_id_at(local) {
+            group_id
         } else {
             self.find_node_id_at(local)?
         };
@@ -243,10 +245,6 @@ impl GraphApp {
             .iter()
             .find(|n| n.id == node_id)
             .map(|n| (n.id, n.pos.to_vec2()))
-    }
-
-    pub(in crate::app) fn find_node_hit(&self, local: Pos2) -> Option<(usize, egui::Vec2, bool)> {
-        self.find_node_hit_with_alt(local, false)
     }
 
     pub(in crate::app) fn find_node_hit_with_alt(

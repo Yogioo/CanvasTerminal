@@ -1,5 +1,5 @@
 use super::super::{EdgeControlHandle, GraphApp, NodeOrderAction};
-use crate::constants::{DECISION_HEADER_HEIGHT, TERMINAL_HEADER_HEIGHT};
+use crate::constants::{DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT, TERMINAL_HEADER_HEIGHT};
 use crate::model::NodeKind;
 use eframe::egui::{self, Color32, Rect, Sense, Ui};
 
@@ -327,6 +327,10 @@ impl GraphApp {
                             } else {
                                 self.start_decision_buttons_edit(id);
                             }
+                        } else if node.kind == NodeKind::Group {
+                            if local.y <= node.pos.y + GROUP_HEADER_HEIGHT {
+                                self.start_title_edit(id);
+                            }
                         }
                     }
                 } else {
@@ -424,13 +428,8 @@ impl GraphApp {
         if alt_passthrough {
             if let Some(pointer) = pointer_pos {
                 let local = self.screen_to_world_pos(rect, pointer);
-                if let Some(group_id) = self.find_node_id_at(local).and_then(|id| {
-                    self.nodes
-                        .iter()
-                        .find(|node| node.id == id && node.kind == NodeKind::Group)
-                        .map(|node| node.id)
-                }) {
-                    if self.resolve_alt_group_target(local).is_some_and(|id| id != group_id) {
+                if let Some(group_id) = self.top_group_id_at(local) {
+                    if self.group_child_hit_at(group_id, local).is_some() {
                         painter.text(
                             pointer + egui::vec2(14.0, 10.0),
                             egui::Align2::LEFT_TOP,
