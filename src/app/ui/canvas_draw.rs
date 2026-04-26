@@ -29,6 +29,7 @@ impl GraphApp {
             || queue_editor_open;
         let multi_select_modifier = ctx.input(|i| i.modifiers.ctrl || i.modifiers.command);
         let subtract_select_modifier = ctx.input(|i| i.modifiers.shift);
+        let alt_passthrough = ctx.input(|i| i.modifiers.alt);
         let focus_shortcut_pressed = ctx.input(|i| {
             i.key_pressed(egui::Key::F)
                 && !i.modifiers.ctrl
@@ -70,7 +71,7 @@ impl GraphApp {
 
         let pointer_over_terminal_before_zoom = pointer_pos.is_some_and(|p| {
             let local = self.screen_to_world_pos(rect, p);
-            let Some((node_id, _)) = self.find_node_at(local) else {
+            let Some((node_id, _)) = self.find_node_at_with_alt(local, alt_passthrough) else {
                 return false;
             };
             self.nodes
@@ -87,7 +88,7 @@ impl GraphApp {
         });
         let pointer_over_text_node_before_zoom = pointer_pos.is_some_and(|p| {
             let local = self.screen_to_world_pos(rect, p);
-            let Some((node_id, _)) = self.find_node_at(local) else {
+            let Some((node_id, _)) = self.find_node_at_with_alt(local, alt_passthrough) else {
                 return false;
             };
             self.nodes
@@ -97,7 +98,7 @@ impl GraphApp {
         });
         let pointer_over_decision_node_before_zoom = pointer_pos.is_some_and(|p| {
             let local = self.screen_to_world_pos(rect, p);
-            let Some((node_id, _)) = self.find_node_at(local) else {
+            let Some((node_id, _)) = self.find_node_at_with_alt(local, alt_passthrough) else {
                 return false;
             };
             self.nodes
@@ -133,11 +134,12 @@ impl GraphApp {
             }
         }
 
+        self.sync_all_group_bounds();
         self.paint_grid(&painter, rect, self.pan, self.zoom);
 
         let pointer_over_terminal_content = pointer_pos.is_some_and(|p| {
             let local = self.screen_to_world_pos(rect, p);
-            let Some((node_id, _)) = self.find_node_at(local) else {
+            let Some((node_id, _)) = self.find_node_at_with_alt(local, alt_passthrough) else {
                 return false;
             };
             self.nodes
@@ -199,7 +201,10 @@ impl GraphApp {
             }
 
             let local = self.screen_to_world_pos(rect, pointer);
-            if self.find_node_at(local).is_some() {
+            if self
+                .find_node_at_with_alt(local, alt_passthrough)
+                .is_some()
+            {
                 return None;
             }
 
@@ -306,7 +311,7 @@ impl GraphApp {
         {
             if let Some(pointer) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                 let local = self.screen_to_world_pos(rect, pointer);
-                if let Some((id, _)) = self.find_node_at(local) {
+                if let Some((id, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
                     self.set_single_selection(id);
                     if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
                         if node.kind == NodeKind::Text {
@@ -346,7 +351,7 @@ impl GraphApp {
         {
             if let Some(pointer) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                 let local = self.screen_to_world_pos(rect, pointer);
-                if let Some((id, _)) = self.find_node_at(local) {
+                if let Some((id, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
                     self.set_single_selection(id);
                     if self.editing_text_node != Some(id) {
                         self.editing_text_node = None;
@@ -416,6 +421,28 @@ impl GraphApp {
         );
         self.handle_decision_queue_editor(ctx);
 
+        if alt_passthrough {
+            if let Some(pointer) = pointer_pos {
+                let local = self.screen_to_world_pos(rect, pointer);
+                if let Some(group_id) = self.find_node_id_at(local).and_then(|id| {
+                    self.nodes
+                        .iter()
+                        .find(|node| node.id == id && node.kind == NodeKind::Group)
+                        .map(|node| node.id)
+                }) {
+                    if self.resolve_alt_group_target(local).is_some_and(|id| id != group_id) {
+                        painter.text(
+                            pointer + egui::vec2(14.0, 10.0),
+                            egui::Align2::LEFT_TOP,
+                            "Alt: 点击组内节点",
+                            egui::FontId::proportional(12.0),
+                            Color32::from_rgb(220, 232, 255),
+                        );
+                    }
+                }
+            }
+        }
+
         if !is_panning && self.resizing.is_none() && resize_handle_hit.is_none() {
             if let Some(pos) = response.hover_pos() {
                 let local = self.screen_to_world_pos(rect, pos);
@@ -423,7 +450,11 @@ impl GraphApp {
                     ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grab);
                 } else if edge_handle_hit.is_some() {
                     ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
-                } else if self.find_node_at(local).is_some() || hovered_edge.is_some() {
+                } else if self
+                    .find_node_at_with_alt(local, alt_passthrough)
+                    .is_some()
+                    || hovered_edge.is_some()
+                {
                     ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                 }
             }

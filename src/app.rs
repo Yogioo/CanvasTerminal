@@ -5,6 +5,7 @@ mod clipboard;
 mod dirty;
 mod editing;
 mod geometry;
+mod groups;
 mod history;
 mod images;
 mod menu;

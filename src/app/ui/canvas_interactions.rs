@@ -31,7 +31,8 @@ impl GraphApp {
         if primary_clicked {
             if let Some(pointer) = pointer_pos {
                 let local = self.screen_to_world_pos(rect, pointer);
-                if let Some((node_id, _)) = self.find_node_at(local) {
+                let alt_passthrough = ctx.input(|i| i.modifiers.alt);
+                if let Some((node_id, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
                     if let Some(node) = self.nodes.iter().find(|n| n.id == node_id) {
                         if node.kind == NodeKind::Terminal
                             && local.y > node.pos.y + TERMINAL_HEADER_HEIGHT
@@ -147,7 +148,10 @@ impl GraphApp {
             } else if !pointer_over_terminal_content {
                 if let Some(pointer) = pointer_pos {
                     let local = self.screen_to_world_pos(rect, pointer);
-                    if let Some((id, node_pos, can_drag)) = self.find_node_hit(local) {
+                    let alt_passthrough = ctx.input(|i| i.modifiers.alt);
+                    if let Some((id, node_pos, can_drag)) =
+                        self.find_node_hit_with_alt(local, alt_passthrough)
+                    {
                         if Some(id) != self.editing_text_node {
                             self.editing_text_node = None;
                         }
@@ -183,11 +187,29 @@ impl GraphApp {
 
                             if can_drag {
                                 self.dragging = Some((id, local.to_vec2() - node_pos));
-                                if multi_drag {
+                                let drag_ids: std::collections::HashSet<usize> = if multi_drag {
+                                    self.selected_nodes.clone()
+                                } else if self
+                                    .nodes
+                                    .iter()
+                                    .find(|n| n.id == id)
+                                    .is_some_and(|n| n.kind == NodeKind::Group)
+                                {
+                                    let mut ids = std::collections::HashSet::new();
+                                    ids.insert(id);
+                                    if let Some(children) = self.group_child_ids(id) {
+                                        ids.extend(children);
+                                    }
+                                    ids
+                                } else {
+                                    std::iter::once(id).collect()
+                                };
+
+                                if drag_ids.len() > 1 {
                                     let start_nodes = self
                                         .nodes
                                         .iter()
-                                        .filter(|n| self.selected_nodes.contains(&n.id))
+                                        .filter(|n| drag_ids.contains(&n.id))
                                         .map(|n| (n.id, n.pos))
                                         .collect();
                                     self.drag_group_start = Some((local, start_nodes));
@@ -291,6 +313,7 @@ impl GraphApp {
                                 let height = (start_size.y + delta.y).max(140.0);
                                 node.size = vec2(width, height);
                             }
+                            NodeKind::Group => {}
                         }
                     }
                 }
@@ -410,7 +433,8 @@ impl GraphApp {
 
             if let Some(pointer_pos) = response.interact_pointer_pos() {
                 let local = self.screen_to_world_pos(rect, pointer_pos);
-                if let Some((id, _)) = self.find_node_at(local) {
+                let alt_passthrough = ctx.input(|i| i.modifiers.alt);
+                if let Some((id, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
                     self.linking_from = Some(id);
                     self.linking_pointer_local = Some(local);
                     self.set_single_selection(id);
@@ -443,7 +467,8 @@ impl GraphApp {
             if let Some(from) = self.linking_from {
                 if let Some(pointer_pos) = response.interact_pointer_pos() {
                     let local = self.screen_to_world_pos(rect, pointer_pos);
-                    if let Some((to, _)) = self.find_node_at(local) {
+                    let alt_passthrough = ctx.input(|i| i.modifiers.alt);
+                    if let Some((to, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
                         if to != from && !self.has_edge(from, to) {
                             self.edges.push((from, to));
                             self.mark_workspace_dirty();
@@ -477,7 +502,10 @@ impl GraphApp {
         {
             if let Some(pointer_pos) = response.interact_pointer_pos() {
                 let local = self.screen_to_world_pos(rect, pointer_pos);
-                let context_menu_node = self.find_node_at(local).map(|(id, _)| id);
+                let alt_passthrough = ctx.input(|i| i.modifiers.alt);
+                let context_menu_node = self
+                    .find_node_at_with_alt(local, alt_passthrough)
+                    .map(|(id, _)| id);
                 let context_menu_edge = if context_menu_node.is_none() {
                     self.find_edge_at(local, edge_hit_tolerance)
                 } else {

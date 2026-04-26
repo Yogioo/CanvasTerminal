@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const GRAPH_CONFIG_VERSION: u32 = 7;
+const GRAPH_CONFIG_VERSION: u32 = 8;
 const DEFAULT_GRAPH_PATH: &str = "./graph.json";
 const IMAGE_ARTIFACT_DIR: &str = "artifacts/img";
 static IMAGE_FILE_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -249,6 +249,7 @@ impl GraphApp {
                 | (NodeKind::Text, NodeData::Text { .. })
                 | (NodeKind::Image, NodeData::Image { .. })
                 | (NodeKind::Decision, NodeData::Decision { .. })
+                | (NodeKind::Group, NodeData::Group { .. })
         )
     }
 
@@ -337,6 +338,7 @@ impl GraphApp {
         }
 
         self.nodes = nodes;
+        self.sanitize_groups();
         self.edges = edges;
         self.edge_route_keys = edge_route_keys;
         self.edge_curve_biases = edge_curve_biases;

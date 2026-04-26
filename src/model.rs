@@ -7,6 +7,7 @@ pub enum NodeKind {
     Text,
     Image,
     Decision,
+    Group,
 }
 
 fn default_text_autosize() -> bool {
@@ -45,6 +46,11 @@ pub enum NodeData {
         pending_message: Option<String>,
         #[serde(default)]
         pending_messages: Vec<String>,
+    },
+    Group {
+        title: String,
+        #[serde(default)]
+        child_node_ids: Vec<usize>,
     },
 }
 
