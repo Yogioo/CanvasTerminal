@@ -116,27 +116,34 @@ impl GraphApp {
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()
-            && primary_pressed
+            && primary_clicked
+            && ctx.input(|i| i.modifiers.alt)
         {
-            if primary_clicked && ctx.input(|i| i.modifiers.alt) {
-                if let Some(pointer) = pointer_pos {
-                    let local = self.screen_to_world_pos(rect, pointer);
-                    if self.jump_selected_nodes_to(local) {
-                        self.dragging = None;
-                        self.drag_start_pos = None;
-                        self.drag_group_start = None;
-                        self.dragging_edge_control = None;
-                        self.resizing = None;
-                        self.box_select_start = None;
-                        self.box_select_current = None;
-                        self.box_select_additive = false;
-                        self.box_select_subtractive = false;
-                        self.box_select_base_selection.clear();
-                        return (tolerant_double_click, resize_handle_hit);
-                    }
+            if let Some(pointer) = pointer_pos {
+                let local = self.screen_to_world_pos(rect, pointer);
+                if self.jump_selected_nodes_to(local) {
+                    self.dragging = None;
+                    self.drag_start_pos = None;
+                    self.drag_group_start = None;
+                    self.dragging_edge_control = None;
+                    self.resizing = None;
+                    self.box_select_start = None;
+                    self.box_select_current = None;
+                    self.box_select_additive = false;
+                    self.box_select_subtractive = false;
+                    self.box_select_base_selection.clear();
+                    return (tolerant_double_click, resize_handle_hit);
                 }
             }
+        }
 
+        if !is_panning
+            && !any_popup_open
+            && self.editing_title_node.is_none()
+            && self.editing_startup_node.is_none()
+            && self.editing_working_directory_node.is_none()
+            && primary_pressed
+        {
             if let Some((edge, handle)) = edge_handle_hit {
                 self.editing_text_node = None;
                 self.set_edge_selection(edge);
