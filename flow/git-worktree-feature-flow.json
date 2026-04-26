@@ -1,0 +1,333 @@
+{
+  "version": 7,
+  "nodes": [
+    {
+      "id": 1,
+      "uid": "d0d43079-0835-4ea7-9bd9-c78603c8a001",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Intake",
+          "startup_script": "pi --append-system-prompt \"你是 Intake。接收 feature/bug 需求并先确认可验证验收标准。把结果写入 artifacts/intake.md（包含：ticket_type、ticket_id、title、acceptance_criteria、complexity=simple|complex）。最后执行: canvas done 'stage=intake;status=ok'\" --model openai-codex/gpt-5.4 --thinking medium",
+          "working_directory": null
+        }
+      },
+      "pos_x": -1903.0645,
+      "pos_y": 513.6825,
+      "size_x": 860.0,
+      "size_y": 620.0
+    },
+    {
+      "id": 2,
+      "uid": "d0d43079-0835-4ea7-9bd9-c78603c8a002",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Create Worktree",
+          "startup_script": "pi --append-system-prompt \"你是 Worktree Operator。读取 artifacts/intake.md，计算 branch/worktree 路径并执行 git fetch origin && git worktree add -b <branch> <worktree_path> origin/main。把结果写入 artifacts/worktree.md。然后用 canvas debug node update --id 4/5/6/8 --working-directory <worktree_path> 把 Planner/Worker/Tester/Integrator 绑定到该 worktree。最后执行: canvas done 'stage=worktree;status=ok;worktree=<path>;branch=<branch>'\" --model openai-codex/gpt-5.3-codex --thinking medium",
+          "working_directory": null
+        }
+      },
+      "pos_x": -943.06445,
+      "pos_y": 513.6825,
+      "size_x": 920.0,
+      "size_y": 620.0
+    },
+    {
+      "id": 3,
+      "uid": "d0d43079-0835-4ea7-9bd9-c78603c8a003",
+      "kind": "Decision",
+      "data": {
+        "Decision": {
+          "title": "Complexity Gate",
+          "buttons": [
+            {
+              "label": "Simple",
+              "event_key": "simple",
+              "color_rgb": [
+                212,
+                244,
+                226
+              ]
+            },
+            {
+              "label": "Complex",
+              "event_key": "complex",
+              "color_rgb": [
+                248,
+                208,
+                208
+              ]
+            }
+          ],
+          "pending_message": null,
+          "pending_messages": []
+        }
+      },
+      "pos_x": 225.30972,
+      "pos_y": 691.3717,
+      "size_x": 420.0,
+      "size_y": 280.0
+    },
+    {
+      "id": 4,
+      "uid": "d0d43079-0835-4ea7-9bd9-c78603c8a004",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Planner",
+          "startup_script": "pi --append-system-prompt \"你是 Planner（复杂任务入口）。读取 artifacts/intake.md + artifacts/worktree.md，在当前 cwd 生成 artifacts/plan.md（模块拆分、里程碑、测试策略）。计划完成后执行: canvas done 'stage=plan;status=ok;route=to_worker'\" --model openai-codex/gpt-5.4 --thinking high",
+          "working_directory": ""
+        }
+      },
+      "pos_x": 819.8137,
+      "pos_y": 195.94812,
+      "size_x": 900.0,
+      "size_y": 620.0
+    },
+    {
+      "id": 5,
+      "uid": "d0d43079-0835-4ea7-9bd9-c78603c8a005",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Worker",
+          "startup_script": "pi --append-system-prompt \"你是 Worker。按验收标准在当前 cwd 开发，做最小改动并迭代提交 commit。输出 artifacts/worker-report.md（变更摘要、commit 列表、风险）。然后执行: canvas done 'stage=dev;status=ok;route=to_tester'\" --model openai-codex/gpt-5.3-codex --thinking medium",
+          "working_directory": ""
+        }
+      },
+      "pos_x": 789.2114,
+      "pos_y": 1106.5867,
+      "size_x": 900.0,
+      "size_y": 620.0
+    },
+    {
+      "id": 6,
+      "uid": "d0d43079-0835-4ea7-9bd9-c78603c8a006",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Tester",
+          "startup_script": "pi --append-system-prompt \"你是 Tester。读取 intake 验收标准并在当前 cwd 执行关键测试（例如 npm test / cargo test）。输出 artifacts/test-report.md。测试后执行: canvas done 'stage=test;status=ok;route=to_approval'\" --model openai-codex/gpt-5.3-codex --thinking medium",
+          "working_directory": null
+        }
+      },
+      "pos_x": 1889.7556,
+      "pos_y": 1435.9078,
+      "size_x": 900.0,
+      "size_y": 620.0
+    },
+    {
+      "id": 7,
+      "uid": "d0d43079-0835-4ea7-9bd9-c78603c8a007",
+      "kind": "Decision",
+      "data": {
+        "Decision": {
+          "title": "Human Approval",
+          "buttons": [
+            {
+              "label": "通过",
+              "event_key": "approve",
+              "color_rgb": [
+                212,
+                244,
+                226
+              ]
+            },
+            {
+              "label": "修复后再测",
+              "event_key": "fix",
+              "color_rgb": [
+                255,
+                231,
+                179
+              ]
+            },
+            {
+              "label": "重做计划",
+              "event_key": "replan",
+              "color_rgb": [
+                255,
+                214,
+                165
+              ]
+            },
+            {
+              "label": "丢弃",
+              "event_key": "discard",
+              "color_rgb": [
+                248,
+                208,
+                208
+              ]
+            }
+          ],
+          "pending_message": null,
+          "pending_messages": []
+        }
+      },
+      "pos_x": 2840.5925,
+      "pos_y": 792.2142,
+      "size_x": 520.0,
+      "size_y": 380.0
+    },
+    {
+      "id": 8,
+      "uid": "d0d43079-0835-4ea7-9bd9-c78603c8a008",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Integrator",
+          "startup_script": "pi --append-system-prompt \"你是 Integrator。在当前 cwd 同步主分支（git fetch && git rebase origin/main 或 merge --ff-only），并执行关键回归测试。输出 artifacts/integration-report.md 后执行: canvas done 'stage=integration;status=ok;route=to_pr'\" --model openai-codex/gpt-5.3-codex --thinking medium",
+          "working_directory": ""
+        }
+      },
+      "pos_x": 3560.0,
+      "pos_y": 660.0,
+      "size_x": 900.0,
+      "size_y": 620.0
+    },
+    {
+      "id": 9,
+      "uid": "d0d43079-0835-4ea7-9bd9-c78603c8a009",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "PR & Merge",
+          "startup_script": "pi --append-system-prompt \"你是 Release Worker。在主仓库目录执行：git -C <worktree_path> push -u origin <branch>，然后 gh pr create。记录 artifacts/pr.md。若团队允许自动合并，等待合并状态后继续。完成后执行: canvas done 'stage=pr;status=ok;route=to_cleanup'\" --model openai-codex/gpt-5.3-codex --thinking medium",
+          "working_directory": null
+        }
+      },
+      "pos_x": 4520.0,
+      "pos_y": 660.0,
+      "size_x": 940.0,
+      "size_y": 620.0
+    },
+    {
+      "id": 10,
+      "uid": "d0d43079-0835-4ea7-9bd9-c78603c8a010",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Cleanup",
+          "startup_script": "pi --append-system-prompt \"你是 Cleanup Worker。确认 PR 已可追踪后，执行 git worktree remove <worktree_path>，删除本地分支，按策略删除远端分支。输出 artifacts/cleanup.md 并执行: canvas done 'stage=cleanup;status=done'\" --model openai-codex/gpt-5.3-codex --thinking low",
+          "working_directory": null
+        }
+      },
+      "pos_x": 5500.0,
+      "pos_y": 660.0,
+      "size_x": 900.0,
+      "size_y": 620.0
+    },
+    {
+      "id": 11,
+      "uid": "d0d43079-0835-4ea7-9bd9-c78603c8a011",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Discard",
+          "startup_script": "pi --append-system-prompt \"你是 Abort Handler。记录失败原因到 artifacts/discard.md，并执行必要回滚（如删除未使用 worktree）。最后执行: canvas done 'stage=discard;status=done'\" --model openai-codex/gpt-5.3-codex --thinking low",
+          "working_directory": null
+        }
+      },
+      "pos_x": 3560.0,
+      "pos_y": 1640.0,
+      "size_x": 900.0,
+      "size_y": 540.0
+    }
+  ],
+  "edges": [
+    [
+      1,
+      2
+    ],
+    [
+      2,
+      3
+    ],
+    [
+      3,
+      4
+    ],
+    [
+      3,
+      5
+    ],
+    [
+      4,
+      5
+    ],
+    [
+      5,
+      6
+    ],
+    [
+      6,
+      7
+    ],
+    [
+      7,
+      8
+    ],
+    [
+      7,
+      5
+    ],
+    [
+      7,
+      4
+    ],
+    [
+      7,
+      11
+    ],
+    [
+      8,
+      9
+    ],
+    [
+      9,
+      10
+    ]
+  ],
+  "edge_routes": [
+    {
+      "from": 3,
+      "to": 4,
+      "route_key": "complex"
+    },
+    {
+      "from": 3,
+      "to": 5,
+      "route_key": "simple"
+    },
+    {
+      "from": 7,
+      "to": 5,
+      "route_key": "fix"
+    },
+    {
+      "from": 7,
+      "to": 8,
+      "route_key": "approve"
+    },
+    {
+      "from": 7,
+      "to": 4,
+      "route_key": "replan"
+    },
+    {
+      "from": 7,
+      "to": 11,
+      "route_key": "discard"
+    }
+  ],
+  "edge_curve_biases": [],
+  "edge_control_offsets": [],
+  "view": {
+    "pan_x": 966.60364,
+    "pan_y": 46.65335,
+    "zoom": 0.45339236
+  },
+  "workspace_name": "Git Worktree Flow"
+}
