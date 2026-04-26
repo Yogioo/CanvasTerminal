@@ -116,12 +116,29 @@ impl GraphApp {
     pub(in crate::app) fn top_group_id_at(&self, pointer_world: Pos2) -> Option<usize> {
         self.nodes
             .iter()
-            .rev()
-            .find(|node| {
-                node.kind == NodeKind::Group
-                    && Rect::from_min_size(node.pos, node.size).contains(pointer_world)
+            .enumerate()
+            .filter_map(|(idx, node)| {
+                if node.kind != NodeKind::Group {
+                    return None;
+                }
+
+                let rect = Rect::from_min_size(node.pos, node.size);
+                if !rect.contains(pointer_world) {
+                    return None;
+                }
+
+                Some((
+                    node.id,
+                    rect.width() * rect.height(),
+                    idx, // 作为同面积时的层级兜底
+                ))
             })
-            .map(|node| node.id)
+            .min_by(|a, b| {
+                a.1.partial_cmp(&b.1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| b.2.cmp(&a.2))
+            })
+            .map(|(id, _, _)| id)
     }
 
     pub(in crate::app) fn group_child_ids(&self, group_id: usize) -> Option<Vec<usize>> {
