@@ -12,8 +12,8 @@
           "working_directory": null
         }
       },
-      "pos_x": -1903.0645,
-      "pos_y": 513.6825,
+      "pos_x": -1988.744,
+      "pos_y": 514.09546,
       "size_x": 860.0,
       "size_y": 620.0
     },
@@ -28,8 +28,8 @@
           "working_directory": null
         }
       },
-      "pos_x": -943.06445,
-      "pos_y": 513.6825,
+      "pos_x": -1001.1427,
+      "pos_y": 528.8334,
       "size_x": 920.0,
       "size_y": 620.0
     },
@@ -64,10 +64,10 @@
           "pending_messages": []
         }
       },
-      "pos_x": 225.30972,
-      "pos_y": 691.3717,
-      "size_x": 420.0,
-      "size_y": 280.0
+      "pos_x": 91.47705,
+      "pos_y": 567.6396,
+      "size_x": 472.09534,
+      "size_y": 536.82825
     },
     {
       "id": 4,
@@ -77,11 +77,11 @@
         "Terminal": {
           "title": "Planner",
           "startup_script": "pi --append-system-prompt \"你是 Planner（复杂任务入口）。读取 artifacts/intake.md + artifacts/worktree.md，在当前 cwd 生成 artifacts/plan.md（模块拆分、里程碑、测试策略）。计划完成后执行: canvas done 'stage=plan;status=ok;route=to_worker'\" --model openai-codex/gpt-5.4 --thinking high",
-          "working_directory": ""
+          "working_directory": "../CanvasTerminal-worktrees/feat-2026-04-26-node-grouping"
         }
       },
-      "pos_x": 819.8137,
-      "pos_y": 195.94812,
+      "pos_x": 736.484,
+      "pos_y": 206.04865,
       "size_x": 900.0,
       "size_y": 620.0
     },
@@ -93,11 +93,11 @@
         "Terminal": {
           "title": "Worker",
           "startup_script": "pi --append-system-prompt \"你是 Worker。按验收标准在当前 cwd 开发，做最小改动并迭代提交 commit。输出 artifacts/worker-report.md（变更摘要、commit 列表、风险）。然后执行: canvas done 'stage=dev;status=ok;route=to_tester'\" --model openai-codex/gpt-5.3-codex --thinking medium",
-          "working_directory": ""
+          "working_directory": "../CanvasTerminal-worktrees/feat-2026-04-26-node-grouping"
         }
       },
-      "pos_x": 789.2114,
-      "pos_y": 1106.5867,
+      "pos_x": 763.60254,
+      "pos_y": 1017.7438,
       "size_x": 900.0,
       "size_y": 620.0
     },
@@ -109,11 +109,11 @@
         "Terminal": {
           "title": "Tester",
           "startup_script": "pi --append-system-prompt \"你是 Tester。读取 intake 验收标准并在当前 cwd 执行关键测试（例如 npm test / cargo test）。输出 artifacts/test-report.md。测试后执行: canvas done 'stage=test;status=ok;route=to_approval'\" --model openai-codex/gpt-5.3-codex --thinking medium",
-          "working_directory": null
+          "working_directory": "../CanvasTerminal-worktrees/feat-2026-04-26-node-grouping"
         }
       },
-      "pos_x": 1889.7556,
-      "pos_y": 1435.9078,
+      "pos_x": 1712.9722,
+      "pos_y": 1577.4819,
       "size_x": 900.0,
       "size_y": 620.0
     },
@@ -166,10 +166,10 @@
           "pending_messages": []
         }
       },
-      "pos_x": 2840.5925,
-      "pos_y": 792.2142,
-      "size_x": 520.0,
-      "size_y": 380.0
+      "pos_x": 2712.1133,
+      "pos_y": 726.9336,
+      "size_x": 734.6426,
+      "size_y": 1423.896
     },
     {
       "id": 8,
@@ -179,7 +179,7 @@
         "Terminal": {
           "title": "Integrator",
           "startup_script": "pi --append-system-prompt \"你是 Integrator。在当前 cwd 同步主分支（git fetch && git rebase origin/main 或 merge --ff-only），并执行关键回归测试。输出 artifacts/integration-report.md 后执行: canvas done 'stage=integration;status=ok;route=to_pr'\" --model openai-codex/gpt-5.3-codex --thinking medium",
-          "working_directory": ""
+          "working_directory": "../CanvasTerminal-worktrees/feat-2026-04-26-node-grouping"
         }
       },
       "pos_x": 3560.0,
@@ -230,8 +230,8 @@
           "working_directory": null
         }
       },
-      "pos_x": 3560.0,
-      "pos_y": 1640.0,
+      "pos_x": 3548.8022,
+      "pos_y": 1595.208,
       "size_x": 900.0,
       "size_y": 540.0
     }
@@ -303,31 +303,31 @@
     },
     {
       "from": 7,
-      "to": 5,
-      "route_key": "fix"
-    },
-    {
-      "from": 7,
       "to": 8,
       "route_key": "approve"
     },
     {
       "from": 7,
-      "to": 4,
-      "route_key": "replan"
+      "to": 11,
+      "route_key": "discard"
     },
     {
       "from": 7,
-      "to": 11,
-      "route_key": "discard"
+      "to": 5,
+      "route_key": "fix"
+    },
+    {
+      "from": 7,
+      "to": 4,
+      "route_key": "replan"
     }
   ],
   "edge_curve_biases": [],
   "edge_control_offsets": [],
   "view": {
-    "pan_x": 966.60364,
-    "pan_y": 46.65335,
-    "zoom": 0.45339236
+    "pan_x": -2971.6982,
+    "pan_y": -290.19897,
+    "zoom": 0.6399945
   },
   "workspace_name": "Git Worktree Flow"
 }
