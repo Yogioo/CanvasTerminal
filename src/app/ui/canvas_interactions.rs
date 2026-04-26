@@ -118,6 +118,25 @@ impl GraphApp {
             && self.editing_working_directory_node.is_none()
             && primary_pressed
         {
+            if primary_clicked && ctx.input(|i| i.modifiers.alt) {
+                if let Some(pointer) = pointer_pos {
+                    let local = self.screen_to_world_pos(rect, pointer);
+                    if self.jump_selected_nodes_to(local) {
+                        self.dragging = None;
+                        self.drag_start_pos = None;
+                        self.drag_group_start = None;
+                        self.dragging_edge_control = None;
+                        self.resizing = None;
+                        self.box_select_start = None;
+                        self.box_select_current = None;
+                        self.box_select_additive = false;
+                        self.box_select_subtractive = false;
+                        self.box_select_base_selection.clear();
+                        return (tolerant_double_click, resize_handle_hit);
+                    }
+                }
+            }
+
             if let Some((edge, handle)) = edge_handle_hit {
                 self.editing_text_node = None;
                 self.set_edge_selection(edge);
@@ -187,25 +206,14 @@ impl GraphApp {
 
                             if can_drag {
                                 self.dragging = Some((id, local.to_vec2() - node_pos));
-                                let drag_ids: std::collections::HashSet<usize> = if multi_drag {
-                                    self.selected_nodes.clone()
-                                } else if self
+                                let drag_ids = self.resolve_drag_node_ids(id, multi_drag);
+                                let id_is_group = self
                                     .nodes
                                     .iter()
                                     .find(|n| n.id == id)
-                                    .is_some_and(|n| n.kind == NodeKind::Group)
-                                {
-                                    let mut ids = std::collections::HashSet::new();
-                                    ids.insert(id);
-                                    if let Some(children) = self.group_child_ids(id) {
-                                        ids.extend(children);
-                                    }
-                                    ids
-                                } else {
-                                    std::iter::once(id).collect()
-                                };
+                                    .is_some_and(|n| n.kind == NodeKind::Group);
 
-                                if drag_ids.len() > 1 {
+                                if drag_ids.len() > 1 || id_is_group {
                                     let start_nodes = self
                                         .nodes
                                         .iter()
@@ -214,9 +222,13 @@ impl GraphApp {
                                         .collect();
                                     self.drag_group_start = Some((local, start_nodes));
                                     self.drag_start_pos = None;
-                                } else {
-                                    self.drag_group_start = None;
-                                    self.drag_start_pos = Some((id, node_pos.to_pos2()));
+                                } else if let Some(single_id) = drag_ids.iter().copied().next() {
+                                    if let Some(single_node) =
+                                        self.nodes.iter().find(|n| n.id == single_id)
+                                    {
+                                        self.drag_group_start = None;
+                                        self.drag_start_pos = Some((single_id, single_node.pos));
+                                    }
                                 }
                             }
                         }

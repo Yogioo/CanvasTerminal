@@ -2,6 +2,7 @@ use super::{history::CreatedEdge, GraphApp};
 use crate::constants::GROUP_HEADER_HEIGHT;
 use crate::model::{Node, NodeData, NodeKind};
 use eframe::egui::{vec2, Pos2, Rect};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 const GROUP_PADDING: f32 = 20.0;
@@ -16,6 +17,13 @@ impl GraphApp {
             .collect();
 
         if child_ids.len() < 2 {
+            return None;
+        }
+
+        if child_ids
+            .iter()
+            .any(|node_id| self.node_is_in_any_group(*node_id))
+        {
             return None;
         }
 
@@ -119,23 +127,6 @@ impl GraphApp {
             .map(|node| node.id)
     }
 
-    pub(in crate::app) fn group_child_hit_at(
-        &self,
-        group_id: usize,
-        pointer_world: Pos2,
-    ) -> Option<usize> {
-        let child_ids = self.group_child_ids(group_id)?;
-        self.nodes
-            .iter()
-            .rev()
-            .find(|node| {
-                node.kind != NodeKind::Group
-                    && child_ids.contains(&node.id)
-                    && Rect::from_min_size(node.pos, node.size).contains(pointer_world)
-            })
-            .map(|node| node.id)
-    }
-
     pub(in crate::app) fn group_child_ids(&self, group_id: usize) -> Option<Vec<usize>> {
         let group = self.nodes.iter().find(|node| node.id == group_id)?;
         let NodeData::Group { child_node_ids, .. } = &group.data else {
@@ -143,6 +134,127 @@ impl GraphApp {
         };
 
         Some(child_node_ids.clone())
+    }
+
+    pub(in crate::app) fn node_is_in_any_group(&self, node_id: usize) -> bool {
+        self.nodes.iter().any(|node| {
+            if node.kind != NodeKind::Group {
+                return false;
+            }
+
+            match &node.data {
+                NodeData::Group { child_node_ids, .. } => child_node_ids.contains(&node_id),
+                _ => false,
+            }
+        })
+    }
+
+    pub(in crate::app) fn resolve_drag_node_ids(
+        &self,
+        anchor_id: usize,
+        multi_drag: bool,
+    ) -> HashSet<usize> {
+        let base_ids: HashSet<usize> = if multi_drag {
+            self.selected_nodes.clone()
+        } else {
+            std::iter::once(anchor_id).collect()
+        };
+
+        let mut drag_ids = HashSet::new();
+        for selected_id in &base_ids {
+            let is_group = self
+                .nodes
+                .iter()
+                .find(|node| node.id == *selected_id)
+                .is_some_and(|node| node.kind == NodeKind::Group);
+
+            if is_group {
+                if let Some(children) = self.group_child_ids(*selected_id) {
+                    for child_id in children {
+                        drag_ids.insert(child_id);
+                    }
+                }
+            } else {
+                drag_ids.insert(*selected_id);
+            }
+        }
+
+        drag_ids
+    }
+
+    pub(in crate::app) fn jump_selected_nodes_to(&mut self, pointer_world: Pos2) -> bool {
+        let moving_ids: Vec<usize> = self
+            .selected_nodes
+            .iter()
+            .copied()
+            .filter(|id| {
+                self.nodes
+                    .iter()
+                    .find(|node| node.id == *id)
+                    .is_some_and(|node| node.kind != NodeKind::Group)
+            })
+            .collect();
+
+        if moving_ids.is_empty() {
+            return false;
+        }
+
+        let moving_nodes: Vec<_> = self
+            .nodes
+            .iter()
+            .filter(|node| moving_ids.contains(&node.id))
+            .cloned()
+            .collect();
+
+        if moving_nodes.is_empty() {
+            return false;
+        }
+
+        let anchor = moving_nodes
+            .iter()
+            .fold(Pos2::new(f32::INFINITY, f32::INFINITY), |acc, node| {
+                Pos2::new(acc.x.min(node.pos.x), acc.y.min(node.pos.y))
+            });
+        let delta = pointer_world - anchor;
+
+        let mut moves = Vec::new();
+        for node in self.nodes.iter_mut().filter(|node| moving_ids.contains(&node.id)) {
+            let from = node.pos;
+            node.pos += delta;
+            moves.push((node.id, from, node.pos));
+        }
+
+        if let Some(target_group_id) = self.top_group_id_at(pointer_world) {
+            self.remove_nodes_from_all_groups(&moving_ids);
+            self.add_nodes_to_group(target_group_id, &moving_ids);
+        }
+
+        self.sync_all_group_bounds();
+        self.record_nodes_move_history(moves);
+        self.mark_workspace_dirty();
+        true
+    }
+
+    fn remove_nodes_from_all_groups(&mut self, node_ids: &[usize]) {
+        for group in self.nodes.iter_mut().filter(|node| node.kind == NodeKind::Group) {
+            if let NodeData::Group { child_node_ids, .. } = &mut group.data {
+                child_node_ids.retain(|child_id| !node_ids.contains(child_id));
+            }
+        }
+    }
+
+    fn add_nodes_to_group(&mut self, group_id: usize, node_ids: &[usize]) {
+        let Some(group) = self.nodes.iter_mut().find(|node| node.id == group_id) else {
+            return;
+        };
+
+        if let NodeData::Group { child_node_ids, .. } = &mut group.data {
+            for node_id in node_ids {
+                if !child_node_ids.contains(node_id) {
+                    child_node_ids.push(*node_id);
+                }
+            }
+        }
     }
 
     pub(in crate::app) fn sanitize_groups(&mut self) {
@@ -220,11 +332,4 @@ impl GraphApp {
         format!("Group {}", max_index + 1)
     }
 
-    pub(in crate::app) fn find_node_id_at(&self, local: Pos2) -> Option<usize> {
-        self.nodes
-            .iter()
-            .rev()
-            .find(|node| Rect::from_min_size(node.pos, node.size).contains(local))
-            .map(|node| node.id)
-    }
 }

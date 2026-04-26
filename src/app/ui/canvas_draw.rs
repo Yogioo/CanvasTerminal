@@ -425,20 +425,22 @@ impl GraphApp {
         );
         self.handle_decision_queue_editor(ctx);
 
-        if alt_passthrough {
+        if alt_passthrough && !self.selected_nodes.is_empty() {
             if let Some(pointer) = pointer_pos {
                 let local = self.screen_to_world_pos(rect, pointer);
-                if let Some(group_id) = self.top_group_id_at(local) {
-                    if self.group_child_hit_at(group_id, local).is_some() {
-                        painter.text(
-                            pointer + egui::vec2(14.0, 10.0),
-                            egui::Align2::LEFT_TOP,
-                            "Alt: 点击组内节点",
-                            egui::FontId::proportional(12.0),
-                            Color32::from_rgb(220, 232, 255),
-                        );
-                    }
-                }
+                let hint = if self.top_group_id_at(local).is_some() {
+                    "Alt+点击: 跳转并进入目标组"
+                } else {
+                    "Alt+点击: 跳转到鼠标位置"
+                };
+
+                painter.text(
+                    pointer + egui::vec2(14.0, 10.0),
+                    egui::Align2::LEFT_TOP,
+                    hint,
+                    egui::FontId::proportional(12.0),
+                    Color32::from_rgb(220, 232, 255),
+                );
             }
         }
 
