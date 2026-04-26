@@ -305,6 +305,7 @@ impl GraphApp {
             && !is_panning
             && !pointer_over_terminal_content
             && !pointer_in_window_top_strip
+            && !alt_passthrough
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()
             && (response.double_clicked() || tolerant_double_click)
@@ -348,6 +349,7 @@ impl GraphApp {
         if !any_popup_open
             && !is_panning
             && !pointer_over_terminal_content
+            && !alt_passthrough
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()
             && response.clicked()
