@@ -20,10 +20,7 @@ impl GraphApp {
             return None;
         }
 
-        if child_ids
-            .iter()
-            .any(|node_id| self.node_is_in_any_group(*node_id))
-        {
+        if self.find_same_members_group(&child_ids).is_some() {
             return None;
         }
 
@@ -136,16 +133,24 @@ impl GraphApp {
         Some(child_node_ids.clone())
     }
 
-    pub(in crate::app) fn node_is_in_any_group(&self, node_id: usize) -> bool {
-        self.nodes.iter().any(|node| {
-            if node.kind != NodeKind::Group {
-                return false;
-            }
+    fn find_same_members_group(&self, node_ids: &[usize]) -> Option<usize> {
+        let mut target = node_ids.to_vec();
+        target.sort_unstable();
+        target.dedup();
 
-            match &node.data {
-                NodeData::Group { child_node_ids, .. } => child_node_ids.contains(&node_id),
-                _ => false,
+        self.nodes.iter().find_map(|node| {
+            if node.kind != NodeKind::Group {
+                return None;
             }
+            let NodeData::Group { child_node_ids, .. } = &node.data else {
+                return None;
+            };
+
+            let mut current = child_node_ids.clone();
+            current.sort_unstable();
+            current.dedup();
+
+            (current == target).then_some(node.id)
         })
     }
 
@@ -183,16 +188,13 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn jump_selected_nodes_to(&mut self, pointer_world: Pos2) -> bool {
+        if self.selected_nodes.is_empty() {
+            return false;
+        }
+
         let moving_ids: Vec<usize> = self
-            .selected_nodes
-            .iter()
-            .copied()
-            .filter(|id| {
-                self.nodes
-                    .iter()
-                    .find(|node| node.id == *id)
-                    .is_some_and(|node| node.kind != NodeKind::Group)
-            })
+            .resolve_jump_node_ids()
+            .into_iter()
             .collect();
 
         if moving_ids.is_empty() {
@@ -233,6 +235,28 @@ impl GraphApp {
         self.record_nodes_move_history(moves);
         self.mark_workspace_dirty();
         true
+    }
+
+    fn resolve_jump_node_ids(&self) -> HashSet<usize> {
+        let mut ids = HashSet::new();
+        for selected_id in &self.selected_nodes {
+            let is_group = self
+                .nodes
+                .iter()
+                .find(|node| node.id == *selected_id)
+                .is_some_and(|node| node.kind == NodeKind::Group);
+
+            if is_group {
+                if let Some(children) = self.group_child_ids(*selected_id) {
+                    for child_id in children {
+                        ids.insert(child_id);
+                    }
+                }
+            } else {
+                ids.insert(*selected_id);
+            }
+        }
+        ids
     }
 
     fn remove_nodes_from_all_groups(&mut self, node_ids: &[usize]) {
