@@ -139,6 +139,7 @@ impl GraphApp {
 
         if !is_panning
             && !any_popup_open
+            && !ctx.input(|i| i.modifiers.alt)
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()

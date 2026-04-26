@@ -226,8 +226,8 @@ impl GraphApp {
             moves.push((node.id, from, node.pos));
         }
 
+        self.remove_nodes_from_all_groups(&moving_ids);
         if let Some(target_group_id) = self.top_group_id_at(pointer_world) {
-            self.remove_nodes_from_all_groups(&moving_ids);
             self.add_nodes_to_group(target_group_id, &moving_ids);
         }
 
