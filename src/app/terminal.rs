@@ -162,7 +162,7 @@ impl GraphApp {
                 true
             }
             NodeKind::Decision => self.enqueue_decision_message(target_id, message),
-            NodeKind::Text | NodeKind::Image => false,
+            NodeKind::Text | NodeKind::Image | NodeKind::Group => false,
         }
     }
 

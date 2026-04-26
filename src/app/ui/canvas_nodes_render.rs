@@ -1,5 +1,5 @@
 use super::super::GraphApp;
-use crate::constants::DECISION_HEADER_HEIGHT;
+use crate::constants::{DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT};
 use crate::model::{NodeData, NodeKind};
 use eframe::egui::{
     self, vec2, Align, Align2, Color32, FontId, Layout, Painter, Pos2, Rect, Stroke,
@@ -26,7 +26,8 @@ impl GraphApp {
         let mut decision_edit_rect: Option<(usize, Rect)> = None;
         let mut working_directory_edit_rect: Option<(usize, Rect)> = None;
 
-        let render_nodes = self.nodes.clone();
+        let mut render_nodes = self.nodes.clone();
+        render_nodes.sort_by_key(|node| usize::from(node.kind != NodeKind::Group));
         for node in &render_nodes {
             let node_rect =
                 self.world_to_screen_rect(rect, Rect::from_min_size(node.pos, node.size));
@@ -106,6 +107,25 @@ impl GraphApp {
                         Stroke::new(
                             1.0 * zoom_scale.clamp(0.6, 1.6),
                             Color32::from_rgb(98, 162, 120),
+                        )
+                    };
+                    (fill, stroke)
+                }
+                NodeKind::Group => {
+                    let fill = if is_selected {
+                        Color32::from_rgba_unmultiplied(62, 70, 108, 58)
+                    } else {
+                        Color32::from_rgba_unmultiplied(52, 58, 88, 46)
+                    };
+                    let stroke = if is_selected {
+                        Stroke::new(
+                            2.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(186, 205, 255),
+                        )
+                    } else {
+                        Stroke::new(
+                            1.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(118, 132, 176),
                         )
                     };
                     (fill, stroke)
@@ -655,6 +675,38 @@ impl GraphApp {
                             vec2(handle_size, handle_size),
                         );
                         painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(175, 230, 240));
+                    }
+                }
+                NodeKind::Group => {
+                    painter.rect(
+                        node_rect,
+                        10.0 * zoom_scale,
+                        fill,
+                        stroke,
+                        egui::StrokeKind::Outside,
+                    );
+
+                    let is_title_editing = self.editing_title_node == Some(node.id);
+                    if !is_title_editing {
+                        let title = match &node.data {
+                            NodeData::Group { title, .. } => title.as_str(),
+                            _ => "Group",
+                        };
+                        painter.text(
+                            node_rect.left_top() + vec2(12.0, 10.0) * zoom_scale,
+                            Align2::LEFT_TOP,
+                            title,
+                            FontId::proportional((14.0 * zoom_scale).max(9.0)),
+                            Color32::from_rgb(220, 230, 255),
+                        );
+                    } else {
+                        let rect_min = node_rect.left_top() + vec2(10.0, 6.0) * zoom_scale;
+                        let rect_max = Pos2::new(
+                            node_rect.max.x - 10.0 * zoom_scale,
+                            (node_rect.min.y + GROUP_HEADER_HEIGHT * zoom_scale - 6.0 * zoom_scale)
+                                .min(node_rect.max.y),
+                        );
+                        title_edit_rect = Some((node.id, Rect::from_min_max(rect_min, rect_max)));
                     }
                 }
             }

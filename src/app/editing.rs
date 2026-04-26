@@ -174,6 +174,7 @@ impl GraphApp {
             .and_then(|n| match &n.data {
                 NodeData::Terminal { title, .. } => Some(title.clone()),
                 NodeData::Decision { title, .. } => Some(title.clone()),
+                NodeData::Group { title, .. } => Some(title.clone()),
                 _ => None,
             })
         else {
@@ -192,7 +193,9 @@ impl GraphApp {
             let trimmed = self.title_edit_buffer.trim();
             if !trimmed.is_empty() {
                 match &mut node.data {
-                    NodeData::Terminal { title, .. } | NodeData::Decision { title, .. } => {
+                    NodeData::Terminal { title, .. }
+                    | NodeData::Decision { title, .. }
+                    | NodeData::Group { title, .. } => {
                         if title != trimmed {
                             *title = trimmed.to_owned();
                             changed = true;

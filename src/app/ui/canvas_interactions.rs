@@ -31,7 +31,8 @@ impl GraphApp {
         if primary_clicked {
             if let Some(pointer) = pointer_pos {
                 let local = self.screen_to_world_pos(rect, pointer);
-                if let Some((node_id, _)) = self.find_node_at(local) {
+                let alt_passthrough = ctx.input(|i| i.modifiers.alt);
+                if let Some((node_id, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
                     if let Some(node) = self.nodes.iter().find(|n| n.id == node_id) {
                         if node.kind == NodeKind::Terminal
                             && local.y > node.pos.y + TERMINAL_HEADER_HEIGHT
@@ -115,6 +116,33 @@ impl GraphApp {
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()
+            && primary_clicked
+            && ctx.input(|i| i.modifiers.alt)
+        {
+            if let Some(pointer) = pointer_pos {
+                let local = self.screen_to_world_pos(rect, pointer);
+                if self.jump_selected_nodes_to(local) {
+                    self.dragging = None;
+                    self.drag_start_pos = None;
+                    self.drag_group_start = None;
+                    self.dragging_edge_control = None;
+                    self.resizing = None;
+                    self.box_select_start = None;
+                    self.box_select_current = None;
+                    self.box_select_additive = false;
+                    self.box_select_subtractive = false;
+                    self.box_select_base_selection.clear();
+                    return (tolerant_double_click, resize_handle_hit);
+                }
+            }
+        }
+
+        if !is_panning
+            && !any_popup_open
+            && !ctx.input(|i| i.modifiers.alt)
+            && self.editing_title_node.is_none()
+            && self.editing_startup_node.is_none()
+            && self.editing_working_directory_node.is_none()
             && primary_pressed
         {
             if let Some((edge, handle)) = edge_handle_hit {
@@ -147,7 +175,10 @@ impl GraphApp {
             } else if !pointer_over_terminal_content {
                 if let Some(pointer) = pointer_pos {
                     let local = self.screen_to_world_pos(rect, pointer);
-                    if let Some((id, node_pos, can_drag)) = self.find_node_hit(local) {
+                    let alt_passthrough = ctx.input(|i| i.modifiers.alt);
+                    if let Some((id, node_pos, can_drag)) =
+                        self.find_node_hit_with_alt(local, alt_passthrough)
+                    {
                         if Some(id) != self.editing_text_node {
                             self.editing_text_node = None;
                         }
@@ -183,18 +214,29 @@ impl GraphApp {
 
                             if can_drag {
                                 self.dragging = Some((id, local.to_vec2() - node_pos));
-                                if multi_drag {
+                                let drag_ids = self.resolve_drag_node_ids(id, multi_drag);
+                                let id_is_group = self
+                                    .nodes
+                                    .iter()
+                                    .find(|n| n.id == id)
+                                    .is_some_and(|n| n.kind == NodeKind::Group);
+
+                                if drag_ids.len() > 1 || id_is_group {
                                     let start_nodes = self
                                         .nodes
                                         .iter()
-                                        .filter(|n| self.selected_nodes.contains(&n.id))
+                                        .filter(|n| drag_ids.contains(&n.id))
                                         .map(|n| (n.id, n.pos))
                                         .collect();
                                     self.drag_group_start = Some((local, start_nodes));
                                     self.drag_start_pos = None;
-                                } else {
-                                    self.drag_group_start = None;
-                                    self.drag_start_pos = Some((id, node_pos.to_pos2()));
+                                } else if let Some(single_id) = drag_ids.iter().copied().next() {
+                                    if let Some(single_node) =
+                                        self.nodes.iter().find(|n| n.id == single_id)
+                                    {
+                                        self.drag_group_start = None;
+                                        self.drag_start_pos = Some((single_id, single_node.pos));
+                                    }
                                 }
                             }
                         }
@@ -291,6 +333,7 @@ impl GraphApp {
                                 let height = (start_size.y + delta.y).max(140.0);
                                 node.size = vec2(width, height);
                             }
+                            NodeKind::Group => {}
                         }
                     }
                 }
@@ -410,7 +453,8 @@ impl GraphApp {
 
             if let Some(pointer_pos) = response.interact_pointer_pos() {
                 let local = self.screen_to_world_pos(rect, pointer_pos);
-                if let Some((id, _)) = self.find_node_at(local) {
+                let alt_passthrough = ctx.input(|i| i.modifiers.alt);
+                if let Some((id, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
                     self.linking_from = Some(id);
                     self.linking_pointer_local = Some(local);
                     self.set_single_selection(id);
@@ -443,7 +487,8 @@ impl GraphApp {
             if let Some(from) = self.linking_from {
                 if let Some(pointer_pos) = response.interact_pointer_pos() {
                     let local = self.screen_to_world_pos(rect, pointer_pos);
-                    if let Some((to, _)) = self.find_node_at(local) {
+                    let alt_passthrough = ctx.input(|i| i.modifiers.alt);
+                    if let Some((to, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
                         if to != from && !self.has_edge(from, to) {
                             self.edges.push((from, to));
                             self.mark_workspace_dirty();
@@ -477,7 +522,10 @@ impl GraphApp {
         {
             if let Some(pointer_pos) = response.interact_pointer_pos() {
                 let local = self.screen_to_world_pos(rect, pointer_pos);
-                let context_menu_node = self.find_node_at(local).map(|(id, _)| id);
+                let alt_passthrough = ctx.input(|i| i.modifiers.alt);
+                let context_menu_node = self
+                    .find_node_at_with_alt(local, alt_passthrough)
+                    .map(|(id, _)| id);
                 let context_menu_edge = if context_menu_node.is_none() {
                     self.find_edge_at(local, edge_hit_tolerance)
                 } else {

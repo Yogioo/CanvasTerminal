@@ -9,7 +9,13 @@ impl GraphApp {
             return false;
         }
 
-        let selected_ids = self.selected_nodes.clone();
+        let mut selected_ids = self.selected_nodes.clone();
+        for group_id in self.selected_nodes.iter().copied() {
+            if let Some(children) = self.group_child_ids(group_id) {
+                selected_ids.extend(children);
+            }
+        }
+
         let nodes: Vec<_> = self
             .nodes
             .iter()
@@ -55,6 +61,15 @@ impl GraphApp {
             );
             id_map.insert(old_id, node.id);
             pasted_nodes.push(node);
+        }
+
+        for node in &mut pasted_nodes {
+            if let crate::model::NodeData::Group { child_node_ids, .. } = &mut node.data {
+                *child_node_ids = child_node_ids
+                    .iter()
+                    .filter_map(|old_id| id_map.get(old_id).copied())
+                    .collect();
+            }
         }
 
         let mut pasted_edges = Vec::new();

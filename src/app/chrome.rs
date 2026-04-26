@@ -54,6 +54,16 @@ impl GraphApp {
             }
         }
 
+        if node_clipboard_shortcut_allowed
+            && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::G))
+        {
+            if self.create_group_from_selection().is_some() {
+                self.push_toast_notification("已创建分组");
+            } else {
+                self.push_toast_notification("创建分组失败：请选中至少 2 个节点，且不能与现有组成员完全一致");
+            }
+        }
+
         if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::M)) {
             self.performance_metrics.toggle_visible();
         }

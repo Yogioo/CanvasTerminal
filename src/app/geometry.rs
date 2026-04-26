@@ -224,32 +224,42 @@ fn sample_edge_curve(curve: &EdgeCurve, segments: usize) -> Vec<Pos2> {
 }
 
 impl GraphApp {
-    pub(in crate::app) fn find_node_at(&self, local: Pos2) -> Option<(usize, egui::Vec2)> {
-        for n in self.nodes.iter().rev() {
-            let r = Rect::from_min_size(n.pos, n.size);
-            if r.contains(local) {
-                return Some((n.id, n.pos.to_vec2()));
-            }
-        }
-        None
+    pub(in crate::app) fn find_node_at_with_alt(
+        &self,
+        local: Pos2,
+        _alt_passthrough: bool,
+    ) -> Option<(usize, egui::Vec2)> {
+        let node_id = self
+            .nodes
+            .iter()
+            .rev()
+            .find(|node| {
+                node.kind != NodeKind::Group && Rect::from_min_size(node.pos, node.size).contains(local)
+            })
+            .map(|node| node.id)
+            .or_else(|| self.top_group_id_at(local))?;
+
+        self.nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .map(|n| (n.id, n.pos.to_vec2()))
     }
 
-    pub(in crate::app) fn find_node_hit(&self, local: Pos2) -> Option<(usize, egui::Vec2, bool)> {
-        for n in self.nodes.iter().rev() {
-            let r = Rect::from_min_size(n.pos, n.size);
-            if !r.contains(local) {
-                continue;
-            }
+    pub(in crate::app) fn find_node_hit_with_alt(
+        &self,
+        local: Pos2,
+        alt_passthrough: bool,
+    ) -> Option<(usize, egui::Vec2, bool)> {
+        let (id, node_pos) = self.find_node_at_with_alt(local, alt_passthrough)?;
+        let n = self.nodes.iter().find(|node| node.id == id)?;
 
-            let can_drag = match n.kind {
-                NodeKind::Text | NodeKind::Image => true,
-                NodeKind::Terminal => local.y <= n.pos.y + TERMINAL_HEADER_HEIGHT,
-                NodeKind::Decision => local.y <= n.pos.y + DECISION_HEADER_HEIGHT,
-            };
+        let can_drag = match n.kind {
+            NodeKind::Text | NodeKind::Image | NodeKind::Group => true,
+            NodeKind::Terminal => local.y <= n.pos.y + TERMINAL_HEADER_HEIGHT,
+            NodeKind::Decision => local.y <= n.pos.y + DECISION_HEADER_HEIGHT,
+        };
 
-            return Some((n.id, n.pos.to_vec2(), can_drag));
-        }
-        None
+        Some((id, node_pos, can_drag))
     }
 
     pub(in crate::app) fn ensure_camera_initialized(&mut self, canvas_rect: Rect) {

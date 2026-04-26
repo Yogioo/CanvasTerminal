@@ -34,6 +34,13 @@ pub(in crate::app) struct NodeCreatePayload {
 }
 
 #[derive(Debug, Deserialize)]
+pub(in crate::app) struct GroupCreatePayload {
+    pub node_ids: Vec<usize>,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub(in crate::app) struct NodeMovePayload {
     pub id: usize,
     pub x: f32,
