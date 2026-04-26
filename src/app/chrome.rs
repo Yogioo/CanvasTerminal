@@ -33,6 +33,26 @@ impl GraphApp {
             self.reset_menu_search_state(true);
         }
 
+        let node_clipboard_shortcut_allowed = self.editing_text_node.is_none()
+            && self.editing_title_node.is_none()
+            && self.editing_startup_node.is_none()
+            && self.editing_decision_buttons_node.is_none()
+            && self.editing_decision_queue_node.is_none()
+            && self.editing_edge.is_none()
+            && !self.command_palette_open;
+        let copy_shortcut_pressed = ctx.input_mut(|i| {
+            i.consume_shortcut(&egui::KeyboardShortcut::new(
+                egui::Modifiers::COMMAND,
+                egui::Key::C,
+            ))
+        }) || ctx.input(|i| i.events.iter().any(|event| matches!(event, egui::Event::Copy)));
+
+        if node_clipboard_shortcut_allowed && copy_shortcut_pressed {
+            if self.copy_selected_nodes_to_internal_clipboard() {
+                self.push_toast_notification("已复制节点");
+            }
+        }
+
         if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::M)) {
             self.performance_metrics.toggle_visible();
         }

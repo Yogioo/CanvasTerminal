@@ -52,6 +52,7 @@ impl GraphApp {
         let id = node.id;
         self.push_history(super::history::HistoryEntry::CreateBatch {
             nodes: vec![node.clone()],
+            edges: Vec::new(),
         });
         self.nodes.push(node);
         self.set_single_selection(id);

@@ -1,6 +1,7 @@
 mod automation;
 mod automation_support;
 mod chrome;
+mod clipboard;
 mod dirty;
 mod editing;
 mod geometry;
@@ -60,6 +61,22 @@ pub(in crate::app) struct DecisionButtonDraft {
     pub event_key: String,
     pub color_rgb: [u8; 3],
     pub color_text: String,
+}
+
+#[derive(Clone)]
+pub(in crate::app) struct NodeClipboardEdge {
+    pub from: usize,
+    pub to: usize,
+    pub route_key: Option<String>,
+    pub curve_bias: Option<f32>,
+    pub control_offsets: Option<EdgeControlOffsets>,
+}
+
+#[derive(Clone)]
+pub(in crate::app) struct NodeClipboardPayload {
+    pub nodes: Vec<Node>,
+    pub edges: Vec<NodeClipboardEdge>,
+    pub anchor: Pos2,
 }
 
 pub struct GraphApp {
@@ -132,6 +149,7 @@ pub struct GraphApp {
     right_drag_moved: bool,
     cut_snapshot_nodes: Option<Vec<Node>>,
     cut_snapshot_edges: Option<Vec<(usize, usize)>>,
+    node_clipboard: Option<NodeClipboardPayload>,
     undo_stack: Vec<HistoryEntry>,
     redo_stack: Vec<HistoryEntry>,
     last_primary_click_time: Option<f64>,
@@ -244,6 +262,7 @@ impl GraphApp {
             right_drag_moved: false,
             cut_snapshot_nodes: None,
             cut_snapshot_edges: None,
+            node_clipboard: None,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             last_primary_click_time: None,
@@ -348,6 +367,7 @@ impl GraphApp {
         self.right_drag_moved = false;
         self.cut_snapshot_nodes = None;
         self.cut_snapshot_edges = None;
+        self.node_clipboard = None;
         self.undo_stack.clear();
         self.redo_stack.clear();
         self.last_primary_click_time = None;

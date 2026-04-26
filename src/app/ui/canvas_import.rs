@@ -143,7 +143,17 @@ impl GraphApp {
         let suppress_canvas_image_paste = self.editing_text_node.is_some()
             || self.editing_title_node.is_some()
             || self.editing_startup_node.is_some()
-            || ctx.wants_keyboard_input();
+            || self.editing_decision_buttons_node.is_some()
+            || self.editing_decision_queue_node.is_some()
+            || self.editing_edge.is_some()
+            || self.command_palette_open;
+
+        if paste_requested && pointer_in_canvas && !suppress_canvas_image_paste {
+            if self.paste_nodes_from_internal_clipboard(spawn_local) {
+                self.push_toast_notification("已粘贴节点");
+                return;
+            }
+        }
 
         if paste_requested && pointer_in_canvas && !suppress_canvas_image_paste {
             if let Ok(mut clipboard) = Clipboard::new() {

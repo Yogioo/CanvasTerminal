@@ -376,7 +376,8 @@ impl GraphApp {
     fn shift_history_entries(entries: &mut [HistoryEntry], shift: egui::Vec2) {
         for entry in entries {
             match entry {
-                HistoryEntry::CreateBatch { nodes } | HistoryEntry::DeleteBatch { nodes, .. } => {
+                HistoryEntry::CreateBatch { nodes, .. }
+                | HistoryEntry::DeleteBatch { nodes, .. } => {
                     for node in nodes {
                         node.pos -= shift;
                     }

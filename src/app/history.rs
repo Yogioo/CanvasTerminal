@@ -1,11 +1,21 @@
-use super::GraphApp;
+use super::{EdgeControlOffsets, GraphApp};
 use crate::model::Node;
 use eframe::egui::Pos2;
+
+#[derive(Clone)]
+pub(in crate::app) struct CreatedEdge {
+    pub from: usize,
+    pub to: usize,
+    pub route_key: Option<String>,
+    pub curve_bias: Option<f32>,
+    pub control_offsets: Option<EdgeControlOffsets>,
+}
 
 #[derive(Clone)]
 pub(in crate::app) enum HistoryEntry {
     CreateBatch {
         nodes: Vec<Node>,
+        edges: Vec<CreatedEdge>,
     },
     DeleteBatch {
         nodes: Vec<Node>,
@@ -87,9 +97,9 @@ impl GraphApp {
 
     fn apply_history_entry(&mut self, entry: HistoryEntry) -> HistoryEntry {
         match entry {
-            HistoryEntry::CreateBatch { nodes } => {
-                self.redo_create_batch(&nodes);
-                HistoryEntry::CreateBatch { nodes }
+            HistoryEntry::CreateBatch { nodes, edges } => {
+                self.redo_create_batch(&nodes, &edges);
+                HistoryEntry::CreateBatch { nodes, edges }
             }
             HistoryEntry::DeleteBatch { nodes, edges } => {
                 for node in &nodes {
@@ -151,7 +161,7 @@ impl GraphApp {
         }
     }
 
-    fn redo_create_batch(&mut self, nodes: &[Node]) {
+    fn redo_create_batch(&mut self, nodes: &[Node], edges: &[CreatedEdge]) {
         for node in nodes {
             if self.nodes.iter().any(|n| n.id == node.id) {
                 continue;
@@ -161,6 +171,30 @@ impl GraphApp {
             }
             self.nodes.push(node.clone());
         }
+
+        for edge in edges {
+            if self.has_edge(edge.from, edge.to) {
+                continue;
+            }
+
+            let has_from = self.nodes.iter().any(|n| n.id == edge.from);
+            let has_to = self.nodes.iter().any(|n| n.id == edge.to);
+            if !has_from || !has_to {
+                continue;
+            }
+
+            self.edges.push((edge.from, edge.to));
+            if let Some(route_key) = &edge.route_key {
+                self.set_edge_route_key(edge.from, edge.to, route_key.clone());
+            }
+            if let Some(curve_bias) = edge.curve_bias {
+                self.set_edge_curve_bias(edge.from, edge.to, curve_bias);
+            }
+            if let Some(offsets) = edge.control_offsets {
+                self.set_edge_control_offsets(edge.from, edge.to, offsets);
+            }
+        }
+        self.prune_edge_state();
     }
 
     fn redo_delete_batch(&mut self, nodes: &[Node], edges: &[(usize, usize)]) {
@@ -182,10 +216,11 @@ impl GraphApp {
         self.mark_workspace_dirty();
 
         let redo_entry = match &entry {
-            HistoryEntry::CreateBatch { nodes } => {
+            HistoryEntry::CreateBatch { nodes, edges } => {
                 self.undo_create_batch(nodes);
                 HistoryEntry::CreateBatch {
                     nodes: nodes.clone(),
+                    edges: edges.clone(),
                 }
             }
             HistoryEntry::DeleteBatch { nodes, edges } => {
@@ -209,10 +244,11 @@ impl GraphApp {
         self.mark_workspace_dirty();
 
         let undo_entry = match &entry {
-            HistoryEntry::CreateBatch { nodes } => {
-                self.redo_create_batch(nodes);
+            HistoryEntry::CreateBatch { nodes, edges } => {
+                self.redo_create_batch(nodes, edges);
                 HistoryEntry::CreateBatch {
                     nodes: nodes.clone(),
+                    edges: edges.clone(),
                 }
             }
             HistoryEntry::DeleteBatch { nodes, edges } => {
