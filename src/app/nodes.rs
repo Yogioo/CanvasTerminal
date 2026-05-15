@@ -17,6 +17,15 @@ impl GraphApp {
                 text_body: String::new(),
                 auto_size: false,
             },
+            NodeKind::Html => NodeData::Html {
+                html_source: [
+                    "<div style=\"padding: 12px; color: #e8ecf6; background: #1f2430; border: 1px solid #3c445a; border-radius: 12px;\">",
+                    "  <h3 style=\"margin: 0 0 8px 0; color: #ffd67a;\">HTML Node</h3>",
+                    "  <p style=\"margin: 0;\">在这里粘贴 HTML / CSS。</p>",
+                    "</div>",
+                ]
+                .join("\n"),
+            },
             NodeKind::Image => NodeData::Image {
                 image_path: String::new(),
             },
@@ -80,6 +89,16 @@ impl GraphApp {
             *text_body = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
             *auto_size = false;
         }
+        let id = self.push_node_and_select(node);
+        if edit_now {
+            self.editing_text_node = Some(id);
+            self.pending_text_focus = Some(id);
+        }
+        id
+    }
+
+    pub(in crate::app) fn create_html_node(&mut self, pos: Pos2, edit_now: bool) -> usize {
+        let node = self.new_base_node(NodeKind::Html, pos, vec2(420.0, 260.0));
         let id = self.push_node_and_select(node);
         if edit_now {
             self.editing_text_node = Some(id);
@@ -626,6 +645,7 @@ impl GraphApp {
         if self.suspend_terminal_focus == Some(node_id) {
             self.suspend_terminal_focus = None;
         }
+        self.html_webview_host.remove_webview(node_id);
         if self
             .editing_edge
             .is_some_and(|(from, to)| from == node_id || to == node_id)

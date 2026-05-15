@@ -1,6 +1,6 @@
 use super::history::HistoryEntry;
 use super::{EdgeControlHandle, GraphApp};
-use crate::constants::{DECISION_HEADER_HEIGHT, TERMINAL_HEADER_HEIGHT};
+use crate::constants::{DECISION_HEADER_HEIGHT, HTML_HEADER_HEIGHT, TERMINAL_HEADER_HEIGHT};
 use crate::model::{Node, NodeKind};
 use eframe::egui::{self, vec2, Pos2, Rect};
 
@@ -257,6 +257,7 @@ impl GraphApp {
             NodeKind::Text | NodeKind::Image | NodeKind::Group => true,
             NodeKind::Terminal => local.y <= n.pos.y + TERMINAL_HEADER_HEIGHT,
             NodeKind::Decision => local.y <= n.pos.y + DECISION_HEADER_HEIGHT,
+            NodeKind::Html => local.y <= n.pos.y + HTML_HEADER_HEIGHT,
         };
 
         Some((id, node_pos, can_drag))

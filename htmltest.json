@@ -1,0 +1,43 @@
+{
+  "version": 9,
+  "nodes": [
+    {
+      "id": 1,
+      "uid": "29dfacb8-bf13-4b8e-98ac-a0df7d529232",
+      "kind": "Html",
+      "data": {
+        "Html": {
+          "html_source": " <!doctype html>\n   <html>\n   <head>\n     <meta charset=\"utf-8\" />\n     <title>HTML Node Test</title>\n     <style>\n       * { box-sizing: border-box; }\n       html, body {\n         margin: 0;\n         padding: 0;\n         width: 100%;\n         height: 100%;\n         background: #1f2430;\n         color: #e6eaf2;\n         font-family: \"Segoe UI\", sans-serif;\n         overflow: hidden;\n       }\n       .wrap {\n         width: 100%;\n         height: 100%;\n         padding: 14px;\n         display: flex;\n         flex-direction: column;\n         gap: 12px;\n         background: linear-gradient(180deg, #202636 0%, #1a1f2c 100%);\n         border: 1px solid #3d465d;\n         border-radius: 12px;\n       }\n       h3 {\n         margin: 0;\n         color: #ffd67a;\n         font-size: 20px;\n       }\n       p {\n         margin: 0;\n         color: #cfd8e6;\n         line-height: 1.5;\n       }\n       .row {\n         display: flex;\n         gap: 10px;\n         align-items: center;\n         flex-wrap: wrap;\n       }\n       button {\n         border: none;\n         border-radius: 8px;\n         padding: 10px 14px;\n         cursor: pointer;\n         font-size: 14px;\n         font-weight: 600;\n         color: #111;\n       }\n       .primary { background: #ffd67a; }\n       .success { background: #9be7b1; }\n       .danger  { background: #ff9f9f; }\n       input {\n         flex: 1;\n         min-width: 160px;\n         padding: 10px 12px;\n         border-radius: 8px;\n         border: 1px solid #55607a;\n         background: #0f1522;\n         color: #f4f7fb;\n         outline: none;\n       }\n       .scroll {\n         flex: 1;\n         min-height: 120px;\n         overflow: auto;\n         border: 1px solid #3d465d;\n         border-radius: 10px;\n         background: #121826;\n         padding: 10px;\n       }\n       .item {\n         padding: 8px 10px;\n         margin-bottom: 8px;\n         border-radius: 8px;\n         background: #20283a;\n         color: #d8e1ef;\n       }\n     </style>\n   </head>\n   <body>\n     <div class=\"wrap\">\n       <h3>HTML Node Live Test</h3>\n       <p>请验证：按钮点击、输入框输入、滚动区域滚动、整体是否贴合节点区域。</p>\n\n       <div class=\"row\">\n         <button class=\"primary\" onclick=\"alert('点击成功：Primary')\">Primary</button>\n         <button class=\"success\" onclick=\"alert('点击成功：Success')\">Success</button>\n         <button class=\"danger\" onclick=\"alert('点击成功：Danger')\">Danger</button>\n       </div>\n\n       <div class=\"row\">\n         <input placeholder=\"试试直接点这里输入内容\" />\n       </div>\n\n       <div class=\"scroll\">\n         <div class=\"item\">滚动测试 1</div>\n         <div class=\"item\">滚动测试 2</div>\n         <div class=\"item\">滚动测试 3</div>\n         <div class=\"item\">滚动测试 4</div>\n         <div class=\"item\">滚动测试 5</div>\n         <div class=\"item\">滚动测试 6</div>\n         <div class=\"item\">滚动测试 7</div>\n         <div class=\"item\">滚动测试 8</div>\n         <div class=\"item\">滚动测试 9</div>\n         <div class=\"item\">滚动测试 10</div>\n         <div class=\"item\">滚动测试 11</div>\n         <div class=\"item\">滚动测试 12</div>\n       </div>\n     </div>\n   </body>\n   </html>"
+        }
+      },
+      "pos_x": 184.00003,
+      "pos_y": 270.0,
+      "size_x": 474.0,
+      "size_y": 393.33334
+    },
+    {
+      "id": 2,
+      "uid": "5b92bcd4-5f1c-4898-b733-f821117b500b",
+      "kind": "Html",
+      "data": {
+        "Html": {
+          "html_source": " <!doctype html>\n   <html>\n   <head>\n     <meta charset=\"utf-8\" />\n     <title>HTML Node Test</title>\n     <style>\n       * { box-sizing: border-box; }\n       html, body {\n         margin: 0;\n         padding: 0;\n         width: 100%;\n         height: 100%;\n         background: #1f2430;\n         color: #e6eaf2;\n         font-family: \"Segoe UI\", sans-serif;\n         overflow: hidden;\n       }\n       .wrap {\n         width: 100%;\n         height: 100%;\n         padding: 14px;\n         display: flex;\n         flex-direction: column;\n         gap: 12px;\n         background: linear-gradient(180deg, #202636 0%, #1a1f2c 100%);\n         border: 1px solid #3d465d;\n         border-radius: 12px;\n       }\n       h3 {\n         margin: 0;\n         color: #ffd67a;\n         font-size: 20px;\n       }\n       p {\n         margin: 0;\n         color: #cfd8e6;\n         line-height: 1.5;\n       }\n       .row {\n         display: flex;\n         gap: 10px;\n         align-items: center;\n         flex-wrap: wrap;\n       }\n       button {\n         border: none;\n         border-radius: 8px;\n         padding: 10px 14px;\n         cursor: pointer;\n         font-size: 14px;\n         font-weight: 600;\n         color: #111;\n       }\n       .primary { background: #ffd67a; }\n       .success { background: #9be7b1; }\n       .danger  { background: #ff9f9f; }\n       input {\n         flex: 1;\n         min-width: 160px;\n         padding: 10px 12px;\n         border-radius: 8px;\n         border: 1px solid #55607a;\n         background: #0f1522;\n         color: #f4f7fb;\n         outline: none;\n       }\n       .scroll {\n         flex: 1;\n         min-height: 120px;\n         overflow: auto;\n         border: 1px solid #3d465d;\n         border-radius: 10px;\n         background: #121826;\n         padding: 10px;\n       }\n       .item {\n         padding: 8px 10px;\n         margin-bottom: 8px;\n         border-radius: 8px;\n         background: #20283a;\n         color: #d8e1ef;\n       }\n     </style>\n   </head>\n   <body>\n     <div class=\"wrap\">\n       <h3>HTML Node Live Test</h3>\n       <p>请验证：按钮点击、输入框输入、滚动区域滚动、整体是否贴合节点区域。</p>\n\n       <div class=\"row\">\n         <button class=\"primary\" onclick=\"alert('点击成功：Primary')\">Primary</button>\n         <button class=\"success\" onclick=\"alert('点击成功：Success')\">Success</button>\n         <button class=\"danger\" onclick=\"alert('点击成功：Danger')\">Danger</button>\n       </div>\n\n       <div class=\"row\">\n         <input placeholder=\"试试直接点这里输入内容\" />\n       </div>\n\n       <div class=\"scroll\">\n         <div class=\"item\">滚动测试 1</div>\n         <div class=\"item\">滚动测试 2</div>\n         <div class=\"item\">滚动测试 3</div>\n         <div class=\"item\">滚动测试 4</div>\n         <div class=\"item\">滚动测试 5</div>\n         <div class=\"item\">滚动测试 6</div>\n         <div class=\"item\">滚动测试 7</div>\n         <div class=\"item\">滚动测试 8</div>\n         <div class=\"item\">滚动测试 9</div>\n         <div class=\"item\">滚动测试 10</div>\n         <div class=\"item\">滚动测试 11</div>\n         <div class=\"item\">滚动测试 12</div>\n       </div>\n     </div>\n   </body>\n   </html>"
+        }
+      },
+      "pos_x": 770.0,
+      "pos_y": 256.0,
+      "size_x": 420.0,
+      "size_y": 260.0
+    }
+  ],
+  "edges": [],
+  "edge_routes": [],
+  "edge_curve_biases": [],
+  "edge_control_offsets": [],
+  "view": {
+    "pan_x": 0.0,
+    "pan_y": 0.0,
+    "zoom": 1.0
+  },
+  "workspace_name": "未命名画布"
+}

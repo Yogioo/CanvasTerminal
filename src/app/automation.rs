@@ -149,6 +149,7 @@ impl GraphApp {
                     "kind": match n.kind {
                         NodeKind::Terminal => "terminal",
                         NodeKind::Text => "text",
+                        NodeKind::Html => "html",
                         NodeKind::Image => "image",
                         NodeKind::Decision => "decision",
                         NodeKind::Group => "group",
@@ -324,6 +325,17 @@ impl GraphApp {
                     if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
                         if let NodeData::Text { text_body: old, .. } = &mut node.data {
                             *old = text_body;
+                        }
+                    }
+                }
+                id
+            }
+            "html" => {
+                let id = self.create_html_node(pos, false);
+                if let Some(html_source) = payload.html_source {
+                    if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
+                        if let NodeData::Html { html_source: old } = &mut node.data {
+                            *old = html_source;
                         }
                     }
                 }
@@ -509,6 +521,11 @@ impl GraphApp {
                         *working_directory = next_working_directory;
                         restart_terminal = true;
                     }
+                }
+            }
+            NodeData::Html { html_source } => {
+                if let Some(next) = payload.html_source {
+                    *html_source = next;
                 }
             }
             NodeData::Image { .. } => {}
@@ -740,12 +757,19 @@ impl GraphApp {
                     *text_body = payload.text;
                 }
             }
+            NodeData::Html { html_source } => {
+                if payload.mode.eq_ignore_ascii_case("append") {
+                    html_source.push_str(&payload.text);
+                } else {
+                    *html_source = payload.text;
+                }
+            }
             _ => {
                 return Err(response_error(
                     request.request_id.clone(),
                     &request.action,
                     "BAD_TARGET",
-                    "inject.text currently supports text nodes only",
+                    "inject.text currently supports text/html nodes only",
                 ))
             }
         }

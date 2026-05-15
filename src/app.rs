@@ -7,6 +7,8 @@ mod editing;
 mod geometry;
 mod groups;
 mod history;
+mod html_runtime;
+mod html_webview;
 mod images;
 mod menu;
 mod nodes;
@@ -18,6 +20,7 @@ mod terminal;
 mod ui;
 
 use self::history::HistoryEntry;
+use self::html_webview::{HtmlHostHandles, HtmlWebViewHost};
 use self::notifications::ToastNotification;
 use self::performance::PerformanceMetrics;
 use crate::event_protocol::{AppEvent, AutomationResponse};
@@ -142,6 +145,8 @@ pub struct GraphApp {
     editing_edge: Option<(usize, usize)>,
     pending_edge_focus: Option<(usize, usize)>,
     edge_edit_buffer: String,
+    html_host_handles: Option<HtmlHostHandles>,
+    html_webview_host: HtmlWebViewHost,
     suspend_terminal_focus: Option<usize>,
     resizing: Option<(usize, Pos2, egui::Vec2)>,
     context_menu_node: Option<usize>,
@@ -186,7 +191,7 @@ pub struct GraphApp {
 }
 
 impl GraphApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let (pty_tx, pty_rx) = mpsc::channel();
 
         let nodes = Vec::new();
@@ -197,6 +202,8 @@ impl GraphApp {
                 None
             }
         };
+
+        let html_webview_host = HtmlWebViewHost::default();
 
         let app = Self {
             nodes,
@@ -258,6 +265,8 @@ impl GraphApp {
             editing_edge: None,
             pending_edge_focus: None,
             edge_edit_buffer: String::new(),
+            html_host_handles: HtmlHostHandles::from_creation_context(cc),
+            html_webview_host,
             suspend_terminal_focus: None,
             resizing: None,
             context_menu_node: None,
@@ -363,6 +372,7 @@ impl GraphApp {
         self.editing_edge = None;
         self.pending_edge_focus = None;
         self.edge_edit_buffer.clear();
+        self.html_webview_host.clear_all();
         self.suspend_terminal_focus = None;
         self.resizing = None;
         self.context_menu_node = None;
@@ -413,6 +423,7 @@ impl eframe::App for GraphApp {
         self.poll_terminal_events();
         self.poll_done_events();
         self.process_terminal_start_queue(ctx);
+
 
         self.handle_global_shortcuts(ctx);
         self.apply_workspace_dirty_ui(ctx);

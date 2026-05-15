@@ -1,5 +1,5 @@
 use super::super::GraphApp;
-use crate::constants::{DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT};
+use crate::constants::{DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT, HTML_HEADER_HEIGHT};
 use crate::model::{NodeData, NodeKind};
 use eframe::egui::{
     self, vec2, Align, Align2, Color32, FontId, Layout, Painter, Pos2, Rect, Stroke,
@@ -73,6 +73,25 @@ impl GraphApp {
                     };
                     (fill, stroke)
                 }
+                NodeKind::Html => {
+                    let fill = if is_selected {
+                        Color32::from_rgb(38, 59, 84)
+                    } else {
+                        Color32::from_rgb(28, 45, 66)
+                    };
+                    let stroke = if is_selected {
+                        Stroke::new(
+                            2.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(132, 205, 255),
+                        )
+                    } else {
+                        Stroke::new(
+                            1.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(88, 134, 176),
+                        )
+                    };
+                    (fill, stroke)
+                }
                 NodeKind::Image => {
                     let fill = if is_selected {
                         Color32::from_rgb(32, 78, 88)
@@ -132,7 +151,7 @@ impl GraphApp {
                 }
             };
 
-            if node.kind == NodeKind::Text {
+            if matches!(node.kind, NodeKind::Text | NodeKind::Html) {
                 painter.rect(
                     node_rect,
                     8.0 * zoom_scale,
@@ -403,6 +422,121 @@ impl GraphApp {
                             vec2(handle_size, handle_size),
                         );
                         painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(255, 220, 130));
+                    }
+                }
+                NodeKind::Html => {
+                    painter.rect_stroke(
+                        node_rect,
+                        8.0 * zoom_scale,
+                        stroke,
+                        egui::StrokeKind::Outside,
+                    );
+
+                    let header_height = HTML_HEADER_HEIGHT * zoom_scale;
+                    let header_bottom = (node_rect.min.y + header_height).min(node_rect.max.y);
+                    let header_rect = Rect::from_min_max(
+                        node_rect.min,
+                        Pos2::new(node_rect.max.x, header_bottom),
+                    );
+                    painter.rect_filled(header_rect, 8.0 * zoom_scale, fill);
+
+                    let is_editing = self.editing_text_node == Some(node.id);
+
+                    // Title in header
+                    let title = "HTML Node";
+                    painter.text(
+                        Pos2::new(node_rect.min.x + 12.0 * zoom_scale, header_rect.center().y),
+                        Align2::LEFT_CENTER,
+                        title,
+                        FontId::proportional((14.0 * zoom_scale).max(9.0)),
+                        Color32::from_rgb(196, 226, 255),
+                    );
+
+                    // Status badge in header
+                    let (status_text, status_color) = if is_editing {
+                        ("EDIT", Color32::from_rgb(255, 200, 100))
+                    } else {
+                        ("LIVE", Color32::from_rgb(140, 255, 190))
+                    };
+                    painter.text(
+                        Pos2::new(node_rect.max.x - 12.0 * zoom_scale, header_rect.center().y),
+                        Align2::RIGHT_CENTER,
+                        status_text,
+                        FontId::proportional((11.0 * zoom_scale).max(8.0)),
+                        status_color,
+                    );
+
+                    // Separator line below header
+                    painter.line_segment(
+                        [
+                            Pos2::new(node_rect.min.x, header_bottom),
+                            Pos2::new(node_rect.max.x, header_bottom),
+                        ],
+                        Stroke::new(
+                            1.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(88, 134, 176),
+                        ),
+                    );
+
+                    let content_padding = 10.0;
+                    let content_rect = Rect::from_min_max(
+                        Pos2::new(
+                            node_rect.min.x + content_padding * zoom_scale,
+                            header_bottom + content_padding * zoom_scale,
+                        ),
+                        node_rect.max - vec2(content_padding, content_padding) * zoom_scale,
+                    );
+
+                    // Fallback preview when host is unavailable (no webview will be created)
+                    if !is_editing && content_rect.is_positive() && !self.html_host_available() {
+                        let preview = match &node.data {
+                            NodeData::Html { html_source } if html_source.trim().is_empty() => {
+                                "(空 HTML)"
+                            }
+                            NodeData::Html { html_source } => html_source.as_str(),
+                            _ => "(空 HTML)",
+                        };
+                        let snippet: String = preview.chars().take(360).collect();
+                        let preview_text = format!(
+                            "HTML / CSS (HOST_MISSING)\n\n{}",
+                            snippet,
+                        );
+
+                        let mut html_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(content_rect)
+                                .layout(Layout::top_down(Align::Min)),
+                        );
+                        html_ui.set_clip_rect(content_rect);
+                        html_ui.set_width(content_rect.width());
+
+                        egui::ScrollArea::vertical()
+                            .id_salt(("html-node-preview-scroll", node.id))
+                            .auto_shrink([false, false])
+                            .show(&mut html_ui, |ui| {
+                                ui.set_width(content_rect.width());
+                                ui.style_mut().visuals.override_text_color =
+                                    Some(Color32::from_rgb(222, 232, 244));
+                                ui.label(
+                                    egui::RichText::new(preview_text)
+                                        .monospace()
+                                        .color(Color32::from_rgb(222, 232, 244)),
+                                );
+                            });
+                    }
+
+                    if is_editing {
+                        text_edit_rect = Some((node.id, content_rect));
+                    }
+
+                    if is_selected {
+                        let handle_size = 12.0 * zoom_scale.clamp(0.75, 1.6);
+                        let handle_rect = Rect::from_min_size(
+                            // Draw handle outside the node rect to avoid webview conflict
+                            node_rect.right_bottom() + vec2(4.0, 4.0),
+                            vec2(handle_size, handle_size),
+                        );
+                        painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(132, 205, 255));
                     }
                 }
                 NodeKind::Decision => {

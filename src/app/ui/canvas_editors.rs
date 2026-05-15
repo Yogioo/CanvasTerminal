@@ -15,11 +15,14 @@ impl GraphApp {
         };
 
         if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
-            let Some(text_body) = (match &mut node.data {
-                NodeData::Text { text_body, .. } => Some(text_body),
-                _ => None,
-            }) else {
-                return;
+            let (text_body, text_color) = match &mut node.data {
+                NodeData::Text { text_body, .. } => {
+                    (text_body, Color32::from_rgb(250, 240, 210))
+                }
+                NodeData::Html { html_source } => {
+                    (html_source, Color32::from_rgb(220, 232, 244))
+                }
+                _ => return,
             };
 
             let text_edit_id = egui::Id::new(("text-node-editor", id));
@@ -58,7 +61,7 @@ impl GraphApp {
                         TextEdit::multiline(text_body)
                             .id(text_edit_id)
                             .font(FontId::proportional(15.0 * self.zoom))
-                            .text_color(Color32::from_rgb(250, 240, 210))
+                            .text_color(text_color)
                             .margin(egui::Margin::ZERO)
                             .desired_width(f32::INFINITY)
                             .desired_rows(desired_rows)

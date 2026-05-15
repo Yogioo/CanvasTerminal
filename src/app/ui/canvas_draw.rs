@@ -94,7 +94,7 @@ impl GraphApp {
             self.nodes
                 .iter()
                 .find(|n| n.id == node_id)
-                .is_some_and(|n| n.kind == NodeKind::Text)
+                .is_some_and(|n| matches!(n.kind, NodeKind::Text | NodeKind::Html))
         });
         let pointer_over_decision_node_before_zoom = pointer_pos.is_some_and(|p| {
             let local = self.screen_to_world_pos(rect, p);
@@ -315,7 +315,7 @@ impl GraphApp {
                 if let Some((id, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
                     self.set_single_selection(id);
                     if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
-                        if node.kind == NodeKind::Text {
+                        if matches!(node.kind, NodeKind::Text | NodeKind::Html) {
                             self.editing_text_node = Some(id);
                             self.pending_text_focus = Some(id);
                         } else if node.kind == NodeKind::Terminal {
@@ -358,14 +358,28 @@ impl GraphApp {
             if let Some(pointer) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                 let local = self.screen_to_world_pos(rect, pointer);
                 if let Some((id, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
-                    self.set_single_selection(id);
+                    if self.editing_text_node == Some(id) {
+                        // User is editing the HTML source — keep editing, just set selection.
+                        self.set_single_selection(id);
+                    } else if self.is_html_node(id) {
+                        // Html nodes are always live; just select.
+                        self.set_single_selection(id);
+                    } else {
+                        // non-html node clicked: return focus to parent
+                        self.ensure_canvas_focus();
+                        self.set_single_selection(id);
+                    }
                     if self.editing_text_node != Some(id) {
                         self.editing_text_node = None;
                     }
                 } else if let Some(edge) = self.find_edge_at(local, edge_hit_tolerance) {
+                    self.ensure_canvas_focus();
                     self.set_edge_selection(edge);
                     self.editing_text_node = None;
+                    // edge click does NOT deactivate live html node
                 } else {
+                    // blank canvas click: return focus to parent and clear selection
+                    self.ensure_canvas_focus();
                     self.clear_selection();
                     self.editing_text_node = None;
                 }
@@ -406,6 +420,7 @@ impl GraphApp {
             decision_edit_rect,
             working_directory_edit_rect,
         ) = self.draw_nodes(ui, ctx, &painter, rect);
+        self.sync_all_html_webviews(rect);
         self.draw_selected_edge_controls_overlay(&painter, rect);
         self.handle_text_node_editor(ui, ctx, text_edit_rect);
         self.handle_title_editor(ui, ctx, title_edit_rect, primary_clicked, pointer_pos);
