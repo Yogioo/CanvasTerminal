@@ -6,6 +6,7 @@ pub enum NodeKind {
     Terminal,
     Text,
     Html,
+    WebPage,
     Image,
     Decision,
     Group,
@@ -38,6 +39,9 @@ pub enum NodeData {
     },
     Html {
         html_source: String,
+    },
+    WebPage {
+        url: String,
     },
     Image {
         image_path: String,

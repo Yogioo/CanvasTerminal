@@ -139,6 +139,9 @@ pub struct GraphApp {
     decision_color_popup: Option<(usize, usize)>,
     decision_color_popup_pos: Option<Pos2>,
     decision_buttons_edit_error: Option<String>,
+    editing_webpage_url_node: Option<usize>,
+    pending_webpage_url_focus: Option<usize>,
+    webpage_url_edit_buffer: String,
     editing_decision_queue_node: Option<usize>,
     pending_decision_queue_focus: Option<usize>,
     decision_queue_edit_buffer: String,
@@ -203,7 +206,7 @@ impl GraphApp {
             }
         };
 
-        let html_webview_host = HtmlWebViewHost::default();
+        let html_webview_host = HtmlWebViewHost::new();
 
         let app = Self {
             nodes,
@@ -255,6 +258,9 @@ impl GraphApp {
             editing_decision_buttons_node: None,
             pending_decision_buttons_focus: None,
             decision_buttons_edit_rows: Vec::new(),
+            editing_webpage_url_node: None,
+            pending_webpage_url_focus: None,
+            webpage_url_edit_buffer: String::new(),
             decision_color_input_mode: DecisionColorInputMode::Rgb,
             decision_color_popup: None,
             decision_color_popup_pos: None,
@@ -369,6 +375,9 @@ impl GraphApp {
         self.editing_decision_queue_node = None;
         self.pending_decision_queue_focus = None;
         self.decision_queue_edit_buffer.clear();
+        self.editing_webpage_url_node = None;
+        self.pending_webpage_url_focus = None;
+        self.webpage_url_edit_buffer.clear();
         self.editing_edge = None;
         self.pending_edge_focus = None;
         self.edge_edit_buffer.clear();
@@ -420,6 +429,8 @@ impl eframe::App for GraphApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_webview_nav_events();
+        self.poll_ipc_events();
         self.poll_terminal_events();
         self.poll_done_events();
         self.process_terminal_start_queue(ctx);

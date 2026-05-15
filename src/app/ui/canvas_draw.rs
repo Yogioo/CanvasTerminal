@@ -1,5 +1,7 @@
 use super::super::{EdgeControlHandle, GraphApp, NodeOrderAction};
-use crate::constants::{DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT, TERMINAL_HEADER_HEIGHT};
+use crate::constants::{
+    DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT, TERMINAL_HEADER_HEIGHT, WEBPAGE_HEADER_HEIGHT,
+};
 use crate::model::NodeKind;
 use eframe::egui::{self, Color32, Rect, Sense, Ui};
 
@@ -94,7 +96,7 @@ impl GraphApp {
             self.nodes
                 .iter()
                 .find(|n| n.id == node_id)
-                .is_some_and(|n| matches!(n.kind, NodeKind::Text | NodeKind::Html))
+                .is_some_and(|n| matches!(n.kind, NodeKind::Text | NodeKind::Html | NodeKind::WebPage))
         });
         let pointer_over_decision_node_before_zoom = pointer_pos.is_some_and(|p| {
             let local = self.screen_to_world_pos(rect, p);
@@ -315,7 +317,16 @@ impl GraphApp {
                 if let Some((id, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
                     self.set_single_selection(id);
                     if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
-                        if matches!(node.kind, NodeKind::Text | NodeKind::Html) {
+                        if node.kind == NodeKind::WebPage {
+                            // For WebPage nodes: body area -> edit full URL, header area -> start URL editing
+                            let header_height = WEBPAGE_HEADER_HEIGHT;
+                            if local.y <= node.pos.y + header_height {
+                                self.start_webpage_url_edit(id);
+                            } else {
+                                self.editing_text_node = Some(id);
+                                self.pending_text_focus = Some(id);
+                            }
+                        } else if matches!(node.kind, NodeKind::Text | NodeKind::Html) {
                             self.editing_text_node = Some(id);
                             self.pending_text_focus = Some(id);
                         } else if node.kind == NodeKind::Terminal {
@@ -359,13 +370,21 @@ impl GraphApp {
                 let local = self.screen_to_world_pos(rect, pointer);
                 if let Some((id, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
                     if self.editing_text_node == Some(id) {
-                        // User is editing the HTML source — keep editing, just set selection.
+                        // User is editing source — keep editing, just set selection.
+                        self.set_single_selection(id);
+                    } else if self.is_webpage_node(id) {
+                        // WebPage: single-click on header area starts URL editing
+                        if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
+                            if local.y <= node.pos.y + WEBPAGE_HEADER_HEIGHT {
+                                self.start_webpage_url_edit(id);
+                            }
+                        }
                         self.set_single_selection(id);
                     } else if self.is_html_node(id) {
                         // Html nodes are always live; just select.
                         self.set_single_selection(id);
                     } else {
-                        // non-html node clicked: return focus to parent
+                        // non-webview node clicked: return focus to parent
                         self.ensure_canvas_focus();
                         self.set_single_selection(id);
                     }
@@ -419,6 +438,7 @@ impl GraphApp {
             startup_edit_rect,
             decision_edit_rect,
             working_directory_edit_rect,
+            webpage_url_edit_rect,
         ) = self.draw_nodes(ui, ctx, &painter, rect);
         self.sync_all_html_webviews(rect);
         self.draw_selected_edge_controls_overlay(&painter, rect);
@@ -432,6 +452,7 @@ impl GraphApp {
             primary_clicked,
             pointer_pos,
         );
+        self.handle_webpage_url_editor(ui, ctx, webpage_url_edit_rect, primary_clicked, pointer_pos);
         self.handle_edge_editor(ui, ctx, rect, primary_clicked, pointer_pos);
         self.handle_decision_buttons_editor(
             ui,

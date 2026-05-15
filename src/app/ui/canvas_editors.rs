@@ -22,6 +22,9 @@ impl GraphApp {
                 NodeData::Html { html_source } => {
                     (html_source, Color32::from_rgb(220, 232, 244))
                 }
+                NodeData::WebPage { url } => {
+                    (url, Color32::from_rgb(200, 240, 245))
+                }
                 _ => return,
             };
 
@@ -815,6 +818,62 @@ impl GraphApp {
             term_ui.label("终端启动中...");
         } else {
             term_ui.label("终端未启动，请稍候或通过节点菜单重启。");
+        }
+    }
+
+    pub(in crate::app::ui) fn handle_webpage_url_editor(
+        &mut self,
+        ui: &mut Ui,
+        ctx: &egui::Context,
+        url_edit_rect: Option<(usize, Rect)>,
+        primary_clicked: bool,
+        pointer_pos: Option<Pos2>,
+    ) {
+        let Some((id, edit_rect)) = url_edit_rect else {
+            return;
+        };
+
+        let url_edit_id = egui::Id::new(("webpage-url-editor", id));
+        let should_focus_and_select_all = self.pending_webpage_url_focus == Some(id);
+        if should_focus_and_select_all {
+            ctx.memory_mut(|m| m.request_focus(url_edit_id));
+        }
+
+        let text_edit = TextEdit::singleline(&mut self.webpage_url_edit_buffer)
+            .id(url_edit_id)
+            .font(FontId::proportional((13.0 * self.zoom).max(9.0)))
+            .text_color(Color32::from_rgb(196, 246, 255))
+            .background_color(Color32::from_rgb(18, 46, 54))
+            .desired_width(f32::INFINITY)
+            .frame(false);
+        let resp = ui.put(edit_rect, text_edit);
+
+        if should_focus_and_select_all {
+            if let Some(mut state) = egui::TextEdit::load_state(ctx, url_edit_id) {
+                let len = self.webpage_url_edit_buffer.chars().count();
+                let range = egui::text::CCursorRange::two(
+                    egui::text::CCursor::new(0),
+                    egui::text::CCursor::new(len),
+                );
+                state.cursor.set_char_range(Some(range));
+                state.store(ctx, url_edit_id);
+            }
+            self.pending_webpage_url_focus = None;
+        }
+
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            // Cancel: revert to original URL
+            self.cancel_webpage_url_edit();
+        } else if ctx.input(|i| i.key_pressed(egui::Key::Enter))
+            || (resp.lost_focus() && !ctx.input(|i| i.pointer.primary_down()))
+        {
+            self.commit_webpage_url_edit(id);
+        } else if primary_clicked {
+            if let Some(pointer) = pointer_pos {
+                if !edit_rect.contains(pointer) {
+                    self.commit_webpage_url_edit(id);
+                }
+            }
         }
     }
 }

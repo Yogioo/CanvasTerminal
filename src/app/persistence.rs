@@ -248,6 +248,7 @@ impl GraphApp {
             (NodeKind::Terminal, NodeData::Terminal { .. })
                 | (NodeKind::Text, NodeData::Text { .. })
                 | (NodeKind::Html, NodeData::Html { .. })
+                | (NodeKind::WebPage, NodeData::WebPage { .. })
                 | (NodeKind::Image, NodeData::Image { .. })
                 | (NodeKind::Decision, NodeData::Decision { .. })
                 | (NodeKind::Group, NodeData::Group { .. })

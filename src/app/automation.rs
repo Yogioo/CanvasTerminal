@@ -150,6 +150,7 @@ impl GraphApp {
                         NodeKind::Terminal => "terminal",
                         NodeKind::Text => "text",
                         NodeKind::Html => "html",
+                        NodeKind::WebPage => "webpage",
                         NodeKind::Image => "image",
                         NodeKind::Decision => "decision",
                         NodeKind::Group => "group",
@@ -341,6 +342,17 @@ impl GraphApp {
                 }
                 id
             }
+            "webpage" => {
+                let id = self.create_webpage_node(pos, false);
+                if let Some(url) = payload.url {
+                    if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
+                        if let NodeData::WebPage { url: old } = &mut node.data {
+                            *old = url;
+                        }
+                    }
+                }
+                id
+            }
             "image" => {
                 let image_path = payload.image_path.ok_or_else(|| {
                     response_error(
@@ -526,6 +538,11 @@ impl GraphApp {
             NodeData::Html { html_source } => {
                 if let Some(next) = payload.html_source {
                     *html_source = next;
+                }
+            }
+            NodeData::WebPage { url } => {
+                if let Some(next) = payload.url {
+                    *url = next;
                 }
             }
             NodeData::Image { .. } => {}
@@ -764,12 +781,19 @@ impl GraphApp {
                     *html_source = payload.text;
                 }
             }
+            NodeData::WebPage { url } => {
+                if payload.mode.eq_ignore_ascii_case("append") {
+                    url.push_str(&payload.text);
+                } else {
+                    *url = payload.text;
+                }
+            }
             _ => {
                 return Err(response_error(
                     request.request_id.clone(),
                     &request.action,
                     "BAD_TARGET",
-                    "inject.text currently supports text/html nodes only",
+                    "inject.text currently supports text/html/webpage nodes only",
                 ))
             }
         }

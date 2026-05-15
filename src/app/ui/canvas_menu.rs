@@ -16,6 +16,10 @@ impl GraphApp {
             3 => {
                 self.create_decision_node(spawn_pos);
             }
+            4 => {
+                let id = self.create_webpage_node(spawn_pos, false);
+                self.start_webpage_url_edit(id);
+            }
             _ => {}
         }
     }
@@ -54,16 +58,18 @@ impl GraphApp {
                     let is_terminal = matches!(n.kind, crate::model::NodeKind::Terminal);
                     let is_text = matches!(n.kind, crate::model::NodeKind::Text);
                     let is_html = matches!(n.kind, crate::model::NodeKind::Html);
+                    let is_webpage = matches!(n.kind, crate::model::NodeKind::WebPage);
                     let is_decision = matches!(n.kind, crate::model::NodeKind::Decision);
-                    (is_terminal, is_text, is_html, is_decision)
+                    (is_terminal, is_text, is_html, is_webpage, is_decision)
                 });
 
                 let is_terminal_node =
-                    node_state.is_some_and(|(is_terminal, _, _, _)| is_terminal);
-                let is_text_node = node_state.is_some_and(|(_, is_text, _, _)| is_text);
-                let is_html_node = node_state.is_some_and(|(_, _, is_html, _)| is_html);
+                    node_state.is_some_and(|(is_terminal, _, _, _, _)| is_terminal);
+                let is_text_node = node_state.is_some_and(|(_, is_text, _, _, _)| is_text);
+                let is_html_node = node_state.is_some_and(|(_, _, is_html, _, _)| is_html);
+                let is_webpage_node = node_state.is_some_and(|(_, _, _, is_webpage, _)| is_webpage);
                 let is_decision_node =
-                    node_state.is_some_and(|(_, _, _, is_decision)| is_decision);
+                    node_state.is_some_and(|(_, _, _, _, is_decision)| is_decision);
 
                 if is_terminal_node && ui.button("编辑启动命令").clicked() {
                     self.start_startup_edit(node_id);
@@ -84,6 +90,11 @@ impl GraphApp {
                     self.prepare_inline_node_edit(node_id);
                     self.editing_text_node = Some(node_id);
                     self.pending_text_focus = Some(node_id);
+                    ui.close_menu();
+                }
+
+                if is_webpage_node && ui.button("编辑 URL").clicked() {
+                    self.start_webpage_url_edit(node_id);
                     ui.close_menu();
                 }
 
@@ -159,6 +170,7 @@ impl GraphApp {
                 ("创建节点/终端节点", "终端节点", 0usize),
                 ("创建节点/文本节点", "文本节点", 1usize),
                 ("创建节点/HTML节点", "HTML节点", 2usize),
+                ("创建节点/WebPage节点", "WebPage节点", 4usize),
                 ("创建节点/决策节点", "决策节点", 3usize),
             ];
 

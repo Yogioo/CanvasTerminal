@@ -1,5 +1,5 @@
 use super::super::GraphApp;
-use crate::constants::{DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT, HTML_HEADER_HEIGHT};
+use crate::constants::{DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT, HTML_HEADER_HEIGHT, WEBPAGE_HEADER_HEIGHT};
 use crate::model::{NodeData, NodeKind};
 use eframe::egui::{
     self, vec2, Align, Align2, Color32, FontId, Layout, Painter, Pos2, Rect, Stroke,
@@ -19,12 +19,14 @@ impl GraphApp {
         Option<(usize, Rect)>,
         Option<(usize, Rect)>,
         Option<(usize, Rect)>,
+        Option<(usize, Rect)>,
     ) {
         let mut text_edit_rect: Option<(usize, Rect)> = None;
         let mut title_edit_rect: Option<(usize, Rect)> = None;
         let mut startup_edit_rect: Option<(usize, Rect)> = None;
         let mut decision_edit_rect: Option<(usize, Rect)> = None;
         let mut working_directory_edit_rect: Option<(usize, Rect)> = None;
+        let mut webpage_url_edit_rect: Option<(usize, Rect)> = None;
 
         let mut render_nodes = self.nodes.clone();
         render_nodes.sort_by_key(|node| usize::from(node.kind != NodeKind::Group));
@@ -92,6 +94,25 @@ impl GraphApp {
                     };
                     (fill, stroke)
                 }
+                NodeKind::WebPage => {
+                    let fill = if is_selected {
+                        Color32::from_rgb(32, 78, 88)
+                    } else {
+                        Color32::from_rgb(24, 61, 70)
+                    };
+                    let stroke = if is_selected {
+                        Stroke::new(
+                            2.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(124, 220, 240),
+                        )
+                    } else {
+                        Stroke::new(
+                            1.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(78, 145, 160),
+                        )
+                    };
+                    (fill, stroke)
+                }
                 NodeKind::Image => {
                     let fill = if is_selected {
                         Color32::from_rgb(32, 78, 88)
@@ -151,7 +172,7 @@ impl GraphApp {
                 }
             };
 
-            if matches!(node.kind, NodeKind::Text | NodeKind::Html) {
+            if matches!(node.kind, NodeKind::Text | NodeKind::Html | NodeKind::WebPage) {
                 painter.rect(
                     node_rect,
                     8.0 * zoom_scale,
@@ -539,6 +560,163 @@ impl GraphApp {
                         painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(132, 205, 255));
                     }
                 }
+                NodeKind::WebPage => {
+                    painter.rect_stroke(
+                        node_rect,
+                        8.0 * zoom_scale,
+                        stroke,
+                        egui::StrokeKind::Outside,
+                    );
+
+                    let header_height = WEBPAGE_HEADER_HEIGHT * zoom_scale;
+                    let header_bottom = (node_rect.min.y + header_height).min(node_rect.max.y);
+                    let header_rect = Rect::from_min_max(
+                        node_rect.min,
+                        Pos2::new(node_rect.max.x, header_bottom),
+                    );
+                    painter.rect_filled(header_rect, 8.0 * zoom_scale, fill);
+
+                    let is_editing = self.editing_text_node == Some(node.id);
+                    let is_url_editing = self.editing_webpage_url_node == Some(node.id);
+
+                    let current_url = match &node.data {
+                        NodeData::WebPage { url } => url.as_str(),
+                        _ => "",
+                    };
+
+                    if is_url_editing {
+                        // Calculate and store the URL edit rect
+                        let url_edit_input_rect = Rect::from_min_max(
+                            Pos2::new(
+                                node_rect.min.x + 10.0 * zoom_scale,
+                                node_rect.min.y + 4.0 * zoom_scale,
+                            ),
+                            Pos2::new(
+                                node_rect.max.x - 54.0 * zoom_scale,
+                                header_bottom - 4.0 * zoom_scale,
+                            ),
+                        );
+                        if url_edit_input_rect.is_positive() {
+                            webpage_url_edit_rect = Some((node.id, url_edit_input_rect));
+                        }
+                    } else {
+                        // Show URL in header as clickable address bar
+                        let display_url = if current_url.is_empty() {
+                            "输入网址..."
+                        } else {
+                            current_url
+                        };
+
+                        let lock_icon = if current_url.starts_with("https://") {
+                            "\u{1f512}"
+                        } else {
+                            "\u{1f513}"
+                        };
+                        let full_text = format!("{} {}", lock_icon, display_url);
+
+                        // Simple truncation by character count
+                        let approx_char_width = (8.0 * zoom_scale).max(6.0);
+                        let url_max_chars = ((node_rect.width() - 64.0) * zoom_scale / approx_char_width).max(6.0) as usize;
+                        let url_text = if full_text.chars().count() > url_max_chars {
+                            let truncated: String = full_text.chars().take(url_max_chars.saturating_sub(1)).collect();
+                            format!("{}…", truncated)
+                        } else {
+                            full_text
+                        };
+
+                        painter.text(
+                            Pos2::new(node_rect.min.x + 10.0 * zoom_scale, header_rect.center().y),
+                            Align2::LEFT_CENTER,
+                            &url_text,
+                            FontId::proportional((12.0 * zoom_scale).max(8.0)),
+                            Color32::from_rgb(196, 246, 255),
+                        );
+                    }
+
+                    // Status badge in header
+                    let (status_text, status_color) = if is_editing {
+                        ("EDIT", Color32::from_rgb(255, 200, 100))
+                    } else {
+                        ("LIVE", Color32::from_rgb(140, 255, 190))
+                    };
+                    painter.text(
+                        Pos2::new(node_rect.max.x - 12.0 * zoom_scale, header_rect.center().y),
+                        Align2::RIGHT_CENTER,
+                        status_text,
+                        FontId::proportional((11.0 * zoom_scale).max(8.0)),
+                        status_color,
+                    );
+
+                    // Separator line below header
+                    painter.line_segment(
+                        [
+                            Pos2::new(node_rect.min.x, header_bottom),
+                            Pos2::new(node_rect.max.x, header_bottom),
+                        ],
+                        Stroke::new(
+                            1.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(78, 145, 160),
+                        ),
+                    );
+
+                    let content_padding = 10.0;
+                    let content_rect = Rect::from_min_max(
+                        Pos2::new(
+                            node_rect.min.x + content_padding * zoom_scale,
+                            header_bottom + content_padding * zoom_scale,
+                        ),
+                        node_rect.max - vec2(content_padding, content_padding) * zoom_scale,
+                    );
+
+                    // Fallback preview when host is unavailable
+                    if !is_editing && content_rect.is_positive() && !self.html_host_available() {
+                        let url_display = match &node.data {
+                            NodeData::WebPage { url } if url.trim().is_empty() => {
+                                "(空 URL)"
+                            }
+                            NodeData::WebPage { url } => url.as_str(),
+                            _ => "(空 URL)",
+                        };
+                        let preview_text = format!(
+                            "WebPage (HOST_MISSING)\n\nURL: {}",
+                            url_display,
+                        );
+
+                        let mut webpage_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(content_rect)
+                                .layout(Layout::top_down(Align::Min)),
+                        );
+                        webpage_ui.set_clip_rect(content_rect);
+                        webpage_ui.set_width(content_rect.width());
+
+                        egui::ScrollArea::vertical()
+                            .id_salt(("webpage-node-preview-scroll", node.id))
+                            .auto_shrink([false, false])
+                            .show(&mut webpage_ui, |ui| {
+                                ui.set_width(content_rect.width());
+                                ui.style_mut().visuals.override_text_color =
+                                    Some(Color32::from_rgb(210, 242, 248));
+                                ui.label(
+                                    egui::RichText::new(preview_text)
+                                        .color(Color32::from_rgb(210, 242, 248)),
+                                );
+                            });
+                    }
+
+                    if is_editing {
+                        text_edit_rect = Some((node.id, content_rect));
+                    }
+
+                    if is_selected {
+                        let handle_size = 12.0 * zoom_scale.clamp(0.75, 1.6);
+                        let handle_rect = Rect::from_min_size(
+                            node_rect.right_bottom() + vec2(4.0, 4.0),
+                            vec2(handle_size, handle_size),
+                        );
+                        painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(124, 220, 240));
+                    }
+                }
                 NodeKind::Decision => {
                     painter.rect_stroke(
                         node_rect,
@@ -852,6 +1030,7 @@ impl GraphApp {
             startup_edit_rect,
             decision_edit_rect,
             working_directory_edit_rect,
+            webpage_url_edit_rect,
         )
     }
 }

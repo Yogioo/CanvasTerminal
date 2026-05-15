@@ -72,6 +72,7 @@ impl GraphApp {
                     | NodeKind::Image
                     | NodeKind::Text
                     | NodeKind::Html
+                    | NodeKind::WebPage
                     | NodeKind::Decision
             ) {
                 return None;
@@ -80,7 +81,7 @@ impl GraphApp {
             let node_rect =
                 self.world_to_screen_rect(rect, Rect::from_min_size(node.pos, node.size));
             let handle_size = 18.0 * self.zoom.clamp(0.75, 1.6);
-            let handle_rect = if node.kind == NodeKind::Html {
+            let handle_rect = if matches!(node.kind, NodeKind::Html | NodeKind::WebPage) {
                 // Draw handle outside the node to avoid conflict with live webview
                 Rect::from_min_size(
                     node_rect.right_bottom() + vec2(2.0, 2.0),
@@ -347,6 +348,11 @@ impl GraphApp {
                                 }
                             }
                             NodeKind::Html => {
+                                let width = (start_size.x + delta.x).max(220.0);
+                                let height = (start_size.y + delta.y).max(140.0);
+                                node.size = vec2(width, height);
+                            }
+                            NodeKind::WebPage => {
                                 let width = (start_size.x + delta.x).max(220.0);
                                 let height = (start_size.y + delta.y).max(140.0);
                                 node.size = vec2(width, height);

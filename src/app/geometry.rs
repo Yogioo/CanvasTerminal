@@ -258,6 +258,7 @@ impl GraphApp {
             NodeKind::Terminal => local.y <= n.pos.y + TERMINAL_HEADER_HEIGHT,
             NodeKind::Decision => local.y <= n.pos.y + DECISION_HEADER_HEIGHT,
             NodeKind::Html => local.y <= n.pos.y + HTML_HEADER_HEIGHT,
+            NodeKind::WebPage => local.y <= n.pos.y + HTML_HEADER_HEIGHT,
         };
 
         Some((id, node_pos, can_drag))

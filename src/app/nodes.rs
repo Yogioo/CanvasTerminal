@@ -26,6 +26,9 @@ impl GraphApp {
                 ]
                 .join("\n"),
             },
+            NodeKind::WebPage => NodeData::WebPage {
+                url: String::new(),
+            },
             NodeKind::Image => NodeData::Image {
                 image_path: String::new(),
             },
@@ -103,6 +106,15 @@ impl GraphApp {
         if edit_now {
             self.editing_text_node = Some(id);
             self.pending_text_focus = Some(id);
+        }
+        id
+    }
+
+    pub(in crate::app) fn create_webpage_node(&mut self, pos: Pos2, edit_now: bool) -> usize {
+        let node = self.new_base_node(NodeKind::WebPage, pos, vec2(420.0, 260.0));
+        let id = self.push_node_and_select(node);
+        if edit_now {
+            self.start_webpage_url_edit(id);
         }
         id
     }
