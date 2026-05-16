@@ -519,6 +519,7 @@ impl GraphApp {
             .sort_by_key(|node| usize::from(selected.contains(&node.id)));
         self.record_reorder_history(before);
         self.selected = self.ordered_selected_ids().last().copied();
+        self.webviews_dirty = true;
     }
 
     pub(in crate::app) fn send_selection_to_back(&mut self) {
@@ -532,6 +533,7 @@ impl GraphApp {
             .sort_by_key(|node| usize::from(!selected.contains(&node.id)));
         self.record_reorder_history(before);
         self.selected = self.ordered_selected_ids().last().copied();
+        self.webviews_dirty = true;
     }
 
     pub(in crate::app) fn bring_selection_forward_one(&mut self) {
@@ -550,6 +552,7 @@ impl GraphApp {
 
         self.record_reorder_history(before);
         self.selected = self.ordered_selected_ids().last().copied();
+        self.webviews_dirty = true;
     }
 
     pub(in crate::app) fn send_selection_backward_one(&mut self) {
@@ -568,6 +571,7 @@ impl GraphApp {
 
         self.record_reorder_history(before);
         self.selected = self.ordered_selected_ids().last().copied();
+        self.webviews_dirty = true;
     }
 
     pub(in crate::app) fn reorder_from_context(&mut self, node_id: usize, mode: NodeOrderAction) {
@@ -584,6 +588,7 @@ impl GraphApp {
 
     pub(in crate::app) fn remove_node(&mut self, node_id: usize) {
         self.mark_workspace_dirty();
+        self.webviews_dirty = true;
         self.nodes.retain(|n| n.id != node_id);
         self.remove_child_from_groups(node_id);
         self.edges

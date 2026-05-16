@@ -6,7 +6,12 @@ use crate::model::NodeKind;
 use eframe::egui::{self, Color32, Rect, Sense, Ui};
 
 impl GraphApp {
-    pub(in crate::app) fn draw_canvas(&mut self, ui: &mut Ui, ctx: &egui::Context) {
+    pub(in crate::app) fn draw_canvas(
+        &mut self,
+        ui: &mut Ui,
+        ctx: &egui::Context,
+        window_bar_visible: bool,
+    ) {
         let available = ui.available_size();
         let (rect, response) = ui.allocate_exact_size(available, Sense::click_and_drag());
         let painter = ui.painter_at(rect);
@@ -29,6 +34,40 @@ impl GraphApp {
         let any_popup_open = ctx.memory(|m| m.any_popup_open())
             || self.decision_color_popup.is_some()
             || queue_editor_open;
+
+        // ── Build popup/dialog screen rects for webview occlusion ─────────
+        let mut popup_rects: Vec<egui::Rect> = Vec::new();
+
+        // Context menu, command palette, URL dialog: use actual rects from
+        // the previous frame's render (pixel-perfect, 1-frame delay).
+        if self.context_menu_open {
+            if let Some(menu_rect) = self.last_context_menu_rect {
+                popup_rects.push(menu_rect);
+            }
+        }
+        if self.command_palette_open {
+            if let Some(pal_rect) = self.last_command_palette_rect {
+                popup_rects.push(pal_rect);
+            }
+        }
+        if self.webpage_url_dialog_open {
+            if let Some(dlg_rect) = self.last_url_dialog_rect {
+                popup_rects.push(dlg_rect);
+            }
+        }
+
+        // Window bar overlay at top
+        if window_bar_visible {
+            popup_rects.push(egui::Rect::from_min_size(
+                rect.min,
+                egui::vec2(rect.width(), 28.0),
+            ));
+        }
+
+        // context_menu_open is set by the context_menu callback each frame.
+        // Reset it here so the next frame re-evaluates correctly.
+        self.context_menu_open = false;
+
         let multi_select_modifier = ctx.input(|i| i.modifiers.ctrl || i.modifiers.command);
         let subtract_select_modifier = ctx.input(|i| i.modifiers.shift);
         let alt_passthrough = ctx.input(|i| i.modifiers.alt);
@@ -441,7 +480,7 @@ impl GraphApp {
             working_directory_edit_rect,
             webpage_url_edit_rect,
         ) = self.draw_nodes(ui, ctx, &painter, rect);
-        self.sync_all_html_webviews(rect);
+        self.sync_all_html_webviews(rect, &popup_rects);
         self.draw_selected_edge_controls_overlay(&painter, rect);
         self.handle_text_node_editor(ui, ctx, text_edit_rect);
         self.handle_title_editor(ui, ctx, title_edit_rect, primary_clicked, pointer_pos);

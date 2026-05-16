@@ -41,6 +41,7 @@ impl GraphApp {
         ctx: &egui::Context,
     ) {
         response.context_menu(|ui| {
+            self.context_menu_open = true;
             let visuals = ui.visuals_mut();
             visuals.window_fill = Color32::from_rgb(245, 245, 245);
             visuals.panel_fill = Color32::from_rgb(245, 245, 245);
@@ -194,6 +195,9 @@ impl GraphApp {
                 self.run_create_action(action_id, spawn_pos);
                 ui.close_menu();
             }
+
+            // Capture actual rendered rect AFTER all menu items are laid out
+            self.last_context_menu_rect = Some(ui.min_rect().expand(8.0));
         });
     }
 }

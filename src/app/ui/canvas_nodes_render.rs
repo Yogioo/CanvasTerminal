@@ -548,6 +548,19 @@ impl GraphApp {
 
                     if is_editing {
                         text_edit_rect = Some((node.id, content_rect));
+                    } else if content_rect.is_positive()
+                        && self.occluded_webview_ids.contains(&node.id)
+                    {
+                        // Occlusion hint: webview is hidden behind another node
+                        let hint = "被遮挡";
+                        let font_size = (14.0 * zoom_scale).max(9.0);
+                        painter.text(
+                            content_rect.center(),
+                            Align2::CENTER_CENTER,
+                            hint,
+                            FontId::proportional(font_size),
+                            Color32::from_rgba_premultiplied(140, 170, 210, 160),
+                        );
                     }
 
                     if is_selected {
@@ -706,6 +719,18 @@ impl GraphApp {
 
                     if is_editing {
                         text_edit_rect = Some((node.id, content_rect));
+                    } else if content_rect.is_positive()
+                        && self.occluded_webview_ids.contains(&node.id)
+                    {
+                        let hint = "被遮挡";
+                        let font_size = (14.0 * zoom_scale).max(9.0);
+                        painter.text(
+                            content_rect.center(),
+                            Align2::CENTER_CENTER,
+                            hint,
+                            FontId::proportional(font_size),
+                            Color32::from_rgba_premultiplied(140, 170, 210, 160),
+                        );
                     }
 
                     if is_selected {

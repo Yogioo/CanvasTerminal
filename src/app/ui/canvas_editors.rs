@@ -911,7 +911,7 @@ impl GraphApp {
         let mut confirmed = false;
         let mut canceled = false;
 
-        window.show(ctx, |ui| {
+        let win_resp = window.show(ctx, |ui| {
             ui.visuals_mut().override_text_color = Some(Color32::WHITE);
 
             ui.label("请输入网页地址：");
@@ -962,6 +962,9 @@ impl GraphApp {
                 );
             });
         });
+
+        // Save actual dialog rect for pixel-perfect occlusion
+        self.last_url_dialog_rect = win_resp.and_then(|r| r.response.rect.is_positive().then(|| r.response.rect));
 
         if canceled || !open {
             // Cancel / closed

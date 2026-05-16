@@ -101,6 +101,12 @@ pub struct GraphApp {
     camera_world_center: Pos2,
     camera_initialized: bool,
     webviews_dirty: bool,
+    occluded_webview_ids: std::collections::HashSet<usize>,
+    context_menu_open: bool,
+    /// Actual screen rect of the context menu from the previous frame.
+    last_context_menu_rect: Option<egui::Rect>,
+    last_command_palette_rect: Option<egui::Rect>,
+    last_url_dialog_rect: Option<egui::Rect>,
 
     terminal_backends: HashMap<usize, TerminalBackend>,
     pty_rx: mpsc::Receiver<(u64, PtyEvent)>,
@@ -230,6 +236,11 @@ impl GraphApp {
             camera_world_center: Pos2::new(0.0, 0.0),
             camera_initialized: false,
             webviews_dirty: true,
+            occluded_webview_ids: std::collections::HashSet::new(),
+            context_menu_open: false,
+            last_context_menu_rect: None,
+            last_command_palette_rect: None,
+            last_url_dialog_rect: None,
             terminal_backends: HashMap::new(),
             pty_rx,
             pty_tx,
@@ -421,6 +432,10 @@ impl GraphApp {
         self.box_select_base_selection.clear();
         self.window_bar_visible_until = 0.0;
         self.command_palette_open = false;
+        self.context_menu_open = false;
+        self.last_context_menu_rect = None;
+        self.last_command_palette_rect = None;
+        self.last_url_dialog_rect = None;
 
         self.active_graph_path = None;
         self.workspace_name = Self::default_workspace_name().to_owned();
@@ -446,7 +461,6 @@ impl eframe::App for GraphApp {
         self.poll_done_events();
         self.process_terminal_start_queue(ctx);
 
-
         self.handle_global_shortcuts(ctx);
         self.apply_workspace_dirty_ui(ctx);
         self.performance_metrics
@@ -458,7 +472,7 @@ impl eframe::App for GraphApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(egui::Color32::from_rgb(30, 30, 50)))
             .show(ctx, |ui| {
-                self.draw_canvas(ui, ctx);
+                self.draw_canvas(ui, ctx, show_window_bar);
             });
 
         if show_window_bar {

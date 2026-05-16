@@ -28,7 +28,6 @@ impl GraphApp {
         let events = self.html_webview_host.drain_nav_events();
         for event in events {
             let NavEvent::Navigating { node_id, url } = &event;
-            eprintln!("[POLL_NAV] Navigating: node={node_id} url={url}");
             // The webview is ALREADY navigating. Just sync applied_source + node url.
             self.html_webview_host.on_navigated(*node_id, url);
             Self::update_webpage_node_url(self, *node_id, url);
@@ -44,7 +43,6 @@ impl GraphApp {
             if node.kind == NodeKind::WebPage {
                 if let NodeData::WebPage { url } = &mut node.data {
                     if *url != new_url {
-                        eprintln!("[POLL_NAV] URL changed: '{}' -> '{}'", url, new_url);
                         *url = new_url.to_owned();
                         this.mark_workspace_dirty();
                     }
@@ -112,21 +110,19 @@ impl GraphApp {
 
     /// Called each frame after node rendering.
     /// Syncs all HTML and WebPage nodes' webview positions and content.
-    /// Creates new webviews for new nodes, updates bounds for existing ones.
-    pub(in crate::app) fn sync_all_html_webviews(&mut self, canvas_rect: egui::Rect) {
-        // Dirty-guard: skip the entire webview sync loop when nothing has changed
-        // (zoom, node positions, content, window size). This prevents ANY touch
-        // on the WebView2 child windows during simple mouse movement on the canvas.
-        if !self.webviews_dirty {
-            return;
-        }
-        self.webviews_dirty = false;
-
+    ///
+    /// `popup_rects` — screen-space rects of currently-open egui popups/dialogs
+    /// that should occlude webviews behind them (window bar, context menu, etc.).
+    pub(in crate::app) fn sync_all_html_webviews(
+        &mut self,
+        canvas_rect: egui::Rect,
+        popup_rects: &[egui::Rect],
+    ) {
         let Some(handles) = self.html_host_handles else {
             return;
         };
 
-        // Collect both Html and WebPage nodes: (id, source, is_url)
+        // Collect both Html and WebPage nodes
         let web_node_ids: Vec<(usize, String, bool)> = self
             .nodes
             .iter()
@@ -142,9 +138,94 @@ impl GraphApp {
             web_node_ids.iter().map(|(id, _, _)| *id).collect();
         let editing_id = self.editing_text_node;
 
+        // Dirty-guard: skip the expensive loop when nothing has changed.
+        if !self.webviews_dirty {
+            // When not dirty, only check popup overlap (fast path).
+            if !popup_rects.is_empty() {
+                for (node_id, _, _) in &web_node_ids {
+                    let Some(node) = self.nodes.iter().find(|n| n.id == *node_id) else {
+                        continue;
+                    };
+                    let header_height = match node.kind {
+                        NodeKind::Html => HTML_HEADER_HEIGHT,
+                        NodeKind::WebPage => WEBPAGE_HEADER_HEIGHT,
+                        _ => unreachable!(),
+                    };
+                    let content_world_rect = egui::Rect::from_min_size(
+                        egui::Pos2::new(node.pos.x, node.pos.y + header_height),
+                        egui::vec2(node.size.x, (node.size.y - header_height).max(1.0)),
+                    );
+                    let screen_rect =
+                        self.world_to_screen_rect(canvas_rect, content_world_rect);
+                    let occluded_by_popup = popup_rects
+                        .iter()
+                        .any(|pr| pr.intersects(screen_rect));
+                    if occluded_by_popup {
+                        self.html_webview_host.set_visible(*node_id, false);
+                        self.occluded_webview_ids.insert(*node_id);
+                    }
+                }
+            }
+            // Also check orphan cleanup and editing hide even when not dirty.
+            self.html_webview_host.remove_orphans(&live_ids);
+            if let Some(edit_id) = editing_id {
+                self.html_webview_host.set_visible(edit_id, false);
+            }
+            return;
+        }
+        self.webviews_dirty = false;
+
+        // ── Build render order (matching draw_nodes) ────────────────────────
+        let mut render_order: Vec<usize> = self
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Group)
+            .map(|n| n.id)
+            .collect();
+        render_order.extend(
+            self.nodes
+                .iter()
+                .filter(|n| n.kind != NodeKind::Group)
+                .map(|n| n.id),
+        );
+
+        // ── Layer 2: node-vs-node occlusion ─────────────────────────────────
+        let occluded_ids: std::collections::HashSet<usize> = web_node_ids
+            .iter()
+            .filter_map(|(node_id, _, _)| {
+                let node = self.nodes.iter().find(|n| n.id == *node_id)?;
+                let web_idx = render_order.iter().position(|id| *id == *node_id)?;
+                let web_rect = egui::Rect::from_min_size(node.pos, node.size);
+
+                let occluded = render_order[web_idx + 1..].iter().any(|above_id| {
+                    let Some(above) = self.nodes.iter().find(|n| n.id == *above_id) else {
+                        return false;
+                    };
+                    if matches!(above.kind, NodeKind::Group) {
+                        return false;
+                    }
+                    let above_rect = egui::Rect::from_min_size(above.pos, above.size);
+                    above_rect.intersects(web_rect)
+                });
+
+                if occluded {
+                    Some(*node_id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        self.occluded_webview_ids = occluded_ids.clone();
+
         for (node_id, source, is_url) in &web_node_ids {
-            // Skip if this node is currently being edited (text editor is open instead)
             if Some(*node_id) == editing_id {
+                continue;
+            }
+
+            // Node-vs-node occlusion
+            if occluded_ids.contains(node_id) {
+                self.html_webview_host.set_visible(*node_id, false);
                 continue;
             }
 
@@ -157,15 +238,29 @@ impl GraphApp {
                 NodeKind::WebPage => WEBPAGE_HEADER_HEIGHT,
                 _ => unreachable!(),
             };
-            let content_world_y = node.pos.y + header_height;
-            let content_world_height = (node.size.y - header_height).max(1.0);
             let content_world_rect = egui::Rect::from_min_size(
-                egui::Pos2::new(node.pos.x, content_world_y),
-                egui::Vec2::new(node.size.x, content_world_height),
+                egui::Pos2::new(node.pos.x, node.pos.y + header_height),
+                egui::vec2(node.size.x, (node.size.y - header_height).max(1.0)),
             );
             let screen_rect = self.world_to_screen_rect(canvas_rect, content_world_rect);
 
-            // Normalize URL: prepend https:// if no scheme is present
+            // ── Layer 3: canvas viewport clipping ───────────────────────────
+            if !screen_rect.intersects(canvas_rect) {
+                self.html_webview_host.set_visible(*node_id, false);
+                continue;
+            }
+
+            // ── Layer 3b: popup/dialog occlusion (position-based) ──────────
+            if !popup_rects.is_empty() {
+                let occluded_by_popup = popup_rects.iter().any(|pr| pr.intersects(screen_rect));
+                if occluded_by_popup {
+                    self.html_webview_host.set_visible(*node_id, false);
+                    self.occluded_webview_ids.insert(*node_id);
+                    continue;
+                }
+            }
+
+            // Normalize URL
             let normalized_source = if *is_url && !source.is_empty() && !source.contains("://") {
                 format!("https://{source}")
             } else {
@@ -182,10 +277,7 @@ impl GraphApp {
             );
         }
 
-        // Remove orphaned webviews (nodes that no longer exist)
         self.html_webview_host.remove_orphans(&live_ids);
-
-        // Hide webview for the node currently being edited (so the text editor is not covered)
         if let Some(edit_id) = editing_id {
             self.html_webview_host.set_visible(edit_id, false);
         }

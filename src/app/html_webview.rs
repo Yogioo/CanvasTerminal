@@ -289,6 +289,7 @@ impl HtmlWebViewHost {
 
     #[cfg(not(target_os = "windows"))]
     pub(in crate::app) fn inject_anti_blank(&mut self, _node_id: usize) {}
+
 }
 
 impl HtmlWebViewHost {
@@ -419,7 +420,6 @@ impl HtmlWebViewHost {
                 // NavigationStarting fires when ANY navigation starts (link click, load_url, etc.)
                 // Returns true to allow navigation, false to block
                 .with_navigation_handler(move |url| {
-                    eprintln!("[NAV] node={node_id} url={url}");
                     let _ = nav_tx_nav.send(NavEvent::Navigating {
                         node_id,
                         url: url.clone(),
@@ -429,7 +429,6 @@ impl HtmlWebViewHost {
                 // Fallback: detect navigation completion (catches JS-initiated navigations)
                 .with_on_page_load_handler(move |event, url| {
                     if matches!(event, PageLoadEvent::Finished) {
-                        eprintln!("[FIN] node={node_id} url={url}");
                         let _ = nav_tx_fin.send(NavEvent::Navigating {
                             node_id,
                             url,
@@ -462,18 +461,7 @@ impl HtmlWebViewHost {
                                 }
                             }
                             "debug" => {
-                                if let Some(msg) = val.get("msg").and_then(|v| v.as_str()) {
-                                    eprintln!("[IPC-debug] node={node_id} msg={msg}");
-                                    if let Some(url) = val.get("url").and_then(|v| v.as_str()) {
-                                        eprintln!("[IPC-debug]   url={url}");
-                                    }
-                                    if let Some(target) = val.get("target").and_then(|v| v.as_str()) {
-                                        eprintln!("[IPC-debug]   target={target}");
-                                    }
-                                    if let Some(wd) = val.get("wd").and_then(|v| v.as_str()) {
-                                        eprintln!("[IPC-debug]   wd={wd}");
-                                    }
-                                }
+                                // debug messages are intentionally silent
                             }
                             _ => {}
                         }

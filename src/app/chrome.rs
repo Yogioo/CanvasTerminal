@@ -364,6 +364,7 @@ impl GraphApp {
             .movable(false)
             .anchor(egui::Align2::CENTER_TOP, vec2(0.0, 40.0))
             .show(ctx, |ui| {
+                self.last_command_palette_rect = Some(ui.min_rect().expand(8.0));
                 ui.set_min_width(460.0);
 
                 let palette_items = [
