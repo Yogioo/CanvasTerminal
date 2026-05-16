@@ -17,8 +17,10 @@ impl GraphApp {
                 self.create_decision_node(spawn_pos);
             }
             4 => {
-                let id = self.create_webpage_node(spawn_pos, false);
-                self.start_webpage_url_edit(id);
+                self.webpage_url_dialog_open = true;
+                self.webpage_url_dialog_node = None;
+                self.webpage_url_dialog_pos = Some(spawn_pos);
+                self.webpage_url_edit_buffer.clear();
             }
             _ => {}
         }
@@ -94,7 +96,13 @@ impl GraphApp {
                 }
 
                 if is_webpage_node && ui.button("编辑 URL").clicked() {
-                    self.start_webpage_url_edit(node_id);
+                    self.webpage_url_dialog_open = true;
+                    self.webpage_url_dialog_node = Some(node_id);
+                    if let Some(node) = self.nodes.iter().find(|n| n.id == node_id) {
+                        if let crate::model::NodeData::WebPage { url } = &node.data {
+                            self.webpage_url_edit_buffer = url.clone();
+                        }
+                    }
                     ui.close_menu();
                 }
 

@@ -142,6 +142,9 @@ pub struct GraphApp {
     editing_webpage_url_node: Option<usize>,
     pending_webpage_url_focus: Option<usize>,
     webpage_url_edit_buffer: String,
+    webpage_url_dialog_open: bool,
+    webpage_url_dialog_node: Option<usize>,
+    webpage_url_dialog_pos: Option<Pos2>,
     editing_decision_queue_node: Option<usize>,
     pending_decision_queue_focus: Option<usize>,
     decision_queue_edit_buffer: String,
@@ -261,6 +264,9 @@ impl GraphApp {
             editing_webpage_url_node: None,
             pending_webpage_url_focus: None,
             webpage_url_edit_buffer: String::new(),
+            webpage_url_dialog_open: false,
+            webpage_url_dialog_node: None,
+            webpage_url_dialog_pos: None,
             decision_color_input_mode: DecisionColorInputMode::Rgb,
             decision_color_popup: None,
             decision_color_popup_pos: None,
@@ -378,6 +384,9 @@ impl GraphApp {
         self.editing_webpage_url_node = None;
         self.pending_webpage_url_focus = None;
         self.webpage_url_edit_buffer.clear();
+        self.webpage_url_dialog_open = false;
+        self.webpage_url_dialog_node = None;
+        self.webpage_url_dialog_pos = None;
         self.editing_edge = None;
         self.pending_edge_focus = None;
         self.edge_edit_buffer.clear();
