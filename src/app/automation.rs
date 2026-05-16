@@ -118,7 +118,12 @@ impl GraphApp {
         _request: &AutomationRequest,
     ) -> Result<AutomationOutcome, AutomationResponse> {
         Ok(AutomationOutcome {
-            data: metrics_payload(self.performance_metrics.fps(), self.performance_metrics.cpu_usage()),
+            data: metrics_payload(
+                self.performance_metrics.fps(),
+                self.performance_metrics.cpu_usage(),
+                self.editing_webpage_url_node,
+                self.pending_webpage_url_focus,
+            ),
             affected_ids: Vec::new(),
         })
     }
@@ -351,6 +356,7 @@ impl GraphApp {
                         }
                     }
                 }
+                self.start_webpage_url_edit(id);
                 id
             }
             "image" => {
@@ -931,10 +937,17 @@ fn normalize_cpu_usage(cpu_usage: Option<f32>) -> Option<f32> {
     cpu_usage.filter(|value| value.is_finite() && *value >= 0.0)
 }
 
-fn metrics_payload(fps: f32, cpu_usage: Option<f32>) -> Value {
+fn metrics_payload(
+    fps: f32,
+    cpu_usage: Option<f32>,
+    editing_webpage_url_node: Option<usize>,
+    pending_webpage_url_focus: Option<usize>,
+) -> Value {
     json!({
         "fps": normalize_fps(fps),
         "cpu_usage": normalize_cpu_usage(cpu_usage),
+        "editing_webpage_url_node": editing_webpage_url_node,
+        "pending_webpage_url_focus": pending_webpage_url_focus,
     })
 }
 
@@ -944,7 +957,7 @@ mod tests {
 
     #[test]
     fn automation_metrics_payload_keeps_expected_shape() {
-        let payload = metrics_payload(59.8, Some(17.4));
+        let payload = metrics_payload(59.8, Some(17.4), None, None);
 
         let fps = payload
             .get("fps")
@@ -960,7 +973,7 @@ mod tests {
 
     #[test]
     fn automation_metrics_payload_gracefully_falls_back_when_cpu_missing() {
-        let payload = metrics_payload(42.0, None);
+        let payload = metrics_payload(42.0, None, None, None);
 
         assert_eq!(payload.get("fps").and_then(Value::as_f64), Some(42.0));
         assert_eq!(payload.get("cpu_usage"), Some(&Value::Null));
@@ -968,7 +981,7 @@ mod tests {
 
     #[test]
     fn automation_metrics_payload_sanitizes_malformed_samples() {
-        let payload = metrics_payload(f32::NAN, Some(f32::INFINITY));
+        let payload = metrics_payload(f32::NAN, Some(f32::INFINITY), None, Some(7));
 
         assert_eq!(payload.get("fps").and_then(Value::as_f64), Some(0.0));
         assert_eq!(payload.get("cpu_usage"), Some(&Value::Null));
