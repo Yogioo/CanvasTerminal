@@ -129,11 +129,39 @@ impl HtmlHostHandles {
     pub(in crate::app) fn from_creation_context(cc: &CreationContext<'_>) -> Option<Self> {
         let raw_window_handle = cc.window_handle().ok()?.as_raw();
         let raw_display_handle = cc.display_handle().ok()?.as_raw();
-        Some(Self {
+        let handles = Self {
             raw_window_handle,
             raw_display_handle,
-        })
+        };
+        // On Windows, set WS_CLIPCHILDREN so the parent window (egui / GPU canvas)
+        // never paints over the WebView2 child HWND. Without this, every egui repaint
+        // (e.g. mouse move) overwrites the child window area, causing WebView2 to
+        // re-render at default zoom before CSS zoom is reapplied — visible as flicker.
+        #[cfg(target_os = "windows")]
+        handles.enable_clip_children();
+        Some(handles)
     }
+
+    /// Set WS_CLIPCHILDREN on the parent window to prevent GPU canvas
+    /// painting over the WebView2 child window area.
+    #[cfg(target_os = "windows")]
+    fn enable_clip_children(&self) {
+        use raw_window_handle::RawWindowHandle;
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetWindowLongW, SetWindowLongW, GWL_STYLE, WS_CLIPCHILDREN,
+        };
+        if let RawWindowHandle::Win32(handle) = self.raw_window_handle {
+            let hwnd = HWND(handle.hwnd.get() as _);
+            unsafe {
+                let style = GetWindowLongW(hwnd, GWL_STYLE);
+                let _ = SetWindowLongW(hwnd, GWL_STYLE, style | (WS_CLIPCHILDREN.0 as i32));
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn enable_clip_children(&self) {}
 }
 
 impl HasWindowHandle for HtmlHostHandles {
@@ -153,7 +181,12 @@ struct HtmlWebViewInstance {
     webview: WebView,
     applied_source: String,
     is_url: bool,
+    /// Last CSS zoom embedded in HTML source (HTML nodes) or set via put_ZoomFactor (URL nodes).
     last_zoom: f32,
+    /// Last applied bounds in logical pixels: (x, y, w, h).
+    last_bounds: Option<(f32, f32, f32, f32)>,
+    /// Whether the webview was last set visible.
+    last_visible: bool,
 }
 
 /// Event type for webview navigation tracking.
@@ -218,6 +251,8 @@ impl HtmlWebViewHost {
             let _ = instance.webview.load_url(url);
             instance.applied_source = url.to_owned();
             instance.is_url = true;
+            // Navigation clears zoom; force re-apply on next sync
+            instance.last_zoom = -1.0;
         }
     }
 
@@ -231,6 +266,8 @@ impl HtmlWebViewHost {
         if let Some(instance) = self.webviews.get_mut(&node_id) {
             instance.applied_source = new_url.to_owned();
             instance.is_url = true;
+            // Navigation clears zoom; force re-apply on next sync
+            instance.last_zoom = -1.0;
         }
     }
 
@@ -280,32 +317,67 @@ impl HtmlWebViewHost {
         };
 
         if let Some(instance) = self.webviews.get_mut(&node_id) {
-            let _ = instance.webview.set_bounds(bounds);
-            let _ = instance.webview.set_visible(true);
-            // Only sync zoom when it changes, to avoid unnecessary WebView2 re-renders
-            let rounded_zoom = (zoom_scale * 10.0).round() / 10.0; // round to 0.1
-            let clamped_zoom = rounded_zoom.clamp(0.1, 5.0);
-            if (instance.last_zoom - clamped_zoom).abs() > 0.01 {
-                let _ = instance.webview.zoom(clamped_zoom as f64);
-                instance.last_zoom = clamped_zoom;
+            // Only call set_visible when transitioning from hidden → visible,
+            // to avoid unnecessary WebView2 re-render every frame.
+            if !instance.last_visible {
+                let _ = instance.webview.set_visible(true);
+                instance.last_visible = true;
             }
-            // Inject anti-blank script every frame. It's async and harmless if already injected.
-            // This ensures it runs on every page, even after user-initiated navigation.
-            // Fallback: inject anti-blank JS every frame (idempotent via __antiBlankInstalled).
-            if is_url {
-                if let Err(e) = instance.webview.evaluate_script(ANTI_BLANK_JS) {
-                    eprintln!("[JS_INJECT] frame evaluate_script failed: {e:?}");
-                }
+            // Only set bounds when actually changed, to avoid unnecessary WebView2
+            // resize/re-render which causes flicker between zoom states.
+            let new_key = (
+                screen_rect.min.x,
+                screen_rect.min.y,
+                screen_rect.width(),
+                screen_rect.height(),
+            );
+            let needs_resize = instance.last_bounds.map_or(true, |last| {
+                (last.0 - new_key.0).abs() > 0.5
+                    || (last.1 - new_key.1).abs() > 0.5
+                    || (last.2 - new_key.2).abs() > 0.5
+                    || (last.3 - new_key.3).abs() > 0.5
+            });
+            if needs_resize {
+                let _ = instance.webview.set_bounds(bounds);
+                instance.last_bounds = Some(new_key);
             }
 
-            if instance.applied_source != source || instance.is_url != is_url {
-                if is_url && !source.is_empty() {
+            // ── Zoom & source sync ────────────────────────────────────
+            //
+            // HTML nodes: CSS zoom is embedded in the HTML source before
+            // load_html() so it applies synchronously (no async injection flash).
+            // On source OR zoom change we reload with updated zoom embedded.
+            //
+            // URL nodes: use native webview.zoom() (put_ZoomFactor). With
+            // WS_CLIPCHILDREN on the parent, resize won't reset the zoom factor.
+            let rounded_zoom = (zoom_scale * 10.0).round() / 10.0;
+            let clamped_zoom = rounded_zoom.clamp(0.1, 5.0);
+            let zoom_changed = (instance.last_zoom - clamped_zoom).abs() > 0.01;
+            let source_changed = instance.applied_source != source || instance.is_url != is_url;
+
+            if is_url {
+                // URL node ────────────────────────────────────────────
+                if source_changed && !source.is_empty() {
                     let _ = instance.webview.load_url(source);
-                } else {
-                    let _ = instance.webview.load_html(source);
+                    instance.applied_source = source.to_owned();
                 }
-                instance.applied_source = source.to_owned();
-                instance.is_url = is_url;
+                if zoom_changed || source_changed {
+                    // Re-apply zoom after navigation or zoom change
+                    let _ = instance.webview.zoom(clamped_zoom as f64);
+                    instance.last_zoom = clamped_zoom;
+                }
+            } else {
+                // HTML node ───────────────────────────────────────────
+                if (source_changed || zoom_changed) && !source.is_empty() {
+                    let zoomed = format!(
+                        "<style id='__ctz'>:root{{zoom:{:.6}!important}}</style>{}",
+                        clamped_zoom,
+                        source
+                    );
+                    let _ = instance.webview.load_html(&zoomed);
+                    instance.applied_source = source.to_owned();
+                    instance.last_zoom = clamped_zoom;
+                }
             }
         } else {
             let rounded_zoom = (zoom_scale * 10.0).round() / 10.0;
@@ -325,7 +397,13 @@ impl HtmlWebViewHost {
             if is_url && !source.is_empty() {
                 builder = builder.with_url(source);
             } else if !source.is_empty() {
-                builder = builder.with_html(source);
+                // HTML node: embed CSS zoom in source for synchronous zoom
+                let zoomed = format!(
+                    "<style id='__ctz'>:root{{zoom:{:.6}!important}}</style>{}",
+                    clamped_zoom,
+                    source
+                );
+                builder = builder.with_html(&zoomed);
             }
 
             // Inject anti-blank JS into every new document automatically.
@@ -405,12 +483,16 @@ impl HtmlWebViewHost {
             else {
                 return;
             };
-            // Set initial zoom
-            let _ = wv.zoom(clamped_zoom as f64);
-            // Also run evaluate_script immediately as a fallback
-            if let Err(e) = wv.evaluate_script(ANTI_BLANK_JS) {
-                eprintln!("[JS_INJECT] initial evaluate_script failed: {e:?}");
+            // Set initial zoom for URL nodes (HTML nodes already have CSS zoom embedded in source)
+            if is_url {
+                let _ = wv.zoom(clamped_zoom as f64);
             }
+            let initial_bounds_key = (
+                screen_rect.min.x,
+                screen_rect.min.y,
+                screen_rect.width(),
+                screen_rect.height(),
+            );
             self.webviews.insert(
                 node_id,
                 HtmlWebViewInstance {
@@ -418,6 +500,8 @@ impl HtmlWebViewHost {
                     applied_source: source.to_owned(),
                     is_url,
                     last_zoom: clamped_zoom,
+                    last_bounds: Some(initial_bounds_key),
+                    last_visible: true,
                 },
             );
         }
@@ -477,8 +561,11 @@ impl HtmlWebViewHost {
 
     #[cfg(target_os = "windows")]
     pub(in crate::app) fn set_visible(&mut self, node_id: usize, visible: bool) {
-        if let Some(instance) = self.webviews.get(&node_id) {
-            let _ = instance.webview.set_visible(visible);
+        if let Some(instance) = self.webviews.get_mut(&node_id) {
+            if instance.last_visible != visible {
+                let _ = instance.webview.set_visible(visible);
+                instance.last_visible = visible;
+            }
         }
     }
 

@@ -115,6 +115,7 @@ impl GraphApp {
             let delta = ctx.input(|i| i.pointer.delta());
             self.camera_world_center -= delta / self.zoom;
             self.sync_pan_from_camera(rect);
+            self.webviews_dirty = true;
             ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
         }
 
@@ -364,6 +365,7 @@ impl GraphApp {
                             }
                             NodeKind::Group => {}
                         }
+                        self.webviews_dirty = true;
                     }
                 }
             } else {
@@ -391,8 +393,10 @@ impl GraphApp {
                                 node.pos = (start_pos.to_vec2() + delta).to_pos2();
                             }
                         }
+                        self.webviews_dirty = true;
                     } else if let Some(node) = self.nodes.iter_mut().find(|n| n.id == drag_id) {
                         node.pos = (local.to_vec2() - offset).to_pos2();
+                        self.webviews_dirty = true;
                     }
                 }
             } else {

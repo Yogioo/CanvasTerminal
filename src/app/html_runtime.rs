@@ -34,6 +34,7 @@ impl GraphApp {
             Self::update_webpage_node_url(self, *node_id, url);
             // Inject anti-blank JS after every navigation (page just loaded → JS context ready)
             self.html_webview_host.inject_anti_blank(*node_id);
+            self.webviews_dirty = true;
         }
     }
 
@@ -113,6 +114,14 @@ impl GraphApp {
     /// Syncs all HTML and WebPage nodes' webview positions and content.
     /// Creates new webviews for new nodes, updates bounds for existing ones.
     pub(in crate::app) fn sync_all_html_webviews(&mut self, canvas_rect: egui::Rect) {
+        // Dirty-guard: skip the entire webview sync loop when nothing has changed
+        // (zoom, node positions, content, window size). This prevents ANY touch
+        // on the WebView2 child windows during simple mouse movement on the canvas.
+        if !self.webviews_dirty {
+            return;
+        }
+        self.webviews_dirty = false;
+
         let Some(handles) = self.html_host_handles else {
             return;
         };

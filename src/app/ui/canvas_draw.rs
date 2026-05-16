@@ -131,6 +131,7 @@ impl GraphApp {
                             - (pointer - rect.center()) / self.zoom)
                             .to_pos2();
                         self.sync_pan_from_camera(rect);
+                        self.webviews_dirty = true;
                     }
                 }
             }

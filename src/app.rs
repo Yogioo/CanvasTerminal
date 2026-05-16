@@ -100,6 +100,7 @@ pub struct GraphApp {
     zoom: f32,
     camera_world_center: Pos2,
     camera_initialized: bool,
+    webviews_dirty: bool,
 
     terminal_backends: HashMap<usize, TerminalBackend>,
     pty_rx: mpsc::Receiver<(u64, PtyEvent)>,
@@ -228,6 +229,7 @@ impl GraphApp {
             zoom: 1.0,
             camera_world_center: Pos2::new(0.0, 0.0),
             camera_initialized: false,
+            webviews_dirty: true,
             terminal_backends: HashMap::new(),
             pty_rx,
             pty_tx,
