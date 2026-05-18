@@ -101,6 +101,9 @@ pub struct GraphApp {
     camera_world_center: Pos2,
     camera_initialized: bool,
     webviews_dirty: bool,
+    /// Tracks the previous frame's editing_text_node to detect when
+    /// editing ends for an HTML/WebPage node (triggering webview creation).
+    last_editing_text_node: Option<usize>,
     occluded_webview_ids: std::collections::HashSet<usize>,
     context_menu_open: bool,
     /// Actual screen rect of the context menu from the previous frame.
@@ -236,6 +239,7 @@ impl GraphApp {
             camera_world_center: Pos2::new(0.0, 0.0),
             camera_initialized: false,
             webviews_dirty: true,
+            last_editing_text_node: None,
             occluded_webview_ids: std::collections::HashSet::new(),
             context_menu_open: false,
             last_context_menu_rect: None,

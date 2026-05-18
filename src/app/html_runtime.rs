@@ -138,11 +138,27 @@ impl GraphApp {
             web_node_ids.iter().map(|(id, _, _)| *id).collect();
         let editing_id = self.editing_text_node;
 
+        // Detect when editing just ended for an HTML/WebPage node: force a full
+        // sync so the webview is created/refreshed. This catches ALL exit paths
+        // (click blank canvas, click other node, press Escape, zoom threshold, etc.).
+        if self.last_editing_text_node.is_some() && editing_id.is_none() {
+            let just_ended_id = self.last_editing_text_node.unwrap();
+            if web_node_ids.iter().any(|(id, _, _)| *id == just_ended_id) {
+                self.webviews_dirty = true;
+            }
+        }
+        self.last_editing_text_node = editing_id;
+
         // Dirty-guard: skip the expensive loop when nothing has changed.
         if !self.webviews_dirty {
             // When not dirty, only check popup overlap (fast path).
             if !popup_rects.is_empty() {
                 for (node_id, _, _) in &web_node_ids {
+                    // Skip editing nodes — their webview is intentionally hidden;
+                    // popup occlusion would incorrectly mark them as "被遮挡".
+                    if Some(*node_id) == editing_id {
+                        continue;
+                    }
                     let Some(node) = self.nodes.iter().find(|n| n.id == *node_id) else {
                         continue;
                     };

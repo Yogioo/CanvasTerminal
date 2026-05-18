@@ -14,6 +14,8 @@ impl GraphApp {
             return;
         };
 
+        let is_webview_node = self.nodes.iter().any(|n| n.id == id && matches!(n.kind, crate::model::NodeKind::Html | crate::model::NodeKind::WebPage));
+
         if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
             let (text_body, text_color) = match &mut node.data {
                 NodeData::Text { text_body, .. } => {
@@ -90,8 +92,13 @@ impl GraphApp {
                 self.mark_workspace_dirty();
             }
 
-            if resp.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            // 对 Text 节点：仅 Escape 退出编辑。
+            // 对 HTML/WebPage 节点：任何失焦（点击空白处/Escape）都退出编辑并刷新 webview。
+            if resp.lost_focus() && (ctx.input(|i| i.key_pressed(egui::Key::Escape)) || is_webview_node) {
                 self.editing_text_node = None;
+                if is_webview_node {
+                    self.webviews_dirty = true;
+                }
             }
         }
     }

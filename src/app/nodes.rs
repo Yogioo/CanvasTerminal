@@ -103,6 +103,7 @@ impl GraphApp {
     pub(in crate::app) fn create_html_node(&mut self, pos: Pos2, edit_now: bool) -> usize {
         let node = self.new_base_node(NodeKind::Html, pos, vec2(420.0, 260.0));
         let id = self.push_node_and_select(node);
+        self.webviews_dirty = true;
         if edit_now {
             self.editing_text_node = Some(id);
             self.pending_text_focus = Some(id);
@@ -113,6 +114,7 @@ impl GraphApp {
     pub(in crate::app) fn create_webpage_node(&mut self, pos: Pos2, edit_now: bool) -> usize {
         let node = self.new_base_node(NodeKind::WebPage, pos, vec2(420.0, 260.0));
         let id = self.push_node_and_select(node);
+        self.webviews_dirty = true;
         if edit_now {
             self.start_webpage_url_edit(id);
         }
