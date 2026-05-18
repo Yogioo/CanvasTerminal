@@ -16,7 +16,7 @@ COMMANDS:
   done [--route <route_key>] <summary>  Emit a done event from the current terminal node
   debug metrics [--pretty] [--jsonpath p]
   debug graph get [--pretty] [--jsonpath p]
-  debug node create|update|move|delete ...  [--text, --html-source, --url, --title, --image-path, --startup-script, --working-directory, --width, --height]
+  debug node create|update|move|delete ...  [--text, --url, --title, --image-path, --startup-script, --working-directory, --width, --height]
   debug group create --node-ids <id,id,...> [--title <name>]
   debug edge create|reconnect|delete ...
   debug inject text|terminal ...
@@ -184,7 +184,6 @@ fn try_build_debug_action(
             let width = pop_flag_value(&mut args, "--width").and_then(|v| v.parse::<f32>().ok());
             let height = pop_flag_value(&mut args, "--height").and_then(|v| v.parse::<f32>().ok());
             let text = pop_flag_value(&mut args, "--text");
-            let html_source = pop_flag_value(&mut args, "--html-source");
             let url = pop_flag_value(&mut args, "--url");
             let title = pop_flag_value(&mut args, "--title");
             let startup_script = pop_flag_value(&mut args, "--startup-script");
@@ -199,7 +198,6 @@ fn try_build_debug_action(
                     "width": width,
                     "height": height,
                     "text_body": text,
-                    "html_source": html_source,
                     "url": url,
                     "title": title,
                     "startup_script": startup_script,
@@ -213,7 +211,6 @@ fn try_build_debug_action(
             let width = pop_flag_value(&mut args, "--width").and_then(|v| v.parse::<f32>().ok());
             let height = pop_flag_value(&mut args, "--height").and_then(|v| v.parse::<f32>().ok());
             let text = pop_flag_value(&mut args, "--text");
-            let html_source = pop_flag_value(&mut args, "--html-source");
             let url = pop_flag_value(&mut args, "--url");
             let auto_size = pop_flag_value(&mut args, "--auto-size").map(|v| v == "true");
             let title = pop_flag_value(&mut args, "--title");
@@ -226,7 +223,6 @@ fn try_build_debug_action(
                     "width": width,
                     "height": height,
                     "text_body": text,
-                    "html_source": html_source,
                     "url": url,
                     "auto_size": auto_size,
                     "title": title,

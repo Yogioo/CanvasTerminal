@@ -7,8 +7,7 @@ mod editing;
 mod geometry;
 mod groups;
 mod history;
-mod html_runtime;
-mod html_webview;
+
 mod images;
 mod menu;
 mod nodes;
@@ -20,7 +19,7 @@ mod terminal;
 mod ui;
 
 use self::history::HistoryEntry;
-use self::html_webview::{HtmlHostHandles, HtmlWebViewHost};
+
 use self::notifications::ToastNotification;
 use self::performance::PerformanceMetrics;
 use crate::event_protocol::{AppEvent, AutomationResponse};
@@ -100,16 +99,11 @@ pub struct GraphApp {
     zoom: f32,
     camera_world_center: Pos2,
     camera_initialized: bool,
-    webviews_dirty: bool,
-    /// Tracks the previous frame's editing_text_node to detect when
-    /// editing ends for an HTML/WebPage node (triggering webview creation).
-    last_editing_text_node: Option<usize>,
-    occluded_webview_ids: std::collections::HashSet<usize>,
+
     context_menu_open: bool,
     /// Actual screen rect of the context menu from the previous frame.
     last_context_menu_rect: Option<egui::Rect>,
     last_command_palette_rect: Option<egui::Rect>,
-    last_url_dialog_rect: Option<egui::Rect>,
 
     terminal_backends: HashMap<usize, TerminalBackend>,
     pty_rx: mpsc::Receiver<(u64, PtyEvent)>,
@@ -149,20 +143,14 @@ pub struct GraphApp {
     decision_color_popup: Option<(usize, usize)>,
     decision_color_popup_pos: Option<Pos2>,
     decision_buttons_edit_error: Option<String>,
-    editing_webpage_url_node: Option<usize>,
-    pending_webpage_url_focus: Option<usize>,
-    webpage_url_edit_buffer: String,
-    webpage_url_dialog_open: bool,
-    webpage_url_dialog_node: Option<usize>,
-    webpage_url_dialog_pos: Option<Pos2>,
+
     editing_decision_queue_node: Option<usize>,
     pending_decision_queue_focus: Option<usize>,
     decision_queue_edit_buffer: String,
     editing_edge: Option<(usize, usize)>,
     pending_edge_focus: Option<(usize, usize)>,
     edge_edit_buffer: String,
-    html_host_handles: Option<HtmlHostHandles>,
-    html_webview_host: HtmlWebViewHost,
+
     suspend_terminal_focus: Option<usize>,
     resizing: Option<(usize, Pos2, egui::Vec2)>,
     context_menu_node: Option<usize>,
@@ -207,7 +195,7 @@ pub struct GraphApp {
 }
 
 impl GraphApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let (pty_tx, pty_rx) = mpsc::channel();
 
         let nodes = Vec::new();
@@ -218,8 +206,6 @@ impl GraphApp {
                 None
             }
         };
-
-        let html_webview_host = HtmlWebViewHost::new();
 
         let app = Self {
             nodes,
@@ -238,13 +224,9 @@ impl GraphApp {
             zoom: 1.0,
             camera_world_center: Pos2::new(0.0, 0.0),
             camera_initialized: false,
-            webviews_dirty: true,
-            last_editing_text_node: None,
-            occluded_webview_ids: std::collections::HashSet::new(),
             context_menu_open: false,
             last_context_menu_rect: None,
             last_command_palette_rect: None,
-            last_url_dialog_rect: None,
             terminal_backends: HashMap::new(),
             pty_rx,
             pty_tx,
@@ -278,12 +260,7 @@ impl GraphApp {
             editing_decision_buttons_node: None,
             pending_decision_buttons_focus: None,
             decision_buttons_edit_rows: Vec::new(),
-            editing_webpage_url_node: None,
-            pending_webpage_url_focus: None,
-            webpage_url_edit_buffer: String::new(),
-            webpage_url_dialog_open: false,
-            webpage_url_dialog_node: None,
-            webpage_url_dialog_pos: None,
+
             decision_color_input_mode: DecisionColorInputMode::Rgb,
             decision_color_popup: None,
             decision_color_popup_pos: None,
@@ -294,8 +271,7 @@ impl GraphApp {
             editing_edge: None,
             pending_edge_focus: None,
             edge_edit_buffer: String::new(),
-            html_host_handles: HtmlHostHandles::from_creation_context(cc),
-            html_webview_host,
+
             suspend_terminal_focus: None,
             resizing: None,
             context_menu_node: None,
@@ -398,17 +374,9 @@ impl GraphApp {
         self.editing_decision_queue_node = None;
         self.pending_decision_queue_focus = None;
         self.decision_queue_edit_buffer.clear();
-        self.editing_webpage_url_node = None;
-        self.pending_webpage_url_focus = None;
-        self.webpage_url_edit_buffer.clear();
-        self.webpage_url_dialog_open = false;
-        self.webpage_url_dialog_node = None;
-        self.webpage_url_dialog_pos = None;
         self.editing_edge = None;
         self.pending_edge_focus = None;
         self.edge_edit_buffer.clear();
-        self.html_webview_host.clear_all();
-        self.webviews_dirty = true;
         self.suspend_terminal_focus = None;
         self.resizing = None;
         self.context_menu_node = None;
@@ -440,7 +408,6 @@ impl GraphApp {
         self.context_menu_open = false;
         self.last_context_menu_rect = None;
         self.last_command_palette_rect = None;
-        self.last_url_dialog_rect = None;
 
         self.active_graph_path = None;
         self.workspace_name = Self::default_workspace_name().to_owned();
@@ -460,8 +427,6 @@ impl eframe::App for GraphApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.poll_webview_nav_events();
-        self.poll_ipc_events();
         self.poll_terminal_events();
         self.poll_done_events();
         self.process_terminal_start_queue(ctx);

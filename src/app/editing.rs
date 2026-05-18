@@ -596,49 +596,5 @@ impl GraphApp {
         self.edge_edit_buffer.clear();
     }
 
-    pub(in crate::app) fn start_webpage_url_edit(&mut self, node_id: usize) {
-        // Fill the buffer with the current URL
-        if let Some(node) = self.nodes.iter().find(|n| n.id == node_id) {
-            if let NodeData::WebPage { url } = &node.data {
-                self.webpage_url_edit_buffer = url.clone();
-            }
-        }
-        self.editing_webpage_url_node = Some(node_id);
-        self.pending_webpage_url_focus = Some(node_id);
-    }
 
-    pub(in crate::app) fn commit_webpage_url_edit(&mut self, node_id: usize) {
-        let new_url = self.webpage_url_edit_buffer.trim().to_owned();
-        self.editing_webpage_url_node = None;
-        self.pending_webpage_url_focus = None;
-        self.webpage_url_edit_buffer.clear();
-
-        if new_url.is_empty() {
-            return;
-        }
-
-        // Only navigate if the URL actually changed — avoid unnecessary reloads
-        let url_changed = self.nodes.iter().find(|n| n.id == node_id).is_some_and(|node| {
-            if let crate::model::NodeData::WebPage { url } = &node.data {
-                let normalized = if !new_url.contains("://") {
-                    format!("https://{new_url}")
-                } else {
-                    new_url.clone()
-                };
-                *url != normalized
-            } else {
-                false
-            }
-        });
-
-        if url_changed {
-            self.navigate_webview_to(node_id, &new_url);
-        }
-    }
-
-    pub(in crate::app) fn cancel_webpage_url_edit(&mut self) {
-        self.editing_webpage_url_node = None;
-        self.pending_webpage_url_focus = None;
-        self.webpage_url_edit_buffer.clear();
-    }
 }

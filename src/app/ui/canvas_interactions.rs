@@ -71,8 +71,6 @@ impl GraphApp {
                 NodeKind::Terminal
                     | NodeKind::Image
                     | NodeKind::Text
-                    | NodeKind::Html
-                    | NodeKind::WebPage
                     | NodeKind::Decision
             ) {
                 return None;
@@ -81,7 +79,7 @@ impl GraphApp {
             let node_rect =
                 self.world_to_screen_rect(rect, Rect::from_min_size(node.pos, node.size));
             let handle_size = 18.0 * self.zoom.clamp(0.75, 1.6);
-            let handle_rect = if matches!(node.kind, NodeKind::Html | NodeKind::WebPage) {
+            let handle_rect = if false {
                 // Draw handle outside the node to avoid conflict with live webview
                 Rect::from_min_size(
                     node_rect.right_bottom() + vec2(2.0, 2.0),
@@ -115,7 +113,6 @@ impl GraphApp {
             let delta = ctx.input(|i| i.pointer.delta());
             self.camera_world_center -= delta / self.zoom;
             self.sync_pan_from_camera(rect);
-            self.webviews_dirty = true;
             ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
         }
 
@@ -193,10 +190,6 @@ impl GraphApp {
                     if let Some((id, node_pos, can_drag)) =
                         self.find_node_hit_with_alt(local, alt_passthrough)
                     {
-                        // Return focus to parent for non-HTML node clicks
-                        if !self.is_html_node(id) {
-                            self.ensure_canvas_focus();
-                        }
                         if Some(id) != self.editing_text_node {
                             self.editing_text_node = None;
                         }
@@ -261,7 +254,6 @@ impl GraphApp {
                         self.box_select_start = None;
                         self.box_select_current = None;
                     } else if let Some(edge) = self.find_edge_at(local, edge_hit_tolerance) {
-                        self.ensure_canvas_focus();
                         self.editing_text_node = None;
                         self.dragging = None;
                         self.drag_start_pos = None;
@@ -274,7 +266,6 @@ impl GraphApp {
                         self.box_select_base_selection.clear();
                         self.set_edge_selection(edge);
                     } else {
-                        self.ensure_canvas_focus();
                         self.editing_text_node = None;
                         self.dragging = None;
                         self.drag_start_pos = None;
@@ -348,16 +339,7 @@ impl GraphApp {
                                     *auto_size = false;
                                 }
                             }
-                            NodeKind::Html => {
-                                let width = (start_size.x + delta.x).max(220.0);
-                                let height = (start_size.y + delta.y).max(140.0);
-                                node.size = vec2(width, height);
-                            }
-                            NodeKind::WebPage => {
-                                let width = (start_size.x + delta.x).max(220.0);
-                                let height = (start_size.y + delta.y).max(140.0);
-                                node.size = vec2(width, height);
-                            }
+
                             NodeKind::Decision => {
                                 let width = (start_size.x + delta.x).max(220.0);
                                 let height = (start_size.y + delta.y).max(140.0);
@@ -365,7 +347,6 @@ impl GraphApp {
                             }
                             NodeKind::Group => {}
                         }
-                        self.webviews_dirty = true;
                     }
                 }
             } else {
@@ -393,10 +374,8 @@ impl GraphApp {
                                 node.pos = (start_pos.to_vec2() + delta).to_pos2();
                             }
                         }
-                        self.webviews_dirty = true;
                     } else if let Some(node) = self.nodes.iter_mut().find(|n| n.id == drag_id) {
                         node.pos = (local.to_vec2() - offset).to_pos2();
-                        self.webviews_dirty = true;
                     }
                 }
             } else {
@@ -492,7 +471,6 @@ impl GraphApp {
                     self.linking_pointer_local = Some(local);
                     self.set_single_selection(id);
                 } else {
-                    self.ensure_canvas_focus();
                     self.cutting_path_local.push(local);
                     self.cut_snapshot_nodes = Some(self.nodes.clone());
                     self.cut_snapshot_edges = Some(self.edges.clone());
@@ -579,7 +557,6 @@ impl GraphApp {
                     self.editing_text_node = None;
                     self.set_edge_selection(edge);
                 } else {
-                    self.ensure_canvas_focus();
                     self.clear_selection();
                     self.editing_text_node = None;
                     self.pending_text_focus = None;

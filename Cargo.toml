@@ -19,11 +19,9 @@ chrono = { version = "0.4", default-features = true, features = ["clock"] }
 rfd = "0.15"
 uuid = { version = "1", features = ["v4"] }
 sysinfo = "0.38.4"
-raw-window-handle = "0.6"
-wry = { version = "0.55.1", default-features = false, features = ["os-webview", "protocol"] }
 
-[target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse"] }
+
+
 
 [patch.crates-io]
 egui_term = { path = "vendor/egui_term" }

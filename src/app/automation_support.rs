@@ -22,8 +22,6 @@ pub(in crate::app) struct NodeCreatePayload {
     #[serde(default)]
     pub text_body: Option<String>,
     #[serde(default)]
-    pub html_source: Option<String>,
-    #[serde(default)]
     pub title: Option<String>,
     #[serde(default)]
     pub startup_script: Option<String>,
@@ -69,8 +67,6 @@ pub(in crate::app) struct NodeUpdatePayload {
     pub height: Option<f32>,
     #[serde(default)]
     pub text_body: Option<String>,
-    #[serde(default)]
-    pub html_source: Option<String>,
     #[serde(default)]
     pub url: Option<String>,
     #[serde(default)]

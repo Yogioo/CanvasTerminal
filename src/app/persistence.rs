@@ -247,8 +247,7 @@ impl GraphApp {
             (kind, data),
             (NodeKind::Terminal, NodeData::Terminal { .. })
                 | (NodeKind::Text, NodeData::Text { .. })
-                | (NodeKind::Html, NodeData::Html { .. })
-                | (NodeKind::WebPage, NodeData::WebPage { .. })
+
                 | (NodeKind::Image, NodeData::Image { .. })
                 | (NodeKind::Decision, NodeData::Decision { .. })
                 | (NodeKind::Group, NodeData::Group { .. })
@@ -339,8 +338,7 @@ impl GraphApp {
             );
         }
 
-        self.html_webview_host.clear_all();
-        self.webviews_dirty = true;
+
 
         self.nodes = nodes;
         self.sanitize_groups();

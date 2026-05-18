@@ -5,8 +5,6 @@ use serde::{Deserialize, Serialize};
 pub enum NodeKind {
     Terminal,
     Text,
-    Html,
-    WebPage,
     Image,
     Decision,
     Group,
@@ -37,12 +35,7 @@ pub enum NodeData {
         #[serde(default = "default_text_autosize")]
         auto_size: bool,
     },
-    Html {
-        html_source: String,
-    },
-    WebPage {
-        url: String,
-    },
+
     Image {
         image_path: String,
     },

@@ -121,8 +121,6 @@ impl GraphApp {
             data: metrics_payload(
                 self.performance_metrics.fps(),
                 self.performance_metrics.cpu_usage(),
-                self.editing_webpage_url_node,
-                self.pending_webpage_url_focus,
             ),
             affected_ids: Vec::new(),
         })
@@ -154,8 +152,7 @@ impl GraphApp {
                     "kind": match n.kind {
                         NodeKind::Terminal => "terminal",
                         NodeKind::Text => "text",
-                        NodeKind::Html => "html",
-                        NodeKind::WebPage => "webpage",
+
                         NodeKind::Image => "image",
                         NodeKind::Decision => "decision",
                         NodeKind::Group => "group",
@@ -334,29 +331,6 @@ impl GraphApp {
                         }
                     }
                 }
-                id
-            }
-            "html" => {
-                let id = self.create_html_node(pos, false);
-                if let Some(html_source) = payload.html_source {
-                    if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
-                        if let NodeData::Html { html_source: old } = &mut node.data {
-                            *old = html_source;
-                        }
-                    }
-                }
-                id
-            }
-            "webpage" => {
-                let id = self.create_webpage_node(pos, false);
-                if let Some(url) = payload.url {
-                    if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
-                        if let NodeData::WebPage { url: old } = &mut node.data {
-                            *old = url;
-                        }
-                    }
-                }
-                self.start_webpage_url_edit(id);
                 id
             }
             "image" => {
@@ -548,16 +522,6 @@ impl GraphApp {
                         *working_directory = next_working_directory;
                         restart_terminal = true;
                     }
-                }
-            }
-            NodeData::Html { html_source } => {
-                if let Some(next) = payload.html_source {
-                    *html_source = next;
-                }
-            }
-            NodeData::WebPage { url } => {
-                if let Some(next) = payload.url {
-                    *url = next;
                 }
             }
             NodeData::Image { .. } => {}
@@ -796,20 +760,7 @@ impl GraphApp {
                     *text_body = payload.text;
                 }
             }
-            NodeData::Html { html_source } => {
-                if payload.mode.eq_ignore_ascii_case("append") {
-                    html_source.push_str(&payload.text);
-                } else {
-                    *html_source = payload.text;
-                }
-            }
-            NodeData::WebPage { url } => {
-                if payload.mode.eq_ignore_ascii_case("append") {
-                    url.push_str(&payload.text);
-                } else {
-                    *url = payload.text;
-                }
-            }
+
             _ => {
                 return Err(response_error(
                     request.request_id.clone(),
@@ -956,14 +907,10 @@ fn normalize_cpu_usage(cpu_usage: Option<f32>) -> Option<f32> {
 fn metrics_payload(
     fps: f32,
     cpu_usage: Option<f32>,
-    editing_webpage_url_node: Option<usize>,
-    pending_webpage_url_focus: Option<usize>,
 ) -> Value {
     json!({
         "fps": normalize_fps(fps),
         "cpu_usage": normalize_cpu_usage(cpu_usage),
-        "editing_webpage_url_node": editing_webpage_url_node,
-        "pending_webpage_url_focus": pending_webpage_url_focus,
     })
 }
 
@@ -973,7 +920,7 @@ mod tests {
 
     #[test]
     fn automation_metrics_payload_keeps_expected_shape() {
-        let payload = metrics_payload(59.8, Some(17.4), None, None);
+        let payload = metrics_payload(59.8, Some(17.4));
 
         let fps = payload
             .get("fps")
@@ -989,7 +936,7 @@ mod tests {
 
     #[test]
     fn automation_metrics_payload_gracefully_falls_back_when_cpu_missing() {
-        let payload = metrics_payload(42.0, None, None, None);
+        let payload = metrics_payload(42.0, None);
 
         assert_eq!(payload.get("fps").and_then(Value::as_f64), Some(42.0));
         assert_eq!(payload.get("cpu_usage"), Some(&Value::Null));
@@ -997,7 +944,7 @@ mod tests {
 
     #[test]
     fn automation_metrics_payload_sanitizes_malformed_samples() {
-        let payload = metrics_payload(f32::NAN, Some(f32::INFINITY), None, Some(7));
+        let payload = metrics_payload(f32::NAN, Some(f32::INFINITY));
 
         assert_eq!(payload.get("fps").and_then(Value::as_f64), Some(0.0));
         assert_eq!(payload.get("cpu_usage"), Some(&Value::Null));

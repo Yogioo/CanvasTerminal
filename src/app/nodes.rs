@@ -17,18 +17,7 @@ impl GraphApp {
                 text_body: String::new(),
                 auto_size: false,
             },
-            NodeKind::Html => NodeData::Html {
-                html_source: [
-                    "<div style=\"padding: 12px; color: #e8ecf6; background: #1f2430; border: 1px solid #3c445a; border-radius: 12px;\">",
-                    "  <h3 style=\"margin: 0 0 8px 0; color: #ffd67a;\">HTML Node</h3>",
-                    "  <p style=\"margin: 0;\">在这里粘贴 HTML / CSS。</p>",
-                    "</div>",
-                ]
-                .join("\n"),
-            },
-            NodeKind::WebPage => NodeData::WebPage {
-                url: String::new(),
-            },
+
             NodeKind::Image => NodeData::Image {
                 image_path: String::new(),
             },
@@ -96,27 +85,6 @@ impl GraphApp {
         if edit_now {
             self.editing_text_node = Some(id);
             self.pending_text_focus = Some(id);
-        }
-        id
-    }
-
-    pub(in crate::app) fn create_html_node(&mut self, pos: Pos2, edit_now: bool) -> usize {
-        let node = self.new_base_node(NodeKind::Html, pos, vec2(420.0, 260.0));
-        let id = self.push_node_and_select(node);
-        self.webviews_dirty = true;
-        if edit_now {
-            self.editing_text_node = Some(id);
-            self.pending_text_focus = Some(id);
-        }
-        id
-    }
-
-    pub(in crate::app) fn create_webpage_node(&mut self, pos: Pos2, edit_now: bool) -> usize {
-        let node = self.new_base_node(NodeKind::WebPage, pos, vec2(1680.0, 1040.0));
-        let id = self.push_node_and_select(node);
-        self.webviews_dirty = true;
-        if edit_now {
-            self.start_webpage_url_edit(id);
         }
         id
     }
@@ -521,7 +489,6 @@ impl GraphApp {
             .sort_by_key(|node| usize::from(selected.contains(&node.id)));
         self.record_reorder_history(before);
         self.selected = self.ordered_selected_ids().last().copied();
-        self.webviews_dirty = true;
     }
 
     pub(in crate::app) fn send_selection_to_back(&mut self) {
@@ -535,7 +502,6 @@ impl GraphApp {
             .sort_by_key(|node| usize::from(!selected.contains(&node.id)));
         self.record_reorder_history(before);
         self.selected = self.ordered_selected_ids().last().copied();
-        self.webviews_dirty = true;
     }
 
     pub(in crate::app) fn bring_selection_forward_one(&mut self) {
@@ -554,7 +520,6 @@ impl GraphApp {
 
         self.record_reorder_history(before);
         self.selected = self.ordered_selected_ids().last().copied();
-        self.webviews_dirty = true;
     }
 
     pub(in crate::app) fn send_selection_backward_one(&mut self) {
@@ -573,7 +538,6 @@ impl GraphApp {
 
         self.record_reorder_history(before);
         self.selected = self.ordered_selected_ids().last().copied();
-        self.webviews_dirty = true;
     }
 
     pub(in crate::app) fn reorder_from_context(&mut self, node_id: usize, mode: NodeOrderAction) {
@@ -590,7 +554,6 @@ impl GraphApp {
 
     pub(in crate::app) fn remove_node(&mut self, node_id: usize) {
         self.mark_workspace_dirty();
-        self.webviews_dirty = true;
         self.nodes.retain(|n| n.id != node_id);
         self.remove_child_from_groups(node_id);
         self.edges
@@ -664,7 +627,6 @@ impl GraphApp {
         if self.suspend_terminal_focus == Some(node_id) {
             self.suspend_terminal_focus = None;
         }
-        self.html_webview_host.remove_webview(node_id);
         if self
             .editing_edge
             .is_some_and(|(from, to)| from == node_id || to == node_id)

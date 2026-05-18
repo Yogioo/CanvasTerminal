@@ -14,19 +14,12 @@ impl GraphApp {
             return;
         };
 
-        let is_webview_node = self.nodes.iter().any(|n| n.id == id && matches!(n.kind, crate::model::NodeKind::Html | crate::model::NodeKind::WebPage));
-
         if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
             let (text_body, text_color) = match &mut node.data {
                 NodeData::Text { text_body, .. } => {
                     (text_body, Color32::from_rgb(250, 240, 210))
                 }
-                NodeData::Html { html_source } => {
-                    (html_source, Color32::from_rgb(220, 232, 244))
-                }
-                NodeData::WebPage { url } => {
-                    (url, Color32::from_rgb(200, 240, 245))
-                }
+
                 _ => return,
             };
 
@@ -92,13 +85,9 @@ impl GraphApp {
                 self.mark_workspace_dirty();
             }
 
-            // 对 Text 节点：仅 Escape 退出编辑。
-            // 对 HTML/WebPage 节点：任何失焦（点击空白处/Escape）都退出编辑并刷新 webview。
-            if resp.lost_focus() && (ctx.input(|i| i.key_pressed(egui::Key::Escape)) || is_webview_node) {
+            // Text 节点：仅 Escape 退出编辑。
+            if resp.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                 self.editing_text_node = None;
-                if is_webview_node {
-                    self.webviews_dirty = true;
-                }
             }
         }
     }
@@ -828,194 +817,4 @@ impl GraphApp {
         }
     }
 
-    pub(in crate::app::ui) fn handle_webpage_url_editor(
-        &mut self,
-        ui: &mut Ui,
-        ctx: &egui::Context,
-        url_edit_rect: Option<(usize, Rect)>,
-        primary_clicked: bool,
-        pointer_pos: Option<Pos2>,
-    ) {
-        let Some((id, edit_rect)) = url_edit_rect else {
-            return;
-        };
-
-        let url_edit_id = egui::Id::new(("webpage-url-editor", id));
-        let is_new_focus = self.pending_webpage_url_focus == Some(id);
-
-        let text_edit = TextEdit::singleline(&mut self.webpage_url_edit_buffer)
-            .id(url_edit_id)
-            .font(FontId::proportional((13.0 * self.zoom).max(9.0)))
-            .text_color(Color32::from_rgb(196, 246, 255))
-            .background_color(Color32::from_rgb(18, 46, 54))
-            .desired_width(f32::INFINITY)
-            .frame(false);
-        let resp = ui.put(edit_rect, text_edit);
-
-        // Retry focus on every frame until the widget actually has focus.
-        // This handles the case where egui's focus system doesn't take effect
-        // on the widget's very first render frame.
-        let has_focus = resp.has_focus() || ctx.memory(|m| m.has_focus(url_edit_id));
-        if is_new_focus || !has_focus {
-            resp.request_focus();
-            ctx.memory_mut(|m| m.request_focus(url_edit_id));
-        }
-
-        if is_new_focus {
-            if let Some(mut state) = egui::TextEdit::load_state(ctx, url_edit_id) {
-                let len = self.webpage_url_edit_buffer.chars().count();
-                let range = egui::text::CCursorRange::two(
-                    egui::text::CCursor::new(0),
-                    egui::text::CCursor::new(len),
-                );
-                state.cursor.set_char_range(Some(range));
-                state.store(ctx, url_edit_id);
-                self.pending_webpage_url_focus = None;
-            }
-            ctx.request_repaint();
-        }
-
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            // Cancel: revert to original URL
-            self.cancel_webpage_url_edit();
-        } else if ctx.input(|i| i.key_pressed(egui::Key::Enter))
-            || (resp.lost_focus() && !ctx.input(|i| i.pointer.primary_down()))
-        {
-            self.commit_webpage_url_edit(id);
-        } else if primary_clicked {
-            if let Some(pointer) = pointer_pos {
-                if !edit_rect.contains(pointer) {
-                    self.commit_webpage_url_edit(id);
-                }
-            }
-        }
-    }
-
-    pub(in crate::app::ui) fn show_webpage_url_dialog(&mut self, ctx: &egui::Context) {
-        if !self.webpage_url_dialog_open {
-            return;
-        }
-
-        let dialog_id = egui::Id::new("webpage-url-dialog");
-        let mut open = true;
-
-        let window = egui::Window::new(
-            egui::RichText::new("设置网址").color(Color32::WHITE).strong(),
-        )
-        .open(&mut open)
-        .order(egui::Order::Tooltip)
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-        .frame(
-            egui::Frame::new()
-                .fill(Color32::from_rgb(25, 29, 42))
-                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(86, 102, 138)))
-                .corner_radius(egui::CornerRadius::same(10))
-                .inner_margin(egui::Margin::symmetric(16, 12)),
-        );
-
-        let mut confirmed = false;
-        let mut canceled = false;
-
-        let win_resp = window.show(ctx, |ui| {
-            ui.visuals_mut().override_text_color = Some(Color32::WHITE);
-
-            ui.label("请输入网页地址：");
-            ui.add_space(8.0);
-
-            let editing_existing = self.webpage_url_dialog_node.is_some();
-            let edit_id = dialog_id.with("url-input");
-            let _resp = ui.add_sized(
-                egui::vec2(380.0, 28.0),
-                egui::TextEdit::singleline(&mut self.webpage_url_edit_buffer)
-                    .id(edit_id)
-                    .hint_text("例如 https://www.example.com")
-                    .font(egui::FontId::proportional(14.0))
-                    .text_color(Color32::from_rgb(196, 246, 255))
-                    .background_color(Color32::from_rgb(18, 46, 54)),
-            );
-
-            ctx.memory_mut(|m| m.request_focus(edit_id));
-
-            ui.add_space(12.0);
-            ui.horizontal(|ui| {
-                let ok_btn = egui::Button::new(
-                    egui::RichText::new("确定").color(Color32::BLACK).strong(),
-                )
-                .fill(Color32::from_rgb(146, 230, 182))
-                .min_size(egui::vec2(80.0, 28.0));
-                if ui.add(ok_btn).clicked() || ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    confirmed = true;
-                }
-
-                let cancel_btn = egui::Button::new(
-                    egui::RichText::new("取消").color(Color32::BLACK).strong(),
-                )
-                .fill(Color32::from_rgb(235, 198, 203))
-                .min_size(egui::vec2(80.0, 28.0));
-                if ui.add(cancel_btn).clicked() || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                    canceled = true;
-                }
-
-                ui.add_space(8.0);
-                ui.colored_label(
-                    Color32::from_rgb(172, 182, 204),
-                    if editing_existing {
-                        "Enter 确认 · Esc 取消"
-                    } else {
-                        "Enter 创建 · Esc 取消"
-                    },
-                );
-            });
-        });
-
-        // Save actual dialog rect for pixel-perfect occlusion
-        self.last_url_dialog_rect = win_resp.and_then(|r| r.response.rect.is_positive().then(|| r.response.rect));
-
-        if canceled || !open {
-            // Cancel / closed
-            self.webpage_url_dialog_open = false;
-            self.webpage_url_dialog_node = None;
-            self.webpage_url_dialog_pos = None;
-            self.webpage_url_edit_buffer.clear();
-            return;
-        }
-
-        if confirmed {
-            let url = self.webpage_url_edit_buffer.trim().to_owned();
-
-            if let Some(node_id) = self.webpage_url_dialog_node {
-                // Editing existing node
-                let should_update = self.nodes.iter().any(|n| {
-                    n.id == node_id
-                        && matches!(&n.data, crate::model::NodeData::WebPage { url: old } if !url.is_empty() && url != *old)
-                });
-                if should_update {
-                    if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
-                        if let crate::model::NodeData::WebPage { url: old } = &mut node.data {
-                            *old = url.clone();
-                        }
-                    }
-                    self.mark_workspace_dirty();
-                    self.navigate_webview_to(node_id, &url);
-                }
-            } else if !url.is_empty() {
-                // Creating new node
-                let pos = self.webpage_url_dialog_pos.unwrap_or(Pos2::new(100.0, 100.0));
-                let id = self.create_webpage_node(pos, false);
-                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
-                    if let crate::model::NodeData::WebPage { url: old } = &mut node.data {
-                        *old = url.clone();
-                    }
-                }
-                self.navigate_webview_to(id, &url);
-            }
-
-            self.webpage_url_dialog_open = false;
-            self.webpage_url_dialog_node = None;
-            self.webpage_url_dialog_pos = None;
-            self.webpage_url_edit_buffer.clear();
-        }
-    }
 }

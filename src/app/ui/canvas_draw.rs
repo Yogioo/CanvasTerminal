@@ -1,6 +1,6 @@
 use super::super::{EdgeControlHandle, GraphApp, NodeOrderAction};
 use crate::constants::{
-    DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT, TERMINAL_HEADER_HEIGHT, WEBPAGE_HEADER_HEIGHT,
+    DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT, TERMINAL_HEADER_HEIGHT,
 };
 use crate::model::NodeKind;
 use eframe::egui::{self, Color32, Rect, Sense, Ui};
@@ -10,7 +10,7 @@ impl GraphApp {
         &mut self,
         ui: &mut Ui,
         ctx: &egui::Context,
-        window_bar_visible: bool,
+        _window_bar_visible: bool,
     ) {
         let available = ui.available_size();
         let (rect, response) = ui.allocate_exact_size(available, Sense::click_and_drag());
@@ -35,34 +35,7 @@ impl GraphApp {
             || self.decision_color_popup.is_some()
             || queue_editor_open;
 
-        // ── Build popup/dialog screen rects for webview occlusion ─────────
-        let mut popup_rects: Vec<egui::Rect> = Vec::new();
 
-        // Context menu, command palette, URL dialog: use actual rects from
-        // the previous frame's render (pixel-perfect, 1-frame delay).
-        if self.context_menu_open {
-            if let Some(menu_rect) = self.last_context_menu_rect {
-                popup_rects.push(menu_rect);
-            }
-        }
-        if self.command_palette_open {
-            if let Some(pal_rect) = self.last_command_palette_rect {
-                popup_rects.push(pal_rect);
-            }
-        }
-        if self.webpage_url_dialog_open {
-            if let Some(dlg_rect) = self.last_url_dialog_rect {
-                popup_rects.push(dlg_rect);
-            }
-        }
-
-        // Window bar overlay at top
-        if window_bar_visible {
-            popup_rects.push(egui::Rect::from_min_size(
-                rect.min,
-                egui::vec2(rect.width(), 28.0),
-            ));
-        }
 
         // context_menu_open is set by the context_menu callback each frame.
         // Reset it here so the next frame re-evaluates correctly.
@@ -135,7 +108,7 @@ impl GraphApp {
             self.nodes
                 .iter()
                 .find(|n| n.id == node_id)
-                .is_some_and(|n| matches!(n.kind, NodeKind::Text | NodeKind::Html | NodeKind::WebPage))
+                .is_some_and(|n| n.kind == NodeKind::Text)
         });
         let pointer_over_decision_node_before_zoom = pointer_pos.is_some_and(|p| {
             let local = self.screen_to_world_pos(rect, p);
@@ -170,7 +143,6 @@ impl GraphApp {
                             - (pointer - rect.center()) / self.zoom)
                             .to_pos2();
                         self.sync_pan_from_camera(rect);
-                        self.webviews_dirty = true;
                     }
                 }
             }
@@ -357,16 +329,7 @@ impl GraphApp {
                 if let Some((id, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
                     self.set_single_selection(id);
                     if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
-                        if node.kind == NodeKind::WebPage {
-                            // For WebPage nodes: body area -> edit full URL, header area -> start URL editing
-                            let header_height = WEBPAGE_HEADER_HEIGHT;
-                            if local.y <= node.pos.y + header_height {
-                                self.start_webpage_url_edit(id);
-                            } else {
-                                self.editing_text_node = Some(id);
-                                self.pending_text_focus = Some(id);
-                            }
-                        } else if matches!(node.kind, NodeKind::Text | NodeKind::Html) {
+                        if node.kind == NodeKind::Text {
                             self.editing_text_node = Some(id);
                             self.pending_text_focus = Some(id);
                         } else if node.kind == NodeKind::Terminal {
@@ -412,33 +375,17 @@ impl GraphApp {
                     if self.editing_text_node == Some(id) {
                         // User is editing source — keep editing, just set selection.
                         self.set_single_selection(id);
-                    } else if self.is_webpage_node(id) {
-                        // WebPage: single-click on header area starts URL editing
-                        if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
-                            if local.y <= node.pos.y + WEBPAGE_HEADER_HEIGHT {
-                                self.start_webpage_url_edit(id);
-                            }
-                        }
-                        self.set_single_selection(id);
-                    } else if self.is_html_node(id) {
-                        // Html nodes are always live; just select.
-                        self.set_single_selection(id);
                     } else {
-                        // non-webview node clicked: return focus to parent
-                        self.ensure_canvas_focus();
                         self.set_single_selection(id);
                     }
                     if self.editing_text_node != Some(id) {
                         self.editing_text_node = None;
                     }
                 } else if let Some(edge) = self.find_edge_at(local, edge_hit_tolerance) {
-                    self.ensure_canvas_focus();
                     self.set_edge_selection(edge);
                     self.editing_text_node = None;
-                    // edge click does NOT deactivate live html node
                 } else {
-                    // blank canvas click: return focus to parent and clear selection
-                    self.ensure_canvas_focus();
+                    // blank canvas click: clear selection
                     self.clear_selection();
                     self.editing_text_node = None;
                 }
@@ -478,9 +425,7 @@ impl GraphApp {
             startup_edit_rect,
             decision_edit_rect,
             working_directory_edit_rect,
-            webpage_url_edit_rect,
         ) = self.draw_nodes(ui, ctx, &painter, rect);
-        self.sync_all_html_webviews(rect, &popup_rects);
         self.draw_selected_edge_controls_overlay(&painter, rect);
         self.handle_text_node_editor(ui, ctx, text_edit_rect);
         self.handle_title_editor(ui, ctx, title_edit_rect, primary_clicked, pointer_pos);
@@ -492,7 +437,6 @@ impl GraphApp {
             primary_clicked,
             pointer_pos,
         );
-        self.handle_webpage_url_editor(ui, ctx, webpage_url_edit_rect, primary_clicked, pointer_pos);
         self.handle_edge_editor(ui, ctx, rect, primary_clicked, pointer_pos);
         self.handle_decision_buttons_editor(
             ui,
@@ -502,7 +446,6 @@ impl GraphApp {
             pointer_pos,
         );
         self.handle_decision_queue_editor(ctx);
-        self.show_webpage_url_dialog(ctx);
 
         if alt_passthrough && !self.selected_nodes.is_empty() {
             if let Some(pointer) = pointer_pos {
