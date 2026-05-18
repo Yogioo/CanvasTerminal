@@ -72,6 +72,7 @@ impl GraphApp {
                     | NodeKind::Image
                     | NodeKind::Text
                     | NodeKind::Decision
+                    | NodeKind::Script
             ) {
                 return None;
             }
@@ -343,6 +344,11 @@ impl GraphApp {
                             NodeKind::Decision => {
                                 let width = (start_size.x + delta.x).max(220.0);
                                 let height = (start_size.y + delta.y).max(140.0);
+                                node.size = vec2(width, height);
+                            }
+                            NodeKind::Script => {
+                                let width = (start_size.x + delta.x).max(260.0);
+                                let height = (start_size.y + delta.y).max(160.0);
                                 node.size = vec2(width, height);
                             }
                             NodeKind::Group => {}

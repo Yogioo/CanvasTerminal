@@ -8,6 +8,7 @@ pub enum NodeKind {
     Image,
     Decision,
     Group,
+    Script,
 }
 
 fn default_text_autosize() -> bool {
@@ -52,6 +53,15 @@ pub enum NodeData {
         title: String,
         #[serde(default)]
         child_node_ids: Vec<usize>,
+    },
+    Script {
+        title: String,
+        /// JSON spec string for the widget tree
+        code: String,
+        #[serde(default)]
+        /// Parsed cache (not serialized, reconstructed on load)
+        #[serde(skip)]
+        parsed_spec: Option<crate::script_node::types::ScriptNodeSpec>,
     },
 }
 

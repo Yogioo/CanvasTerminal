@@ -251,6 +251,7 @@ impl GraphApp {
                 | (NodeKind::Image, NodeData::Image { .. })
                 | (NodeKind::Decision, NodeData::Decision { .. })
                 | (NodeKind::Group, NodeData::Group { .. })
+                | (NodeKind::Script, NodeData::Script { .. })
         )
     }
 

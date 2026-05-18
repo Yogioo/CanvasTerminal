@@ -151,6 +151,19 @@ pub struct GraphApp {
     pending_edge_focus: Option<(usize, usize)>,
     edge_edit_buffer: String,
 
+    // ── Script node editing ──
+    editing_script_node: Option<usize>,
+    pending_script_focus: Option<usize>,
+    script_edit_buffer: String,
+    /// Per-node input port values (read from upstream edges, ephemeral)
+    script_node_inputs: HashMap<usize, std::collections::HashMap<String, String>>,
+    /// Per-node output port values (written by interactive widgets, ephemeral)
+    script_node_outputs: HashMap<usize, std::collections::HashMap<String, String>>,
+    /// Per-node persistent state (key-value, saved/loaded)
+    script_node_state: HashMap<usize, std::collections::HashMap<String, String>>,
+    /// Id counter for script widget interaction IDs (resets each frame)
+    script_widget_id_counter: u64,
+
     suspend_terminal_focus: Option<usize>,
     resizing: Option<(usize, Pos2, egui::Vec2)>,
     context_menu_node: Option<usize>,
@@ -272,6 +285,14 @@ impl GraphApp {
             pending_edge_focus: None,
             edge_edit_buffer: String::new(),
 
+            editing_script_node: None,
+            pending_script_focus: None,
+            script_edit_buffer: String::new(),
+            script_node_inputs: std::collections::HashMap::new(),
+            script_node_outputs: std::collections::HashMap::new(),
+            script_node_state: std::collections::HashMap::new(),
+            script_widget_id_counter: 0,
+
             suspend_terminal_focus: None,
             resizing: None,
             context_menu_node: None,
@@ -377,6 +398,13 @@ impl GraphApp {
         self.editing_edge = None;
         self.pending_edge_focus = None;
         self.edge_edit_buffer.clear();
+        self.editing_script_node = None;
+        self.pending_script_focus = None;
+        self.script_edit_buffer.clear();
+        self.script_node_inputs.clear();
+        self.script_node_outputs.clear();
+        self.script_node_state.clear();
+        self.script_widget_id_counter = 0;
         self.suspend_terminal_focus = None;
         self.resizing = None;
         self.context_menu_node = None;

@@ -35,6 +35,8 @@ pub(in crate::app) struct NodeCreatePayload {
     pub pending_message: Option<String>,
     #[serde(default)]
     pub pending_messages: Option<Vec<String>>,
+    #[serde(default)]
+    pub code: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,6 +81,8 @@ pub(in crate::app) struct NodeUpdatePayload {
     pub pending_message: Option<String>,
     #[serde(default)]
     pub pending_messages: Option<Vec<String>>,
+    #[serde(default)]
+    pub code: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

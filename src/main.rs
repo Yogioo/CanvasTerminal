@@ -4,6 +4,7 @@ mod event_protocol;
 mod event_server;
 mod fonts;
 mod model;
+mod script_node;
 mod shell;
 
 use fonts::setup_custom_fonts;

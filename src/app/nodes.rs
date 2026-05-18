@@ -1,5 +1,6 @@
 use super::{EdgeControlHandle, EdgeControlOffsets, GraphApp, NodeOrderAction};
 use crate::model::{DecisionButton, Node, NodeData, NodeKind};
+use crate::script_node::default_script_template;
 use chrono::Local;
 use eframe::egui::{self, vec2, ColorImage, Pos2, Rect, TextureOptions};
 use std::collections::{HashMap, HashSet};
@@ -42,6 +43,10 @@ impl GraphApp {
                 title: "Group".to_owned(),
                 child_node_ids: Vec::new(),
             },
+            NodeKind::Script => {
+                // Script nodes are created via create_script_node(), not new_base_node()
+                panic!("Script node should use create_script_node()")
+            }
         };
 
         Node {
@@ -99,6 +104,24 @@ impl GraphApp {
 
     pub(in crate::app) fn create_decision_node(&mut self, pos: Pos2) -> usize {
         let node = self.new_base_node(NodeKind::Decision, pos, vec2(320.0, 220.0));
+        self.push_node_and_select(node)
+    }
+
+    pub(in crate::app) fn create_script_node(&mut self, pos: Pos2) -> usize {
+        let code = default_script_template();
+        let parsed = crate::script_node::parser::parse_script_spec(&code).ok();
+        let node = Node {
+            id: self.alloc_node_id(),
+            uid: uuid::Uuid::new_v4().to_string(),
+            kind: NodeKind::Script,
+            data: NodeData::Script {
+                title: "Script".to_owned(),
+                code,
+                parsed_spec: parsed,
+            },
+            pos,
+            size: egui::vec2(360.0, 320.0),
+        };
         self.push_node_and_select(node)
     }
 
@@ -627,6 +650,15 @@ impl GraphApp {
         if self.suspend_terminal_focus == Some(node_id) {
             self.suspend_terminal_focus = None;
         }
+        if self.editing_script_node == Some(node_id) {
+            self.editing_script_node = None;
+            self.pending_script_focus = None;
+            self.script_edit_buffer.clear();
+        }
+        self.script_node_inputs.remove(&node_id);
+        self.script_node_outputs.remove(&node_id);
+        self.script_node_state.remove(&node_id);
+
         if self
             .editing_edge
             .is_some_and(|(from, to)| from == node_id || to == node_id)

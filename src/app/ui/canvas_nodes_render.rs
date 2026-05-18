@@ -111,6 +111,25 @@ impl GraphApp {
                     };
                     (fill, stroke)
                 }
+                NodeKind::Script => {
+                    let fill = if is_selected {
+                        Color32::from_rgb(70, 50, 90)
+                    } else {
+                        Color32::from_rgb(50, 36, 65)
+                    };
+                    let stroke = if is_selected {
+                        Stroke::new(
+                            2.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(200, 140, 255),
+                        )
+                    } else {
+                        Stroke::new(
+                            1.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(130, 108, 170),
+                        )
+                    };
+                    (fill, stroke)
+                }
                 NodeKind::Group => {
                     let fill = if is_selected {
                         Color32::from_rgba_unmultiplied(62, 70, 108, 58)
@@ -677,6 +696,198 @@ impl GraphApp {
                         painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(175, 230, 240));
                     }
                 }
+                NodeKind::Script => {
+                    painter.rect_stroke(
+                        node_rect,
+                        8.0 * zoom_scale,
+                        stroke,
+                        egui::StrokeKind::Outside,
+                    );
+
+                    let header_height = crate::constants::SCRIPT_HEADER_HEIGHT * zoom_scale;
+                    let header_bottom = (node_rect.min.y + header_height).min(node_rect.max.y);
+                    let header_rect = Rect::from_min_max(
+                        node_rect.min,
+                        Pos2::new(node_rect.max.x, header_bottom),
+                    );
+                    painter.rect_filled(header_rect, 8.0 * zoom_scale, fill);
+
+                    let is_title_editing = self.editing_title_node == Some(node.id);
+                    if !is_title_editing {
+                        let title = match &node.data {
+                            NodeData::Script { title, .. } => title.as_str(),
+                            _ => "Script",
+                        };
+                        painter.text(
+                            Pos2::new(node_rect.min.x + 12.0 * zoom_scale, header_rect.center().y),
+                            Align2::LEFT_CENTER,
+                            title,
+                            FontId::proportional((16.0 * zoom_scale).max(10.0)),
+                            Color32::from_rgb(220, 200, 240),
+                        );
+                    } else {
+                        let rect_min = node_rect.left_top() + vec2(10.0, 6.0) * zoom_scale;
+                        let rect_max = Pos2::new(
+                            node_rect.max.x - 10.0 * zoom_scale,
+                            (node_rect.min.y + header_height - 6.0 * zoom_scale)
+                                .min(node_rect.max.y),
+                        );
+                        title_edit_rect = Some((node.id, Rect::from_min_max(rect_min, rect_max)));
+                    }
+
+                    painter.line_segment(
+                        [
+                            Pos2::new(node_rect.min.x, header_bottom),
+                            Pos2::new(node_rect.max.x, header_bottom),
+                        ],
+                        Stroke::new(
+                            1.0 * zoom_scale.clamp(0.6, 1.6),
+                            Color32::from_rgb(130, 108, 170),
+                        ),
+                    );
+
+                    let content_rect = Rect::from_min_max(
+                        Pos2::new(
+                            node_rect.min.x + 8.0 * zoom_scale,
+                            header_bottom + 8.0 * zoom_scale,
+                        ),
+                        node_rect.max - vec2(8.0, 8.0) * zoom_scale,
+                    );
+
+                    if content_rect.is_positive() {
+                        let is_editing = self.editing_script_node == Some(node.id);
+
+                        if is_editing {
+                            // Show JSON editor area
+                            let scroll_id = egui::Id::new(("script-node-scroll", node.id));
+                            let mut editor_ui = ui.new_child(
+                                egui::UiBuilder::new()
+                                    .max_rect(content_rect)
+                                    .layout(Layout::top_down(Align::Min)),
+                            );
+                            editor_ui.set_clip_rect(content_rect);
+
+                            egui::ScrollArea::vertical()
+                                .id_salt(scroll_id)
+                                .auto_shrink([false, false])
+                                .show(&mut editor_ui, |ui| {
+                                    ui.set_width(content_rect.width());
+                                    let edit_id = egui::Id::new(("script-node-editor", node.id));
+                                    let font_size = (12.0 * zoom_scale).round().max(9.0);
+                                    let resp = ui.add_sized(
+                                        vec2(content_rect.width(), content_rect.height()),
+                                        egui::TextEdit::multiline(&mut self.script_edit_buffer)
+                                            .id(edit_id)
+                                            .font(FontId::monospace(font_size))
+                                            .text_color(Color32::from_rgb(200, 210, 230))
+                                            .background_color(Color32::from_rgb(20, 22, 34))
+                                            .desired_width(f32::INFINITY)
+                                            .desired_rows(10)
+                                            .frame(true),
+                                    );
+
+                                    if self.pending_script_focus == Some(node.id) {
+                                        ctx.memory_mut(|m| m.request_focus(edit_id));
+                                        self.pending_script_focus = None;
+                                    }
+
+                                    if resp.changed() {
+                                        self.mark_workspace_dirty();
+                                    }
+                                });
+                        } else {
+                            // Render the script's widget tree
+                            let zoom = zoom_scale;
+
+                            let inputs = self.script_node_inputs.get(&node.id).cloned().unwrap_or_default();
+                            let mut outputs = self.script_node_outputs.get(&node.id).cloned().unwrap_or_default();
+                            let state_vals = self.script_node_state.get(&node.id).cloned().unwrap_or_default();
+                            let mut events = Vec::new();
+
+                            // Get parsed spec first (requires mutable self)
+                            let spec = self.fetch_script_node_spec(node.id);
+
+                            // Now borrow id_counter separately
+                            let id_counter = &mut self.script_widget_id_counter;
+
+                            if let Some(spec) = spec {
+                                crate::script_node::render_script_node(
+                                    &spec,
+                                    content_rect,
+                                    ui,
+                                    zoom,
+                                    &inputs,
+                                    &mut outputs,
+                                    &state_vals,
+                                    &mut events,
+                                    id_counter,
+                                );
+
+                                // Process events
+                                let output_changes = crate::script_node::process_script_events(
+                                    &events,
+                                    &mut outputs,
+                                    &mut std::collections::HashMap::new(),
+                                );
+
+                                // Update output values for the node
+                                self.script_node_outputs.insert(node.id, outputs);
+
+                                // Forward output changes as automation events if there are connected edges
+                                for (port_name, value) in &output_changes {
+                                    // Find edges from this node with matching route_key = port_name
+                                    let matching_edges: Vec<(usize, usize)> = self.edges.iter()
+                                        .filter(|(from, _)| *from == node.id)
+                                        .filter(|(from, to)| {
+                                            self.edge_route_key(*from, *to)
+                                                .map(|k| k == port_name.as_str())
+                                                .unwrap_or(false)
+                                        })
+                                        .cloned()
+                                        .collect();
+
+                                    for (_, to_node) in &matching_edges {
+                                        self.script_node_inputs
+                                            .entry(*to_node)
+                                            .or_default()
+                                            .insert(port_name.clone(), value.clone());
+                                    }
+                                }
+
+                                // Also forward button events to downstream nodes that have "event" route
+                                for event in &events {
+                                    if let crate::script_node::types::ScriptEvent::ButtonClick { event_key } = event {
+                                        let event_edges: Vec<(usize, usize)> = self.edges.iter()
+                                            .filter(|(from, _)| *from == node.id)
+                                            .filter(|(from, to)| {
+                                                self.edge_route_key(*from, *to)
+                                                    .map(|k| k == "event")
+                                                    .unwrap_or(false)
+                                            })
+                                            .cloned()
+                                            .collect();
+
+                                        for (_, to_node) in &event_edges {
+                                            self.script_node_inputs
+                                                .entry(*to_node)
+                                                .or_default()
+                                                .insert("event".to_owned(), event_key.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if is_selected {
+                        let handle_size = 12.0 * zoom_scale.clamp(0.75, 1.6);
+                        let handle_rect = Rect::from_min_size(
+                            node_rect.right_bottom() - vec2(handle_size + 6.0, handle_size + 6.0),
+                            vec2(handle_size, handle_size),
+                        );
+                        painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(200, 140, 255));
+                    }
+                }
                 NodeKind::Group => {
                     painter.rect(
                         node_rect,
@@ -719,5 +930,27 @@ impl GraphApp {
             decision_edit_rect,
             working_directory_edit_rect,
         )
+    }
+
+    /// Get a parsed script node spec, attempting to parse and cache if needed.
+    fn fetch_script_node_spec(&mut self, node_id: usize) -> Option<crate::script_node::types::ScriptNodeSpec> {
+        let node = self.nodes.iter().find(|n| n.id == node_id)?;
+        match &node.data {
+            NodeData::Script {
+                parsed_spec: Some(spec),
+                ..
+            } => Some(spec.clone()),
+            NodeData::Script { code, .. } => {
+                let parsed = crate::script_node::parser::parse_script_spec(code).ok()?;
+                // Cache back
+                if let Some(n) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+                    if let NodeData::Script { parsed_spec, .. } = &mut n.data {
+                        *parsed_spec = Some(parsed.clone());
+                    }
+                }
+                Some(parsed)
+            }
+            _ => None,
+        }
     }
 }

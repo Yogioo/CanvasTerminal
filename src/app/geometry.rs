@@ -257,7 +257,7 @@ impl GraphApp {
             NodeKind::Text | NodeKind::Image | NodeKind::Group => true,
             NodeKind::Terminal => local.y <= n.pos.y + TERMINAL_HEADER_HEIGHT,
             NodeKind::Decision => local.y <= n.pos.y + DECISION_HEADER_HEIGHT,
-
+            NodeKind::Script => local.y <= n.pos.y + crate::constants::SCRIPT_HEADER_HEIGHT,
         };
 
         Some((id, node_pos, can_drag))

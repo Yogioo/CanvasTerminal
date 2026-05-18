@@ -346,6 +346,12 @@ impl GraphApp {
                             if local.y <= node.pos.y + GROUP_HEADER_HEIGHT {
                                 self.start_title_edit(id);
                             }
+                        } else if node.kind == NodeKind::Script {
+                            if local.y <= node.pos.y + crate::constants::SCRIPT_HEADER_HEIGHT {
+                                self.start_title_edit(id);
+                            }
+                            // Script node body does NOT toggle edit mode on double-click.
+                            // Edit via right-click context menu or the edit button.
                         }
                     }
                 } else {

@@ -1,5 +1,6 @@
 use super::{DecisionButtonDraft, DecisionColorInputMode, GraphApp};
 use crate::model::{DecisionButton, NodeData};
+use crate::script_node;
 use eframe::egui;
 use std::collections::HashSet;
 
@@ -175,6 +176,7 @@ impl GraphApp {
                 NodeData::Terminal { title, .. } => Some(title.clone()),
                 NodeData::Decision { title, .. } => Some(title.clone()),
                 NodeData::Group { title, .. } => Some(title.clone()),
+                NodeData::Script { title, .. } => Some(title.clone()),
                 _ => None,
             })
         else {
@@ -195,7 +197,8 @@ impl GraphApp {
                 match &mut node.data {
                     NodeData::Terminal { title, .. }
                     | NodeData::Decision { title, .. }
-                    | NodeData::Group { title, .. } => {
+                    | NodeData::Group { title, .. }
+                    | NodeData::Script { title, .. } => {
                         if title != trimmed {
                             *title = trimmed.to_owned();
                             changed = true;
@@ -523,6 +526,69 @@ impl GraphApp {
 
         self.cancel_decision_buttons_edit();
         true
+    }
+
+    // ── Script node editing ──
+
+    pub(in crate::app) fn start_script_edit(&mut self, node_id: usize) {
+        let Some(code) = self
+            .nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .and_then(|n| match &n.data {
+                NodeData::Script { code, .. } => Some(code.clone()),
+                _ => None,
+            })
+        else {
+            return;
+        };
+
+        // If there's already a script node being edited, commit it first
+        if let Some(prev_id) = self.editing_script_node {
+            if prev_id != node_id {
+                self.commit_script_edit(prev_id);
+            }
+        }
+
+        self.prepare_inline_node_edit(node_id);
+        self.editing_script_node = Some(node_id);
+        self.pending_script_focus = Some(node_id);
+        self.script_edit_buffer = code;
+    }
+
+    pub(in crate::app) fn commit_script_edit(&mut self, node_id: usize) {
+        let mut changed = false;
+        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+            if let NodeData::Script {
+                code,
+                parsed_spec,
+                ..
+            } = &mut node.data
+            {
+                let new_code = self.script_edit_buffer.trim().to_owned();
+                if *code != new_code {
+                    *code = new_code;
+                    // Re-parse the spec
+                    *parsed_spec = script_node::parser::parse_script_spec(code).ok();
+                    changed = true;
+                }
+            }
+        }
+
+        if changed {
+            self.mark_workspace_dirty();
+        }
+
+        self.editing_script_node = None;
+        self.pending_script_focus = None;
+        self.script_edit_buffer.clear();
+    }
+
+    #[allow(dead_code)]
+    pub(in crate::app) fn cancel_script_edit(&mut self) {
+        self.editing_script_node = None;
+        self.pending_script_focus = None;
+        self.script_edit_buffer.clear();
     }
 
     pub(in crate::app) fn start_edge_edit(&mut self, edge: (usize, usize)) {

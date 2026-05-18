@@ -156,6 +156,7 @@ impl GraphApp {
                         NodeKind::Image => "image",
                         NodeKind::Decision => "decision",
                         NodeKind::Group => "group",
+                        NodeKind::Script => "script",
                     },
                     "data": n.data,
                     "pos": {"x": n.pos.x, "y": n.pos.y},
@@ -377,6 +378,25 @@ impl GraphApp {
                 }
                 id
             }
+            "script" => {
+                let id = self.create_script_node(pos);
+                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
+                    if let NodeData::Script {
+                        title, code, parsed_spec
+                    } = &mut node.data
+                    {
+                        if let Some(next_title) = payload.title {
+                            *title = next_title;
+                        }
+                        if let Some(next_code) = payload.code {
+                            let parsed = crate::script_node::parser::parse_script_spec(&next_code).ok();
+                            *code = next_code;
+                            *parsed_spec = parsed;
+                        }
+                    }
+                }
+                id
+            }
             _ => {
                 return Err(response_error(
                     request.request_id.clone(),
@@ -554,6 +574,16 @@ impl GraphApp {
             NodeData::Group { title, .. } => {
                 if let Some(next) = payload.title {
                     *title = next;
+                }
+            }
+            NodeData::Script { title, code, parsed_spec } => {
+                if let Some(next) = payload.title {
+                    *title = next;
+                }
+                if let Some(next_code) = payload.code {
+                    let parsed = crate::script_node::parser::parse_script_spec(&next_code).ok();
+                    *code = next_code;
+                    *parsed_spec = parsed;
                 }
             }
         }
