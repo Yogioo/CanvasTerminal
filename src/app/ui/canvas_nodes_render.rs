@@ -2,9 +2,133 @@ use super::super::GraphApp;
 use crate::constants::{DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT};
 use crate::model::{NodeData, NodeKind};
 use eframe::egui::{
-    self, vec2, Align, Align2, Color32, FontId, Layout, Painter, Pos2, Rect, Stroke,
+    self, text::{LayoutJob, TextFormat}, vec2, Align, Align2, Color32, FontId, Layout, Painter, Pos2, Rect, Stroke,
 };
 use egui_commonmark::CommonMarkViewer;
+
+/// Rainbow palette for matching bracket pairs (6 colors cycling).
+const RAINBOW: [Color32; 6] = [
+    Color32::from_rgb(255, 200, 70),   // gold
+    Color32::from_rgb(255, 140, 100),  // coral
+    Color32::from_rgb(100, 210, 120),  // green
+    Color32::from_rgb(80, 210, 210),   // teal
+    Color32::from_rgb(100, 170, 255),  // blue
+    Color32::from_rgb(200, 140, 255),  // purple
+];
+
+/// Build a syntax-highlighted LayoutJob for JSON text.
+/// Uses byte-level indexing via char_indices() to handle multi-byte UTF-8 correctly.
+fn highlight_json(text: &str, font: FontId) -> LayoutJob {
+    let mut job = LayoutJob::default();
+    // (byte_offset, char) pairs
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let len = chars.len();
+    let mut idx = 0; // index into chars Vec
+    let mut bracket_depth: i32 = 0; // combined nesting depth for rainbow coloring
+
+    while idx < len {
+        let (byte_start, c) = chars[idx];
+
+        // Whitespace
+        if c.is_whitespace() {
+            while idx < len && chars[idx].1.is_whitespace() {
+                idx += 1;
+            }
+            let byte_end = if idx < len { chars[idx].0 } else { text.len() };
+            job.append(&text[byte_start..byte_end], 0.0,
+                TextFormat::simple(font.clone(), Color32::from_rgb(120, 120, 140)));
+            continue;
+        }
+
+        // String (key or value)
+        if c == '"' {
+            idx += 1;
+            while idx < len {
+                if chars[idx].1 == '\\' { idx += 2; continue; }
+                if chars[idx].1 == '"' { idx += 1; break; }
+                idx += 1;
+            }
+            let byte_end = if idx < len { chars[idx].0 } else { text.len() };
+            // Peek ahead past whitespace to see if this is a key (followed by ':')
+            let after_slice = &text[byte_end..];
+            let after_trim = after_slice.trim_start();
+            let is_key = after_trim.starts_with(':');
+            let color = if is_key {
+                Color32::from_rgb(100, 200, 255)  // cyan for keys
+            } else {
+                Color32::from_rgb(160, 220, 140)  // green for string values
+            };
+            job.append(&text[byte_start..byte_end], 0.0, TextFormat::simple(font.clone(), color));
+            continue;
+        }
+
+        // Number (including negative) — all ASCII, one byte per char
+        if c.is_ascii_digit() || (c == '-' && idx + 1 < len && chars[idx + 1].1.is_ascii_digit()) {
+            let num_start = byte_start;
+            idx += 1;
+            while idx < len {
+                let ch = chars[idx].1;
+                let ok = ch.is_ascii_digit() || ch == '.'
+                    || ch == 'e' || ch == 'E'
+                    || ((ch == '+' || ch == '-') && matches!(chars[idx.saturating_sub(1)].1, 'e' | 'E'));
+                if ok {
+                    idx += 1;
+                } else {
+                    break;
+                }
+            }
+            let num_end = if idx < len { chars[idx].0 } else { text.len() };
+            job.append(&text[num_start..num_end], 0.0,
+                TextFormat::simple(font.clone(), Color32::from_rgb(255, 190, 80)));
+            continue;
+        }
+
+        // Keywords: true, false, null (all ASCII, safe to slice by byte)
+        let rest = &text[byte_start..];
+        if rest.starts_with("true") || rest.starts_with("false") || rest.starts_with("null") {
+            let kw_len = if rest.starts_with("false") { 5 } else { 4 };
+            // Advance idx by the number of chars in the keyword
+            for _ in 0..kw_len {
+                if idx < len { idx += 1; }
+            }
+            let byte_end = byte_start + kw_len;
+            job.append(&text[byte_start..byte_end], 0.0,
+                TextFormat::simple(font.clone(), Color32::from_rgb(210, 150, 255)));
+            continue;
+        }
+
+        // Structural characters — rainbow brackets on combined depth
+        if matches!(c, '{' | '}' | '[' | ']' | ':' | ',') {
+            let color = match c {
+                '{' | '[' => {
+                    let depth = bracket_depth.max(0) as usize % RAINBOW.len();
+                    bracket_depth += 1;
+                    RAINBOW[depth]
+                }
+                '}' | ']' => {
+                    bracket_depth = (bracket_depth - 1).max(0);
+                    let depth = bracket_depth as usize % RAINBOW.len();
+                    RAINBOW[depth]
+                }
+                ':' => Color32::from_rgb(130, 130, 160),
+                ',' => Color32::from_rgb(130, 130, 160),
+                _ => Color32::WHITE,
+            };
+            let byte_end = byte_start + c.len_utf8(); // 1 for ASCII
+            job.append(&text[byte_start..byte_end], 0.0, TextFormat::simple(font.clone(), color));
+            idx += 1;
+            continue;
+        }
+
+        // Fallback: multi-byte char or unknown
+        let byte_end = byte_start + c.len_utf8();
+        job.append(&text[byte_start..byte_end], 0.0,
+            TextFormat::simple(font.clone(), Color32::from_rgb(200, 200, 220)));
+        idx += 1;
+    }
+
+    job
+}
 
 impl GraphApp {
     pub(in crate::app::ui) fn draw_nodes(
@@ -774,16 +898,22 @@ impl GraphApp {
                                     ui.set_width(content_rect.width());
                                     let edit_id = egui::Id::new(("script-node-editor", node.id));
                                     let font_size = (12.0 * zoom_scale).round().max(9.0);
+                                    let hl_font = FontId::monospace(font_size);
                                     let resp = ui.add_sized(
                                         vec2(content_rect.width(), content_rect.height()),
                                         egui::TextEdit::multiline(&mut self.script_edit_buffer)
                                             .id(edit_id)
-                                            .font(FontId::monospace(font_size))
+                                            .font(hl_font.clone())
                                             .text_color(Color32::from_rgb(200, 210, 230))
                                             .background_color(Color32::from_rgb(20, 22, 34))
                                             .desired_width(f32::INFINITY)
                                             .desired_rows(10)
-                                            .frame(true),
+                                            .frame(true)
+                                            .layouter(&mut |ui: &egui::Ui, text: &str, wrap_width: f32| {
+                                                let mut job = highlight_json(text, hl_font.clone());
+                                                job.wrap.max_width = wrap_width;
+                                                ui.fonts(|f| f.layout_job(job))
+                                            }),
                                     );
 
                                     if self.pending_script_focus == Some(node.id) {
@@ -876,6 +1006,86 @@ impl GraphApp {
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    // ── Draw port circles ──
+                    if let Some(spec) = self.fetch_script_node_spec(node.id) {
+                        if let Some(ports) = &spec.ports {
+                            let port_r = (5.0 * zoom_scale).max(3.0);
+                            let input_color = Color32::from_rgb(130, 220, 255);
+                            let output_color = Color32::from_rgb(255, 200, 130);
+                            let outline = Color32::from_rgb(40, 40, 60);
+
+                            let mut input_names: Vec<&String> = ports.inputs.keys().collect();
+                            input_names.sort();
+                            let mut output_names: Vec<&String> = ports.outputs.keys().collect();
+                            output_names.sort();
+
+                            // Store port positions for hit-testing (B2)
+                            let mut hit_areas = Vec::new();
+
+                            // Input ports on top edge
+                            let inputs_map = self.script_node_inputs.get(&node.id).cloned().unwrap_or_default();
+                            let outputs_map = self.script_node_outputs.get(&node.id).cloned().unwrap_or_default();
+                            let label_font = FontId::proportional((11.0 * zoom_scale).max(7.0));
+
+                            let total_in = input_names.len();
+                            for (i, name) in input_names.iter().enumerate() {
+                                let t = (i + 1) as f32 / (total_in + 1) as f32;
+                                let cx = node_rect.min.x + node_rect.width() * t;
+                                let center = Pos2::new(cx, node_rect.min.y);
+                                painter.circle_filled(center, port_r, input_color);
+                                painter.circle_stroke(center, port_r, Stroke::new(1.0, outline));
+                                // Value label above port
+                                if let Some(val) = inputs_map.get(name.as_str()) {
+                                    if !val.is_empty() {
+                                        let label_pos = Pos2::new(cx, node_rect.min.y - port_r - 4.0 * zoom_scale);
+                                        painter.text(
+                                            label_pos,
+                                            Align2::CENTER_BOTTOM,
+                                            format!("{}: {}", name, val),
+                                            label_font.clone(),
+                                            Color32::from_rgb(160, 220, 255),
+                                        );
+                                    }
+                                }
+                                hit_areas.push(crate::app::ScriptPortHitArea {
+                                    port_name: (*name).clone(),
+                                    world_pos: self.screen_to_world_pos(rect, center),
+                                    is_input: true,
+                                });
+                            }
+
+                            // Output ports on bottom edge
+                            let total_out = output_names.len();
+                            for (i, name) in output_names.iter().enumerate() {
+                                let t = (i + 1) as f32 / (total_out + 1) as f32;
+                                let cx = node_rect.min.x + node_rect.width() * t;
+                                let center = Pos2::new(cx, node_rect.max.y);
+                                painter.circle_filled(center, port_r, output_color);
+                                painter.circle_stroke(center, port_r, Stroke::new(1.0, outline));
+                                // Value label below port
+                                if let Some(val) = outputs_map.get(name.as_str()) {
+                                    if !val.is_empty() {
+                                        let label_pos = Pos2::new(cx, node_rect.max.y + port_r + 4.0 * zoom_scale);
+                                        painter.text(
+                                            label_pos,
+                                            Align2::CENTER_TOP,
+                                            format!("{}: {}", name, val),
+                                            label_font.clone(),
+                                            Color32::from_rgb(255, 210, 130),
+                                        );
+                                    }
+                                }
+                                hit_areas.push(crate::app::ScriptPortHitArea {
+                                    port_name: (*name).clone(),
+                                    world_pos: self.screen_to_world_pos(rect, center),
+                                    is_input: false,
+                                });
+                            }
+
+                            self.script_node_port_positions.insert(node.id, hit_areas);
                         }
                     }
 

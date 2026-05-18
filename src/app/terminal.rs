@@ -32,22 +32,26 @@ impl GraphApp {
             return;
         }
 
-        let downstream_ids: Vec<usize> = self
+        let downstream_targets: Vec<(usize, Option<String>)> = self
             .edges
             .iter()
-            .filter_map(|(from, to)| (*from == node_id).then_some(*to))
+            .filter_map(|(from, to)| {
+                if *from != node_id { return None; }
+                let route = self.edge_route_key(node_id, *to).map(|s| s.to_owned());
+                Some((*to, route))
+            })
             .collect();
 
-        if downstream_ids.is_empty() {
+        if downstream_targets.is_empty() {
             self.push_toast_notification("无下游节点可接收传递内容");
             return;
         }
 
         let injected = Self::build_injected_text_block(&text_body);
-        let delivered = self.forward_message_to_targets(&downstream_ids, &injected);
+        let delivered = self.forward_message_to_targets(&downstream_targets, &injected);
 
         if delivered == 0 {
-            self.push_toast_notification("无可接收消息的下游节点（仅支持终端/决策）");
+            self.push_toast_notification("无可接收消息的下游节点（仅支持终端/决策/Script）");
             return;
         }
 
@@ -136,17 +140,26 @@ impl GraphApp {
         }
     }
 
-    fn forward_message_to_targets(&mut self, target_ids: &[usize], message: &str) -> usize {
+    fn forward_message_to_targets(
+        &mut self,
+        targets: &[(usize, Option<String>)],
+        message: &str,
+    ) -> usize {
         let mut delivered = 0usize;
-        for target_id in target_ids {
-            if self.forward_message_to_node(*target_id, message) {
+        for (target_id, route_key) in targets {
+            if self.forward_message_to_node(*target_id, route_key.as_deref(), message) {
                 delivered += 1;
             }
         }
         delivered
     }
 
-    fn forward_message_to_node(&mut self, target_id: usize, message: &str) -> bool {
+    fn forward_message_to_node(
+        &mut self,
+        target_id: usize,
+        route_key: Option<&str>,
+        message: &str,
+    ) -> bool {
         let Some(kind) = self
             .nodes
             .iter()
@@ -162,7 +175,16 @@ impl GraphApp {
                 true
             }
             NodeKind::Decision => self.enqueue_decision_message(target_id, message),
-            NodeKind::Text | NodeKind::Image | NodeKind::Group | NodeKind::Script => false,
+            NodeKind::Script => {
+                let port_name = route_key.unwrap_or("input");
+                self.script_node_inputs
+                    .entry(target_id)
+                    .or_default()
+                    .insert(port_name.to_owned(), message.to_owned());
+                self.mark_workspace_dirty();
+                true
+            }
+            NodeKind::Text | NodeKind::Image | NodeKind::Group => false,
         }
     }
 
@@ -340,17 +362,18 @@ impl GraphApp {
             return;
         }
 
-        let downstream_ids: Vec<usize> = self
+        let downstream_targets: Vec<(usize, Option<String>)> = self
             .edges
             .iter()
-            .filter_map(|(from, to)| (*from == node_id).then_some(*to))
-            .filter(|to| {
-                self.edge_route_key(node_id, *to)
-                    .is_some_and(|route| route == event_key)
+            .filter_map(|(from, to)| {
+                if *from != node_id { return None; }
+                let route = self.edge_route_key(node_id, *to).map(|s| s.to_owned());
+                if route.as_deref() != Some(event_key) { return None; }
+                Some((*to, route))
             })
             .collect();
 
-        if downstream_ids.is_empty() {
+        if downstream_targets.is_empty() {
             self.push_toast_notification(format!(
                 "未找到 route_key = '{event_key}' 的下游连线，消息未丢失"
             ));
@@ -388,7 +411,7 @@ impl GraphApp {
                 break;
             };
 
-            let delivered = self.forward_message_to_targets(&downstream_ids, message.trim());
+            let delivered = self.forward_message_to_targets(&downstream_targets, message.trim());
             if delivered > 0 {
                 delivered_messages += 1;
             }
@@ -437,27 +460,27 @@ impl GraphApp {
             .map(str::trim)
             .filter(|value| !value.is_empty());
 
-        let downstream_ids: Vec<usize> = self
+        let downstream_targets: Vec<(usize, Option<String>)> = self
             .edges
             .iter()
-            .filter(|(from, to)| {
+            .filter_map(|(from, to)| {
                 if *from != source_id {
-                    return false;
+                    return None;
                 }
 
                 if let Some(expected) = route_key {
                     let actual = self.edge_route_key(*from, *to).unwrap_or_default();
                     if actual != expected {
-                        return false;
+                        return None;
                     }
                 }
 
-                true
+                let route = self.edge_route_key(source_id, *to).map(|s| s.to_owned());
+                Some((*to, route))
             })
-            .map(|(_, to)| *to)
             .collect();
 
-        if downstream_ids.is_empty() {
+        if downstream_targets.is_empty() {
             if let Some(expected) = route_key {
                 self.push_toast_notification(format!("未找到 route_key = '{expected}' 的下游连线"));
             }
@@ -465,9 +488,9 @@ impl GraphApp {
         }
 
         let injected = Self::build_injected_text_block(&event.summary);
-        let delivered = self.forward_message_to_targets(&downstream_ids, &injected);
+        let delivered = self.forward_message_to_targets(&downstream_targets, &injected);
         if delivered == 0 {
-            self.push_toast_notification("匹配到连线，但无可接收消息的下游节点（仅支持终端/决策）");
+            self.push_toast_notification("匹配到连线，但无可接收消息的下游节点（仅支持终端/决策/Script）");
         }
     }
 

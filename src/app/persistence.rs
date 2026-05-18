@@ -3,12 +3,12 @@ use crate::model::{Node, NodeData, NodeKind};
 use eframe::egui::{vec2, ColorImage, Pos2};
 use image::{DynamicImage, ImageFormat, RgbaImage};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const GRAPH_CONFIG_VERSION: u32 = 9;
+const GRAPH_CONFIG_VERSION: u32 = 10;
 const DEFAULT_GRAPH_PATH: &str = "./graph.json";
 const IMAGE_ARTIFACT_DIR: &str = "artifacts/img";
 static IMAGE_FILE_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -31,6 +31,8 @@ struct GraphConfig {
     view: ViewConfig,
     #[serde(default)]
     workspace_name: Option<String>,
+    #[serde(default)]
+    script_states: Vec<ScriptStateConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +48,12 @@ struct EdgeCurveBiasConfig {
     from: usize,
     to: usize,
     bias: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ScriptStateConfig {
+    node_id: usize,
+    state: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,6 +199,14 @@ impl GraphConfig {
                 zoom: app.zoom,
             },
             workspace_name: Some(app.workspace_name().to_owned()),
+            script_states: app
+                .script_node_state
+                .iter()
+                .map(|(id, state)| ScriptStateConfig {
+                    node_id: *id,
+                    state: state.clone(),
+                })
+                .collect(),
         }
     }
 }
@@ -338,8 +354,12 @@ impl GraphApp {
                 super::EdgeControlOffsets { source, target },
             );
         }
-
-
+        let mut script_node_state = std::collections::HashMap::new();
+        for s in config.script_states {
+            if node_ids.contains(&s.node_id) {
+                script_node_state.insert(s.node_id, s.state);
+            }
+        }
 
         self.nodes = nodes;
         self.sanitize_groups();
@@ -347,6 +367,7 @@ impl GraphApp {
         self.edge_route_keys = edge_route_keys;
         self.edge_curve_biases = edge_curve_biases;
         self.edge_control_offsets = edge_control_offsets;
+        self.script_node_state = script_node_state;
         self.selected = None;
         self.selected_nodes.clear();
         self.selected_edge = None;
@@ -360,6 +381,8 @@ impl GraphApp {
         self.context_menu_local_pos = None;
         self.linking_from = None;
         self.linking_pointer_local = None;
+        self.port_linking_from = None;
+        self.port_linking_pointer_local = None;
         self.cutting_path_local.clear();
         self.right_drag_moved = false;
         self.cut_snapshot_nodes = None;

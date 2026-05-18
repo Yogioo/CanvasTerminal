@@ -164,6 +164,7 @@ impl GraphApp {
     }
 
     pub(in crate::app::ui) fn draw_link_preview(&self, painter: &Painter, rect: Rect) {
+        // Right-click node-to-node linking preview
         if let (Some(from), Some(pointer_local)) = (self.linking_from, self.linking_pointer_local) {
             if let Some(node) = self.nodes.iter().find(|n| n.id == from) {
                 let start =
@@ -176,6 +177,25 @@ impl GraphApp {
                         Color32::from_rgba_premultiplied(130, 195, 255, 220),
                     ),
                 );
+            }
+        }
+
+        // Port-to-port drag linking preview
+        if let Some((_from_node, ref _port_name, start_world)) = self.port_linking_from.clone() {
+            if let Some(pointer_local) = self.port_linking_pointer_local {
+                let start = self.world_to_screen_pos(rect, start_world);
+                let end = self.world_to_screen_pos(rect, pointer_local);
+                painter.line_segment(
+                    [start, end],
+                    Stroke::new(
+                        3.0 * self.zoom.clamp(0.6, 1.6),
+                        Color32::from_rgba_premultiplied(255, 200, 100, 240),
+                    ),
+                );
+                // Draw a small circle at the start (output port)
+                let r = (6.0 * self.zoom).max(4.0);
+                painter.circle_filled(start, r, Color32::from_rgb(255, 200, 100));
+                painter.circle_stroke(start, r, Stroke::new(1.5 * self.zoom, Color32::from_rgb(40, 40, 60)));
             }
         }
     }

@@ -46,6 +46,13 @@ pub(in crate::app) enum EdgeControlHandle {
     Target,
 }
 
+#[derive(Clone, Debug)]
+pub(in crate::app) struct ScriptPortHitArea {
+    pub port_name: String,
+    pub world_pos: Pos2,
+    pub is_input: bool,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub(in crate::app) struct EdgeControlOffsets {
     pub source: egui::Vec2,
@@ -163,6 +170,8 @@ pub struct GraphApp {
     script_node_state: HashMap<usize, std::collections::HashMap<String, String>>,
     /// Id counter for script widget interaction IDs (resets each frame)
     script_widget_id_counter: u64,
+    /// World-space port positions for hit-testing (rebuilt each frame)
+    script_node_port_positions: HashMap<usize, Vec<ScriptPortHitArea>>,
 
     suspend_terminal_focus: Option<usize>,
     resizing: Option<(usize, Pos2, egui::Vec2)>,
@@ -171,6 +180,9 @@ pub struct GraphApp {
     context_menu_local_pos: Option<Pos2>,
     linking_from: Option<usize>,
     linking_pointer_local: Option<Pos2>,
+    /// Port-to-port drag linking state: (source_node_id, source_port_name, source_world_pos)
+    port_linking_from: Option<(usize, String, Pos2)>,
+    port_linking_pointer_local: Option<Pos2>,
     cutting_path_local: Vec<Pos2>,
     right_drag_moved: bool,
     cut_snapshot_nodes: Option<Vec<Node>>,
@@ -292,6 +304,7 @@ impl GraphApp {
             script_node_outputs: std::collections::HashMap::new(),
             script_node_state: std::collections::HashMap::new(),
             script_widget_id_counter: 0,
+            script_node_port_positions: std::collections::HashMap::new(),
 
             suspend_terminal_focus: None,
             resizing: None,
@@ -300,6 +313,8 @@ impl GraphApp {
             context_menu_local_pos: None,
             linking_from: None,
             linking_pointer_local: None,
+            port_linking_from: None,
+            port_linking_pointer_local: None,
             cutting_path_local: Vec::new(),
             right_drag_moved: false,
             cut_snapshot_nodes: None,
@@ -405,6 +420,7 @@ impl GraphApp {
         self.script_node_outputs.clear();
         self.script_node_state.clear();
         self.script_widget_id_counter = 0;
+        self.script_node_port_positions.clear();
         self.suspend_terminal_focus = None;
         self.resizing = None;
         self.context_menu_node = None;
@@ -412,6 +428,8 @@ impl GraphApp {
         self.context_menu_local_pos = None;
         self.linking_from = None;
         self.linking_pointer_local = None;
+        self.port_linking_from = None;
+        self.port_linking_pointer_local = None;
         self.cutting_path_local.clear();
         self.right_drag_moved = false;
         self.cut_snapshot_nodes = None;

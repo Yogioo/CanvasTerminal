@@ -110,6 +110,7 @@ impl GraphApp {
     pub(in crate::app) fn create_script_node(&mut self, pos: Pos2) -> usize {
         let code = default_script_template();
         let parsed = crate::script_node::parser::parse_script_spec(&code).ok();
+        let estimated_h = parsed.as_ref().map(|spec| Self::estimate_script_node_height(spec)).unwrap_or(320.0);
         let node = Node {
             id: self.alloc_node_id(),
             uid: uuid::Uuid::new_v4().to_string(),
@@ -120,9 +121,38 @@ impl GraphApp {
                 parsed_spec: parsed,
             },
             pos,
-            size: egui::vec2(360.0, 320.0),
+            size: egui::vec2(360.0, estimated_h),
         };
         self.push_node_and_select(node)
+    }
+
+    /// Estimate a reasonable initial height for a Script node based on ports/widget count.
+    fn estimate_script_node_height(spec: &crate::script_node::types::ScriptNodeSpec) -> f32 {
+        let port_pad = 12.0 * (spec.ports.as_ref().map(|p| p.inputs.len() + p.outputs.len()).unwrap_or(0).max(1) as f32);
+        let body_h = Self::estimate_widget_height(&spec.body);
+        (34.0 + 8.0 + body_h + 8.0 + port_pad).max(260.0)
+    }
+
+    fn estimate_widget_height(widget: &crate::script_node::types::Widget) -> f32 {
+        use crate::script_node::types::Widget::*;
+        match widget {
+            Col { children, gap, .. } => {
+                let gap_total = gap * (children.len().saturating_sub(1)) as f32;
+                children.iter().map(|c| Self::estimate_widget_height(c)).sum::<f32>() + gap_total
+            }
+            Row { children, .. } => {
+                children.iter().map(|c| Self::estimate_widget_height(c)).fold(0.0, f32::max)
+            }
+            Text { .. } => 24.0,
+            Button { .. } => 34.0,
+            Slider { .. } => 50.0,
+            Input { .. } => 46.0,
+            Bar { height, .. } => *height + 8.0,
+            Spacer { height } => *height,
+            Divider { .. } => 14.0,
+            Badge { .. } => 22.0,
+            Image { height, .. } => *height + 8.0,
+        }
     }
 
     pub(in crate::app) fn create_image_node_from_path(
