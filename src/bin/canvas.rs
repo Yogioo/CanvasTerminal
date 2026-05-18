@@ -32,7 +32,6 @@ EXAMPLES:
   canvas debug graph get --pretty
   canvas debug node create --kind text --x 200 --y 120 --text \"hello\"
   canvas debug node create --kind html --x 200 --y 120 --html-source \"<h1>Hello</h1>\"
-  canvas debug node create --kind webpage --x 300 --y 200 --url \"https://example.com\"
   canvas debug node update --id 2 --working-directory \"../wt-feature-abc\"
   canvas debug inject terminal --node-id 2 --command \"echo ok\" --wait";
 

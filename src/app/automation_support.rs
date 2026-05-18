@@ -30,8 +30,6 @@ pub(in crate::app) struct NodeCreatePayload {
     #[serde(default)]
     pub image_path: Option<String>,
     #[serde(default)]
-    pub url: Option<String>,
-    #[serde(default)]
     pub buttons: Option<Vec<DecisionButton>>,
     #[serde(default)]
     pub pending_message: Option<String>,
@@ -67,8 +65,6 @@ pub(in crate::app) struct NodeUpdatePayload {
     pub height: Option<f32>,
     #[serde(default)]
     pub text_body: Option<String>,
-    #[serde(default)]
-    pub url: Option<String>,
     #[serde(default)]
     pub auto_size: Option<bool>,
     #[serde(default)]
