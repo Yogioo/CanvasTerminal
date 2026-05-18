@@ -1,5 +1,17 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use wry::http;
+
+/// Custom protocol scheme for serving HTML node content under a real origin,
+/// enabling localStorage, IndexedDB, etc. which are blocked on `about:blank`.
+const HTML_PROTOCOL: &str = "canvasterminal";
+
+/// Build a `canvasterminal://html/{node_id}` URL with a cache-busting version.
+fn html_node_url(node_id: usize, version: u64) -> String {
+    format!("{HTML_PROTOCOL}://html/{node_id}?v={version}")
+}
 
 /// JavaScript injected into URL webviews (idempotent via window.__antiBlankInstalled flag):
 /// 1. Strips target="_blank" from all links (navigate in-place)
@@ -215,6 +227,13 @@ pub(in crate::app) struct HtmlWebViewHost {
     ipc_rx: Option<mpsc::Receiver<IpcEvent>>,
     #[cfg(target_os = "windows")]
     ipc_tx: mpsc::Sender<IpcEvent>,
+    /// Shared HTML sources for custom protocol handler.
+    /// Key = node_id, Value = current HTML source.
+    #[cfg(target_os = "windows")]
+    html_sources: Arc<Mutex<HashMap<usize, String>>>,
+    /// Per-node version counter for cache-busting URLs.
+    #[cfg(target_os = "windows")]
+    html_versions: Arc<Mutex<HashMap<usize, u64>>>,
 }
 
 impl HtmlWebViewHost {
@@ -227,6 +246,8 @@ impl HtmlWebViewHost {
             nav_tx,
             ipc_rx: Some(ipc_rx),
             ipc_tx,
+            html_sources: Arc::new(Mutex::new(HashMap::new())),
+            html_versions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -261,13 +282,23 @@ impl HtmlWebViewHost {
 
     /// Called when the webview itself navigated (e.g. via hyperlink click).
     /// Updates applied_source so the next sync_webview doesn't redundantly call load_url.
+    ///
+    /// IMPORTANT: For HTML nodes (is_url=false), we must NOT update applied_source/is_url/
+    /// last_zoom because `load_html()` internally navigates to `about:blank`, which would
+    /// overwrite our tracking state and cause every subsequent sync to reload (clearing
+    /// any user input like note textareas). HTML node content is managed entirely by
+    /// the sync loop via load_html() on source or zoom change.
     #[cfg(target_os = "windows")]
     pub(in crate::app) fn on_navigated(&mut self, node_id: usize, new_url: &str) {
         if let Some(instance) = self.webviews.get_mut(&node_id) {
-            instance.applied_source = new_url.to_owned();
-            instance.is_url = true;
-            // Navigation clears zoom; force re-apply on next sync
-            instance.last_zoom = -1.0;
+            // Only update tracking state for URL nodes (WebPage).
+            // HTML nodes use load_html() — internal navigations to about:blank
+            // must NOT overwrite our applied_source / is_url tracking.
+            if instance.is_url {
+                instance.applied_source = new_url.to_owned();
+                // Navigation clears zoom; force re-apply on next sync
+                instance.last_zoom = -1.0;
+            }
         }
     }
 
@@ -345,9 +376,10 @@ impl HtmlWebViewHost {
 
             // ── Zoom & source sync ────────────────────────────────────
             //
-            // HTML nodes: CSS zoom is embedded in the HTML source before
-            // load_html() so it applies synchronously (no async injection flash).
-            // On source OR zoom change we reload with updated zoom embedded.
+            // HTML nodes: content is served via custom protocol (`canvasterminal://html/{id}`)
+            // to give a real origin for localStorage/IndexedDB support. On source change we
+            // update the shared map + cache-bust URL and call load_url(). On zoom-only change
+            // we use native webview.zoom() to avoid destroying DOM state.
             //
             // URL nodes: use native webview.zoom() (put_ZoomFactor). With
             // WS_CLIPCHILDREN on the parent, resize won't reset the zoom factor.
@@ -369,14 +401,28 @@ impl HtmlWebViewHost {
                 }
             } else {
                 // HTML node ───────────────────────────────────────────
-                if (source_changed || zoom_changed) && !source.is_empty() {
-                    let zoomed = format!(
-                        "<style id='__ctz'>:root{{zoom:{:.6}!important}}</style>{}",
-                        clamped_zoom,
-                        source
-                    );
-                    let _ = instance.webview.load_html(&zoomed);
+                if source_changed && !source.is_empty() {
+                    // Update shared map + cache-bust version
+                    let mut sources = self.html_sources.lock().unwrap();
+                    sources.insert(node_id, source.to_owned());
+                    drop(sources);
+                    let mut versions = self.html_versions.lock().unwrap();
+                    let ver = versions.entry(node_id).or_insert(0);
+                    *ver += 1;
+                    let url = html_node_url(node_id, *ver);
+                    drop(versions);
+
+                    // Load via custom protocol URL (gives real origin for localStorage etc.)
+                    let _ = instance.webview.load_url(&url);
+
+                    // Zoom is embedded in the HTML via <style> by the custom protocol handler,
+                    // but also apply native zoom so the webview zoom factor stays in sync.
                     instance.applied_source = source.to_owned();
+                    instance.last_zoom = clamped_zoom;
+                    let _ = instance.webview.zoom(clamped_zoom as f64);
+                } else if zoom_changed {
+                    // Zoom-only change: use native zoom to preserve DOM state
+                    let _ = instance.webview.zoom(clamped_zoom as f64);
                     instance.last_zoom = clamped_zoom;
                 }
             }
@@ -398,13 +444,53 @@ impl HtmlWebViewHost {
             if is_url && !source.is_empty() {
                 builder = builder.with_url(source);
             } else if !source.is_empty() {
-                // HTML node: embed CSS zoom in source for synchronous zoom
-                let zoomed = format!(
-                    "<style id='__ctz'>:root{{zoom:{:.6}!important}}</style>{}",
-                    clamped_zoom,
-                    source
-                );
-                builder = builder.with_html(&zoomed);
+                // HTML node: serve via custom protocol so the page gets a real origin
+                // (e.g. http://canvasterminal.html/1) enabling localStorage/IndexedDB.
+                // Update shared map so the protocol handler can serve the current source.
+                {
+                    let mut sources = self.html_sources.lock().unwrap();
+                    sources.insert(node_id, source.to_owned());
+                    // source already has zoom CSS embedded (see caller)
+                    drop(sources);
+                }
+                let mut versions = self.html_versions.lock().unwrap();
+                let ver = versions.entry(node_id).or_insert(0);
+                *ver += 1;
+                let url = html_node_url(node_id, *ver);
+                drop(versions);
+
+                // Clone Arcs for the protocol handler closure
+                let proto_sources = self.html_sources.clone();
+
+                builder = builder
+                    .with_custom_protocol(HTML_PROTOCOL.into(), move |_webview_id, request| {
+                        let uri_str = request.uri().to_string();
+                        // Parse node_id from path e.g. "/1" from "http://canvasterminal.html/1?v=1"
+                        let path = uri_str
+                            .split('?')
+                            .next()
+                            .unwrap_or("")
+                            .trim_end_matches('/');
+                        let node_id = path
+                            .rsplit('/')
+                            .next()
+                            .and_then(|s| s.parse::<usize>().ok())
+                            .unwrap_or(0);
+                        let html = proto_sources
+                            .lock()
+                            .unwrap()
+                            .get(&node_id)
+                            .cloned()
+                            .unwrap_or_default();
+                        let body = html.into_bytes();
+                        http::Response::builder()
+                            .status(200)
+                            .header("Content-Type", "text/html; charset=utf-8")
+                            .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                            .body(Cow::Owned(body))
+                            .unwrap()
+                    })
+                    .with_url(&url);
             }
 
             // Inject anti-blank JS into every new document automatically.
@@ -471,10 +557,11 @@ impl HtmlWebViewHost {
             else {
                 return;
             };
-            // Set initial zoom for URL nodes (HTML nodes already have CSS zoom embedded in source)
-            if is_url {
-                let _ = wv.zoom(clamped_zoom as f64);
-            }
+            // Set initial native zoom so the WebView2 zoom factor stays in sync.
+            // URL nodes: exclusively via native zoom.
+            // HTML nodes: CSS zoom is also embedded by the custom protocol handler for
+            // synchronous rendering, but native zoom is applied as a safety measure.
+            let _ = wv.zoom(clamped_zoom as f64);
             let initial_bounds_key = (
                 screen_rect.min.x,
                 screen_rect.min.y,

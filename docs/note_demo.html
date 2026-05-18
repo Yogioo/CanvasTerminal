@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>笔记</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #1a1d2e;
+    color: #e0e4f0;
+    padding: 16px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  h2 {
+    font-size: 16px;
+    color: #a8b4d8;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+  }
+  h2 span { color: #6b7eb0; font-size: 12px; margin-left: 8px; }
+  textarea {
+    flex: 1;
+    background: #0f1222;
+    border: 1px solid #2a2f4a;
+    border-radius: 8px;
+    color: #d8dff0;
+    font-size: 14px;
+    line-height: 1.7;
+    padding: 12px;
+    outline: none;
+    resize: none;
+    font-family: inherit;
+    transition: border-color 0.2s;
+  }
+  textarea:focus {
+    border-color: #5b7bc0;
+    box-shadow: 0 0 0 2px rgba(91,123,192,0.15);
+  }
+  textarea::placeholder { color: #3a4060; }
+  .status {
+    font-size: 12px;
+    color: #5a6a8a;
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .status .saved { color: #6aaa7a; }
+  .status .unsaved { color: #c89a5a; }
+  .btn-row {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .btn-row button {
+    background: #252a42;
+    border: 1px solid #363c5a;
+    color: #c8d0e8;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-row button:hover { background: #303660; }
+  .btn-row button:active { background: #3a4270; }
+</style>
+</head>
+<body>
+
+<h2>📝 笔记 <span>自动保存</span></h2>
+
+<div class="btn-row">
+  <button onclick="save()">💾 立即保存</button>
+  <button onclick="clearNote()">🗑️ 清空</button>
+  <button onclick="copyNote()">📋 复制</button>
+</div>
+
+<textarea id="note" placeholder="在此输入笔记内容……" spellcheck="false"></textarea>
+
+<div class="status">
+  <span id="statusText">就绪</span>
+  <span id="infoText"></span>
+</div>
+
+<script>
+const STORAGE_KEY = 'canvasterminal_note';
+const textarea = document.getElementById('note');
+const statusText = document.getElementById('statusText');
+const infoText = document.getElementById('infoText');
+
+// --- 加载 ---
+function load() {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    textarea.value = saved;
+    statusText.textContent = '✅ 已恢复上次保存';
+    statusText.className = 'saved';
+  } else {
+    textarea.value = '';
+    statusText.textContent = '📝 新笔记';
+    statusText.className = '';
+  }
+  infoText.textContent = `字数: ${textarea.value.length}`;
+}
+
+// --- 保存 ---
+function save() {
+  localStorage.setItem(STORAGE_KEY, textarea.value);
+  statusText.textContent = '✅ 已保存';
+  statusText.className = 'saved';
+  infoText.textContent = `字数: ${textarea.value.length}`;
+}
+
+// --- 清空 ---
+function clearNote() {
+  if (textarea.value && !confirm('确定清空？')) return;
+  textarea.value = '';
+  localStorage.removeItem(STORAGE_KEY);
+  statusText.textContent = '🗑️ 已清空';
+  statusText.className = '';
+  infoText.textContent = '字数: 0';
+}
+
+// --- 复制 ---
+function copyNote() {
+  if (!textarea.value) { statusText.textContent = '⚠️ 没有内容可复制'; return; }
+  navigator.clipboard.writeText(textarea.value).then(() => {
+    statusText.textContent = '📋 已复制';
+  }).catch(() => {
+    statusText.textContent = '❌ 复制失败';
+  });
+}
+
+// --- 自动保存（输入停止 1.2 秒后）---
+let saveTimer = null;
+textarea.addEventListener('input', () => {
+  infoText.textContent = `字数: ${textarea.value.length}`;
+  statusText.textContent = '⏳ 未保存...';
+  statusText.className = 'unsaved';
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(save, 1200);
+});
+
+// --- 手动触发保存（Ctrl+S）---
+textarea.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    save();
+  }
+});
+
+// --- 通过 localStorage 外部变化同步（同源其它页面/标签修改后自动拉取）---
+window.addEventListener('storage', (e) => {
+  if (e.key === STORAGE_KEY) {
+    const oldVal = textarea.value;
+    const newVal = e.newValue || '';
+    if (oldVal !== newVal) {
+      textarea.value = newVal;
+      infoText.textContent = `字数: ${textarea.value.length}`;
+      statusText.textContent = '🔄 已同步其他标签的修改';
+      statusText.className = '';
+    }
+  }
+});
+
+// 启动
+load();
+</script>
+
+</body>
+</html>
