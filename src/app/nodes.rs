@@ -112,7 +112,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn create_webpage_node(&mut self, pos: Pos2, edit_now: bool) -> usize {
-        let node = self.new_base_node(NodeKind::WebPage, pos, vec2(420.0, 260.0));
+        let node = self.new_base_node(NodeKind::WebPage, pos, vec2(1680.0, 1040.0));
         let id = self.push_node_and_select(node);
         self.webviews_dirty = true;
         if edit_now {

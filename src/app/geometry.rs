@@ -459,6 +459,7 @@ impl GraphApp {
 
         if let Some(target_world_rect) = target {
             self.focus_rect(canvas_rect, target_world_rect);
+            self.webviews_dirty = true;
         }
     }
 

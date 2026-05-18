@@ -339,6 +339,9 @@ impl GraphApp {
             );
         }
 
+        self.html_webview_host.clear_all();
+        self.webviews_dirty = true;
+
         self.nodes = nodes;
         self.sanitize_groups();
         self.edges = edges;

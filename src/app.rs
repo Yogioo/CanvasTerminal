@@ -408,6 +408,7 @@ impl GraphApp {
         self.pending_edge_focus = None;
         self.edge_edit_buffer.clear();
         self.html_webview_host.clear_all();
+        self.webviews_dirty = true;
         self.suspend_terminal_focus = None;
         self.resizing = None;
         self.context_menu_node = None;
