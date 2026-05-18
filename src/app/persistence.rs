@@ -381,8 +381,6 @@ impl GraphApp {
         self.context_menu_local_pos = None;
         self.linking_from = None;
         self.linking_pointer_local = None;
-        self.port_linking_from = None;
-        self.port_linking_pointer_local = None;
         self.cutting_path_local.clear();
         self.right_drag_moved = false;
         self.cut_snapshot_nodes = None;

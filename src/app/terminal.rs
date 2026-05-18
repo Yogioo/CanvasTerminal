@@ -154,7 +154,7 @@ impl GraphApp {
         delivered
     }
 
-    fn forward_message_to_node(
+    pub(in crate::app) fn forward_message_to_node(
         &mut self,
         target_id: usize,
         route_key: Option<&str>,
@@ -184,7 +184,20 @@ impl GraphApp {
                 self.mark_workspace_dirty();
                 true
             }
-            NodeKind::Text | NodeKind::Image | NodeKind::Group => false,
+            NodeKind::Text => {
+                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == target_id) {
+                    if let crate::model::NodeData::Text { text_body, .. } = &mut node.data {
+                        if !text_body.is_empty() {
+                            text_body.push('\n');
+                        }
+                        text_body.push_str(message);
+                        self.mark_workspace_dirty();
+                        return true;
+                    }
+                }
+                false
+            }
+            NodeKind::Image | NodeKind::Group => false,
         }
     }
 

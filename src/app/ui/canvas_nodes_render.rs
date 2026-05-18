@@ -956,6 +956,7 @@ impl GraphApp {
                                 // Process events
                                 let output_changes = crate::script_node::process_script_events(
                                     &events,
+                                    &inputs,
                                     &mut outputs,
                                     &mut std::collections::HashMap::new(),
                                 );
@@ -963,129 +964,29 @@ impl GraphApp {
                                 // Update output values for the node
                                 self.script_node_outputs.insert(node.id, outputs);
 
-                                // Forward output changes as automation events if there are connected edges
+                                // Forward output changes to downstream nodes via unified pipeline
                                 for (port_name, value) in &output_changes {
-                                    // Find edges from this node with matching route_key = port_name
-                                    let matching_edges: Vec<(usize, usize)> = self.edges.iter()
+                                    let targets: Vec<(usize, Option<String>)> = self.edges.iter()
                                         .filter(|(from, _)| *from == node.id)
                                         .filter(|(from, to)| {
-                                            self.edge_route_key(*from, *to)
-                                                .map(|k| k == port_name.as_str())
-                                                .unwrap_or(false)
+                                            match self.edge_route_key(*from, *to) {
+                                                Some(k) => k == port_name.as_str(),
+                                                None => true, // unlabeled edges forward everything
+                                            }
                                         })
-                                        .cloned()
+                                        .map(|(_, to)| {
+                                            let route = self.edge_route_key(node.id, *to).map(|s| s.to_owned());
+                                            (*to, route)
+                                        })
                                         .collect();
 
-                                    for (_, to_node) in &matching_edges {
-                                        self.script_node_inputs
-                                            .entry(*to_node)
-                                            .or_default()
-                                            .insert(port_name.clone(), value.clone());
+                                    for (to_node, route_key) in &targets {
+                                        self.forward_message_to_node(*to_node, route_key.as_deref(), value);
                                     }
                                 }
 
-                                // Also forward button events to downstream nodes that have "event" route
-                                for event in &events {
-                                    if let crate::script_node::types::ScriptEvent::ButtonClick { event_key } = event {
-                                        let event_edges: Vec<(usize, usize)> = self.edges.iter()
-                                            .filter(|(from, _)| *from == node.id)
-                                            .filter(|(from, to)| {
-                                                self.edge_route_key(*from, *to)
-                                                    .map(|k| k == "event")
-                                                    .unwrap_or(false)
-                                            })
-                                            .cloned()
-                                            .collect();
 
-                                        for (_, to_node) in &event_edges {
-                                            self.script_node_inputs
-                                                .entry(*to_node)
-                                                .or_default()
-                                                .insert("event".to_owned(), event_key.clone());
-                                        }
-                                    }
-                                }
                             }
-                        }
-                    }
-
-                    // ── Draw port circles ──
-                    if let Some(spec) = self.fetch_script_node_spec(node.id) {
-                        if let Some(ports) = &spec.ports {
-                            let port_r = (5.0 * zoom_scale).max(3.0);
-                            let input_color = Color32::from_rgb(130, 220, 255);
-                            let output_color = Color32::from_rgb(255, 200, 130);
-                            let outline = Color32::from_rgb(40, 40, 60);
-
-                            let mut input_names: Vec<&String> = ports.inputs.keys().collect();
-                            input_names.sort();
-                            let mut output_names: Vec<&String> = ports.outputs.keys().collect();
-                            output_names.sort();
-
-                            // Store port positions for hit-testing (B2)
-                            let mut hit_areas = Vec::new();
-
-                            // Input ports on top edge
-                            let inputs_map = self.script_node_inputs.get(&node.id).cloned().unwrap_or_default();
-                            let outputs_map = self.script_node_outputs.get(&node.id).cloned().unwrap_or_default();
-                            let label_font = FontId::proportional((11.0 * zoom_scale).max(7.0));
-
-                            let total_in = input_names.len();
-                            for (i, name) in input_names.iter().enumerate() {
-                                let t = (i + 1) as f32 / (total_in + 1) as f32;
-                                let cx = node_rect.min.x + node_rect.width() * t;
-                                let center = Pos2::new(cx, node_rect.min.y);
-                                painter.circle_filled(center, port_r, input_color);
-                                painter.circle_stroke(center, port_r, Stroke::new(1.0, outline));
-                                // Value label above port
-                                if let Some(val) = inputs_map.get(name.as_str()) {
-                                    if !val.is_empty() {
-                                        let label_pos = Pos2::new(cx, node_rect.min.y - port_r - 4.0 * zoom_scale);
-                                        painter.text(
-                                            label_pos,
-                                            Align2::CENTER_BOTTOM,
-                                            format!("{}: {}", name, val),
-                                            label_font.clone(),
-                                            Color32::from_rgb(160, 220, 255),
-                                        );
-                                    }
-                                }
-                                hit_areas.push(crate::app::ScriptPortHitArea {
-                                    port_name: (*name).clone(),
-                                    world_pos: self.screen_to_world_pos(rect, center),
-                                    is_input: true,
-                                });
-                            }
-
-                            // Output ports on bottom edge
-                            let total_out = output_names.len();
-                            for (i, name) in output_names.iter().enumerate() {
-                                let t = (i + 1) as f32 / (total_out + 1) as f32;
-                                let cx = node_rect.min.x + node_rect.width() * t;
-                                let center = Pos2::new(cx, node_rect.max.y);
-                                painter.circle_filled(center, port_r, output_color);
-                                painter.circle_stroke(center, port_r, Stroke::new(1.0, outline));
-                                // Value label below port
-                                if let Some(val) = outputs_map.get(name.as_str()) {
-                                    if !val.is_empty() {
-                                        let label_pos = Pos2::new(cx, node_rect.max.y + port_r + 4.0 * zoom_scale);
-                                        painter.text(
-                                            label_pos,
-                                            Align2::CENTER_TOP,
-                                            format!("{}: {}", name, val),
-                                            label_font.clone(),
-                                            Color32::from_rgb(255, 210, 130),
-                                        );
-                                    }
-                                }
-                                hit_areas.push(crate::app::ScriptPortHitArea {
-                                    port_name: (*name).clone(),
-                                    world_pos: self.screen_to_world_pos(rect, center),
-                                    is_input: false,
-                                });
-                            }
-
-                            self.script_node_port_positions.insert(node.id, hit_areas);
                         }
                     }
 

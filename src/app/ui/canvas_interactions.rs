@@ -189,32 +189,7 @@ impl GraphApp {
                     let local = self.screen_to_world_pos(rect, pointer);
                     let alt_passthrough = ctx.input(|i| i.modifiers.alt);
 
-                    // Check output port hit first (port linking)
-                    let port_hit = self.find_output_port_at(local);
-                    if let Some((node_id, port_name)) = port_hit {
-                        self.editing_text_node = None;
-                        self.set_single_selection(node_id);
-                        self.dragging = None;
-                        self.drag_start_pos = None;
-                        self.drag_group_start = None;
-                        self.dragging_edge_control = None;
-                        self.resizing = None;
-                        self.box_select_start = None;
-                        self.box_select_current = None;
-                        self.box_select_additive = false;
-                        self.box_select_subtractive = false;
-                        self.box_select_base_selection.clear();
-                        // Store the port world position from our pre-computed map
-                        let port_world = self.script_node_port_positions
-                            .get(&node_id)
-                            .and_then(|areas| areas.iter().find(|a| a.port_name == port_name && !a.is_input))
-                            .map(|a| a.world_pos)
-                            .unwrap_or(local);
-                        self.port_linking_from = Some((node_id, port_name.clone(), port_world));
-                        self.port_linking_pointer_local = Some(local);
-                        self.linking_from = None;
-                        self.linking_pointer_local = None;
-                    } else if let Some((id, node_pos, can_drag)) =
+                    if let Some((id, node_pos, can_drag)) =
                         self.find_node_hit_with_alt(local, alt_passthrough)
                     {
                         if Some(id) != self.editing_text_node {
@@ -327,35 +302,6 @@ impl GraphApp {
                     self.mark_workspace_dirty();
                 }
                 self.dragging_edge_control = None;
-            }
-        }
-
-        // ── Port drag linking (left-click drag from output port circle) ──
-        if let Some((from_node, ref port_name, _start_pos)) = self.port_linking_from.clone() {
-            if ctx.input(|i| i.pointer.primary_down())
-                && !ctx.input(|i| i.key_down(egui::Key::Space))
-            {
-                if let Some(pointer) = pointer_pos {
-                    let local = self.screen_to_world_pos(rect, pointer);
-                    self.port_linking_pointer_local = Some(local);
-                }
-            } else {
-                // Release: create edge if over an input port
-                if let Some(pointer) = pointer_pos {
-                    let local = self.screen_to_world_pos(rect, pointer);
-                    if let Some((to_node, _to_port)) = self.find_input_port_at(local) {
-                        if to_node != from_node && !self.has_edge(from_node, to_node) {
-                            self.edges.push((from_node, to_node));
-                            self.set_edge_route_key(from_node, to_node, port_name.clone());
-                            self.mark_workspace_dirty();
-                            self.push_toast_notification(format!(
-                                "已创建连线: 端口 '{port_name}' → 节点 {to_node}"
-                            ));
-                        }
-                    }
-                }
-                self.port_linking_from = None;
-                self.port_linking_pointer_local = None;
             }
         }
 

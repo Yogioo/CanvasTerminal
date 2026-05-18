@@ -81,6 +81,7 @@ pub fn render_script_node(
 /// Process script events and update output/state accordingly.
 pub fn process_script_events(
     events: &[ScriptEvent],
+    input_values: &HashMap<String, String>,
     output_values: &mut HashMap<String, String>,
     _state_values: &mut HashMap<String, String>,
 ) -> Vec<(String, String)> {
@@ -91,6 +92,16 @@ pub fn process_script_events(
             ScriptEvent::ButtonClick { event_key } => {
                 outputs.push(("event".to_owned(), event_key.clone()));
                 output_values.insert("event".to_owned(), event_key.clone());
+                // Re-emit received input values so "发送" forwards incoming data
+                for (name, val) in input_values.iter() {
+                    outputs.push((name.clone(), val.clone()));
+                }
+                // Also re-emit all current output widget values
+                for (name, val) in output_values.iter() {
+                    if name != "event" {
+                        outputs.push((name.clone(), val.clone()));
+                    }
+                }
             }
             ScriptEvent::SliderChange { name, value } => {
                 let val_str = format!("{:.2}", value);

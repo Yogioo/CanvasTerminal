@@ -592,44 +592,6 @@ impl GraphApp {
         })
     }
 
-    /// Find an output port circle near the given world position (for port drag start).
-    /// Returns (node_id, port_name) if a port is within tolerance.
-    pub(in crate::app) fn find_output_port_at(&self, world_pos: Pos2) -> Option<(usize, String)> {
-        // Reuse the cached port positions from the last render frame
-        let tolerance = 8.0 / self.zoom.max(0.01); // ~8px in screen, converted to world
-        let mut best: Option<(usize, String, f32)> = None;
-        for (&node_id, areas) in &self.script_node_port_positions {
-            for area in areas {
-                if area.is_input {
-                    continue;
-                }
-                let dist = world_pos.distance(area.world_pos);
-                if dist <= tolerance && (best.is_none() || dist < best.as_ref().unwrap().2) {
-                    best = Some((node_id, area.port_name.clone(), dist));
-                }
-            }
-        }
-        best.map(|(id, name, _)| (id, name))
-    }
-
-    /// Find an input port circle near the given world position (for port drag release).
-    pub(in crate::app) fn find_input_port_at(&self, world_pos: Pos2) -> Option<(usize, String)> {
-        let tolerance = 8.0 / self.zoom.max(0.01);
-        let mut best: Option<(usize, String, f32)> = None;
-        for (&node_id, areas) in &self.script_node_port_positions {
-            for area in areas {
-                if !area.is_input {
-                    continue;
-                }
-                let dist = world_pos.distance(area.world_pos);
-                if dist <= tolerance && (best.is_none() || dist < best.as_ref().unwrap().2) {
-                    best = Some((node_id, area.port_name.clone(), dist));
-                }
-            }
-        }
-        best.map(|(id, name, _)| (id, name))
-    }
-
     pub(in crate::app) fn edge_label_world_pos(&self, from: usize, to: usize) -> Option<Pos2> {
         self.edge_curve_local(from, to)
             .map(|curve| cubic_bezier_point(&curve, 0.5))
