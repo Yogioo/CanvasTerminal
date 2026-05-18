@@ -300,7 +300,13 @@ impl GraphApp {
                         node_rect.min,
                         Pos2::new(node_rect.max.x, header_bottom),
                     );
-                    painter.rect_filled(header_rect, 8.0 * zoom_scale, fill);
+                    let header_rounding = egui::CornerRadius {
+                        nw: (8.0 * zoom_scale).round() as u8,
+                        ne: (8.0 * zoom_scale).round() as u8,
+                        sw: 0,
+                        se: 0,
+                    };
+                    painter.rect_filled(header_rect, header_rounding, fill);
 
                     let is_title_editing = self.editing_title_node == Some(node.id);
                     if !is_title_editing {
@@ -834,7 +840,13 @@ impl GraphApp {
                         node_rect.min,
                         Pos2::new(node_rect.max.x, header_bottom),
                     );
-                    painter.rect_filled(header_rect, 8.0 * zoom_scale, fill);
+                    let header_rounding = egui::CornerRadius {
+                        nw: (8.0 * zoom_scale).round() as u8,
+                        ne: (8.0 * zoom_scale).round() as u8,
+                        sw: 0,
+                        se: 0,
+                    };
+                    painter.rect_filled(header_rect, header_rounding, fill);
 
                     let is_title_editing = self.editing_title_node == Some(node.id);
                     if !is_title_editing {
@@ -870,12 +882,13 @@ impl GraphApp {
                         ),
                     );
 
+                    // No extra padding — content fills the node edge-to-edge
                     let content_rect = Rect::from_min_max(
                         Pos2::new(
-                            node_rect.min.x + 8.0 * zoom_scale,
-                            header_bottom + 8.0 * zoom_scale,
+                            node_rect.min.x,
+                            header_bottom,
                         ),
-                        node_rect.max - vec2(8.0, 8.0) * zoom_scale,
+                        node_rect.max,
                     );
 
                     if content_rect.is_positive() {
@@ -931,7 +944,18 @@ impl GraphApp {
 
                             let inputs = self.script_node_inputs.get(&node.id).cloned().unwrap_or_default();
                             let mut outputs = self.script_node_outputs.get(&node.id).cloned().unwrap_or_default();
-                            let state_vals = self.script_node_state.get(&node.id).cloned().unwrap_or_default();
+
+                            // ── Sync queue state from NodeData into state bindings ──
+                            let mut state_vals = self.script_node_state.get(&node.id).cloned().unwrap_or_default();
+                            let (queue_len, queue_first) = self.script_pending_queue_info(node.id);
+                            if queue_len > 0 {
+                                state_vals.insert("queue_len".to_owned(), queue_len.to_string());
+                                state_vals.insert("queue_first".to_owned(), queue_first.clone());
+                            } else {
+                                state_vals.insert("queue_len".to_owned(), "0".to_owned());
+                                state_vals.insert("queue_first".to_owned(), String::new());
+                            }
+
                             let mut events = Vec::new();
 
                             // Get parsed spec first (requires mutable self)
@@ -940,10 +964,94 @@ impl GraphApp {
                             // Now borrow id_counter separately
                             let id_counter = &mut self.script_widget_id_counter;
 
+                            // ── Queue toolbar (查看/编辑全部消息 button) ──
+                            let toolbar_h = (28.0 * zoom).max(22.0);
+                            let toolbar_rect = Rect::from_min_size(
+                                content_rect.left_top(),
+                                vec2(content_rect.width(), toolbar_h),
+                            );
+                            let mut clicked_review = false;
+                            let mut clicked_config = false;
+                            let mut clicked_button_event: Option<(String, bool)> = None;
+                            if toolbar_rect.is_positive() {
+                                // Draw toolbar background
+                                ui.painter().rect_filled(
+                                    toolbar_rect,
+                                    0.0,
+                                    Color32::from_rgba_premultiplied(20, 24, 40, 180),
+                                );
+
+                                // Label on the left
+                                let label = format!("  待处理: {queue_len} 条");
+                                ui.painter().text(
+                                    Pos2::new(
+                                        toolbar_rect.left() + 8.0 * zoom,
+                                        toolbar_rect.center().y,
+                                    ),
+                                    Align2::LEFT_CENTER,
+                                    label,
+                                    FontId::proportional((13.0 * zoom).max(9.0)),
+                                    Color32::from_rgb(200, 190, 220),
+                                );
+
+                                // "设置按钮" and "查看/编辑全部" buttons on the right
+                                let btn_w = (90.0 * zoom).max(62.0);
+                                let btn_h = (toolbar_h - 6.0 * zoom).max(18.0);
+                                let gap = 4.0 * zoom;
+                                let review_w = (120.0 * zoom).max(80.0);
+                                let total_w = btn_w + gap + review_w;
+                                let btn_y = toolbar_rect.top() + 3.0 * zoom;
+
+                                // "设置按钮"
+                                let cfg_btn_rect = Rect::from_min_size(
+                                    Pos2::new(toolbar_rect.right() - total_w - 6.0 * zoom, btn_y),
+                                    vec2(btn_w, btn_h),
+                                );
+                                let cfg_btn = egui::Button::new(
+                                    egui::RichText::new("设置按钮")
+                                        .color(Color32::from_rgb(22, 24, 30))
+                                        .size((11.0 * zoom).max(9.0))
+                                        .strong(),
+                                )
+                                .fill(Color32::from_rgb(233, 239, 255))
+                                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(130, 146, 185)))
+                                .min_size(vec2(btn_w, btn_h));
+                                if ui.put(cfg_btn_rect, cfg_btn).clicked() {
+                                    clicked_config = true;
+                                }
+
+                                // "查看/编辑全部"
+                                let review_btn_rect = Rect::from_min_size(
+                                    Pos2::new(
+                                        toolbar_rect.right() - review_w - 6.0 * zoom,
+                                        btn_y,
+                                    ),
+                                    vec2(review_w, btn_h),
+                                );
+                                let review_btn = egui::Button::new(
+                                    egui::RichText::new("查看/编辑全部")
+                                        .color(Color32::from_rgb(22, 24, 30))
+                                        .size((11.0 * zoom).max(9.0))
+                                        .strong(),
+                                )
+                                .fill(Color32::from_rgb(223, 239, 255))
+                                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(120, 146, 185)))
+                                .min_size(vec2(review_w, btn_h));
+                                if ui.put(review_btn_rect, review_btn).clicked() {
+                                    clicked_review = true;
+                                }
+                            }
+
+                            // Widget tree renders below the toolbar
+                            let widget_rect = Rect::from_min_max(
+                                Pos2::new(content_rect.min.x, content_rect.min.y + toolbar_h),
+                                content_rect.max,
+                            );
+
                             if let Some(spec) = spec {
-                                crate::script_node::render_script_node(
+                                let used_h = crate::script_node::render_script_node(
                                     &spec,
-                                    content_rect,
+                                    widget_rect,
                                     ui,
                                     zoom,
                                     &inputs,
@@ -964,14 +1072,24 @@ impl GraphApp {
                                 // Update output values for the node
                                 self.script_node_outputs.insert(node.id, outputs);
 
-                                // Forward output changes to downstream nodes via unified pipeline
+                                // ── Handle queue-consuming button clicks ──
+                                // ButtonClick events no longer produce output_changes.
+                                // consume_script_queue handles the full lifecycle:
+                                //   take from queue → forward_message_to_targets → put back remaining.
+                                for event in &events {
+                                    if let crate::script_node::types::ScriptEvent::ButtonClick { event_key, process_all } = event {
+                                        self.consume_script_queue(node.id, event_key, *process_all);
+                                    }
+                                }
+
+                                // ── Forward remaining output changes (slider, input) ──
                                 for (port_name, value) in &output_changes {
                                     let targets: Vec<(usize, Option<String>)> = self.edges.iter()
                                         .filter(|(from, _)| *from == node.id)
                                         .filter(|(from, to)| {
                                             match self.edge_route_key(*from, *to) {
                                                 Some(k) => k == port_name.as_str(),
-                                                None => true, // unlabeled edges forward everything
+                                                None => true,
                                             }
                                         })
                                         .map(|(_, to)| {
@@ -985,7 +1103,80 @@ impl GraphApp {
                                     }
                                 }
 
+                                // ── Render queue-action buttons (from NodeData.Script.buttons) ──
+                                let buttons: Vec<crate::model::DecisionButton> = self.nodes.iter()
+                                    .find(|n| n.id == node.id)
+                                    .and_then(|n| match &n.data {
+                                        NodeData::Script { buttons, .. } => Some(buttons.clone()),
+                                        _ => None,
+                                    })
+                                    .unwrap_or_default();
 
+                                if !buttons.is_empty() {
+                                    let btn_start_y = widget_rect.min.y + used_h + 8.0 * zoom;
+                                let btn_area_h = (32.0 * buttons.len() as f32 * zoom).max(28.0 * zoom);
+                                let btn_area_rect = Rect::from_min_size(
+                                    Pos2::new(widget_rect.min.x + 4.0 * zoom, btn_start_y),
+                                    vec2(widget_rect.width() - 8.0 * zoom, btn_area_h),
+                                );
+
+                                if btn_area_rect.is_positive() {
+                                    let mut btn_ui = ui.new_child(
+                                        egui::UiBuilder::new()
+                                            .max_rect(btn_area_rect)
+                                            .layout(egui::Layout::top_down(egui::Align::Min)),
+                                    );
+                                    btn_ui.set_clip_rect(btn_area_rect);
+                                    let _ = btn_ui.allocate_space(btn_area_rect.size());
+
+                                    for button in &buttons {
+                                        let key = button.event_key.to_ascii_lowercase();
+                                        let color = button.color_rgb.unwrap_or([200, 200, 220]);
+                                        let fill = Color32::from_rgb(color[0], color[1], color[2]);
+                                        let stroke = Color32::from_rgb(
+                                            color[0].saturating_sub(30),
+                                            color[1].saturating_sub(30),
+                                            color[2].saturating_sub(30),
+                                        );
+
+                                        let (text_col, btn_fill, btn_stroke) = if queue_len > 0 {
+                                            (Color32::BLACK, fill, stroke)
+                                        } else {
+                                            (
+                                                Color32::from_rgb(83, 94, 108),
+                                                Color32::from_rgb(188, 196, 205),
+                                                Color32::from_rgb(150, 161, 174),
+                                            )
+                                        };
+
+                                        let row_h = (26.0 * zoom).max(22.0);
+                                        if btn_ui.add_enabled(queue_len > 0,
+                                            egui::Button::new(
+                                                egui::RichText::new(&button.label)
+                                                    .color(text_col)
+                                                    .size((13.0 * zoom).max(9.0)),
+                                            )
+                                            .fill(btn_fill)
+                                            .stroke(egui::Stroke::new(1.0, btn_stroke))
+                                            .min_size(vec2(btn_area_rect.width(), row_h)),
+                                        ).clicked() {
+                                            clicked_button_event = Some((button.event_key.clone(), false));
+                                        }
+                                        btn_ui.add_space((3.0 * zoom).max(1.0));
+                                    }
+                                }
+                                }
+                            }
+
+                            // Deferred actions (outside borrow scope of id_counter)
+                            if let Some((event_key, process_all)) = clicked_button_event.take() {
+                                self.consume_script_queue(node.id, &event_key, process_all);
+                            }
+                            if clicked_review {
+                                self.start_script_queue_edit(node.id);
+                            }
+                            if clicked_config {
+                                self.start_script_buttons_edit(node.id);
                             }
                         }
                     }

@@ -382,7 +382,7 @@ impl GraphApp {
                 let id = self.create_script_node(pos);
                 if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
                     if let NodeData::Script {
-                        title, code, parsed_spec
+                        title, code, parsed_spec, ..
                     } = &mut node.data
                     {
                         if let Some(next_title) = payload.title {
@@ -576,7 +576,7 @@ impl GraphApp {
                     *title = next;
                 }
             }
-            NodeData::Script { title, code, parsed_spec } => {
+            NodeData::Script { title, code, parsed_spec, .. } => {
                 if let Some(next) = payload.title {
                     *title = next;
                 }

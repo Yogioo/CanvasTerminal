@@ -181,6 +181,15 @@ impl GraphApp {
                     .entry(target_id)
                     .or_default()
                     .insert(port_name.to_owned(), message.to_owned());
+                // Also enqueue into pending_messages like Decision node
+                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == target_id) {
+                    if let NodeData::Script { pending_messages, .. } = &mut node.data {
+                        let trimmed = message.trim();
+                        if !trimmed.is_empty() {
+                            pending_messages.push(trimmed.to_owned());
+                        }
+                    }
+                }
                 self.mark_workspace_dirty();
                 true
             }
@@ -295,6 +304,114 @@ impl GraphApp {
                 _ => None,
             })
             .unwrap_or((0, String::new()))
+    }
+
+    // ── Script node queue helpers (mirrors Decision's enqueue/consume pattern) ──
+
+    /// Get queue info for a Script node: (len, first_message_or_empty)
+    pub(in crate::app) fn script_pending_queue_info(&self, node_id: usize) -> (usize, String) {
+        self.nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .and_then(|n| match &n.data {
+                NodeData::Script { pending_messages, .. } => {
+                    let first = pending_messages
+                        .first()
+                        .cloned()
+                        .unwrap_or_default();
+                    Some((pending_messages.len(), first))
+                }
+                _ => None,
+            })
+            .unwrap_or((0, String::new()))
+    }
+
+    /// Consume messages from Script node queue and forward to downstream edges
+    /// matching `event_key` as route_key. Returns number of messages forwarded.
+    pub(in crate::app) fn consume_script_queue(
+        &mut self,
+        node_id: usize,
+        event_key: &str,
+        process_all: bool,
+    ) -> usize {
+        // Find downstream targets with matching route_key
+        let downstream_targets: Vec<(usize, Option<String>)> = self
+            .edges
+            .iter()
+            .filter_map(|(from, to)| {
+                if *from != node_id { return None; }
+                let route = self.edge_route_key(node_id, *to).map(|s| s.to_owned());
+                if route.as_deref() != Some(event_key) { return None; }
+                Some((*to, route))
+            })
+            .collect();
+
+        // Get node title for user-friendly notifications
+        let node_title = self
+            .nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .and_then(|n| match &n.data {
+                NodeData::Script { title, .. } => Some(title.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| "Script".to_owned());
+
+        if downstream_targets.is_empty() {
+            self.push_toast_notification(format!(
+                "{node_title}: 未找到 route_key = '{event_key}' 的下游连线"
+            ));
+            return 0;
+        }
+
+        // Extract queue from node data
+        let queue: Vec<String> = self
+            .nodes
+            .iter_mut()
+            .find(|n| n.id == node_id)
+            .and_then(|n| match &mut n.data {
+                NodeData::Script { pending_messages, .. } => {
+                    let q = std::mem::take(pending_messages);
+                    Some(q)
+                }
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        if queue.is_empty() {
+            self.push_toast_notification(format!("{node_title}: 当前无待处理消息"));
+            return 0;
+        }
+
+        // Split into to_forward and remaining
+        let (to_forward, remaining): (Vec<String>, Vec<String>) = if process_all {
+            (queue, Vec::new())
+        } else {
+            let mut iter = queue.into_iter();
+            let first = iter.next().unwrap_or_default();
+            (vec![first], iter.collect())
+        };
+
+        // Put remaining back
+        if let Some(n) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+            if let NodeData::Script { pending_messages, .. } = &mut n.data {
+                *pending_messages = remaining;
+            }
+        }
+
+        // Forward messages (separate borrow from above)
+        let mut forwarded = 0usize;
+        for msg in &to_forward {
+            let d = self.forward_message_to_targets(&downstream_targets, msg.trim());
+            if d > 0 {
+                forwarded += d;
+            }
+        }
+
+        if forwarded > 0 {
+            self.mark_workspace_dirty();
+        }
+        forwarded
     }
 
     pub(in crate::app) fn clear_decision_pending_first(&mut self, node_id: usize) -> bool {

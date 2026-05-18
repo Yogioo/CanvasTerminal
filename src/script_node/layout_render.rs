@@ -48,7 +48,7 @@ pub fn layout_and_render(
             render_row(ctx, children, *gap, padding, style, rect)
         }
         Widget::Text { text, .. } => render_text(ctx, text, style, rect),
-        Widget::Button { text, event, .. } => render_button(ctx, text, event, style, rect),
+        Widget::Button { text, event, process_all, .. } => render_button(ctx, text, event, *process_all, style, rect),
         Widget::Slider {
             name,
             label,
@@ -296,6 +296,7 @@ fn render_button(
     ctx: &mut RenderContext,
     text: &str,
     event: &str,
+    process_all: bool,
     style: &Style,
     rect: Rect,
 ) -> f32 {
@@ -357,6 +358,7 @@ fn render_button(
     if response.clicked() {
         ctx.events.push(ScriptEvent::ButtonClick {
             event_key: event.to_owned(),
+            process_all,
         });
     }
 

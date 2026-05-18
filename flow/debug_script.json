@@ -1,0 +1,128 @@
+{
+  "version": 10,
+  "nodes": [
+    {
+      "id": 3,
+      "uid": "9a02e411-0e54-4ae8-9865-168315e869f3",
+      "kind": "Text",
+      "data": {
+        "Text": {
+          "text_body": "2026-05-18 23:08:15",
+          "auto_size": false
+        }
+      },
+      "pos_x": -142.79242,
+      "pos_y": 331.59436,
+      "size_x": 260.0,
+      "size_y": 140.0
+    },
+    {
+      "id": 7,
+      "uid": "d5b2cd22-d7af-4eda-84c7-6df72abd7fe7",
+      "kind": "Decision",
+      "data": {
+        "Decision": {
+          "title": "Decision",
+          "buttons": [
+            {
+              "label": "通过",
+              "event_key": "approve",
+              "color_rgb": [
+                212,
+                244,
+                226
+              ]
+            },
+            {
+              "label": "驳回",
+              "event_key": "reject",
+              "color_rgb": [
+                248,
+                208,
+                208
+              ]
+            }
+          ],
+          "pending_message": "2026-05-18 23:08:15",
+          "pending_messages": [
+            "2026-05-18 23:08:15",
+            "2026-05-18 23:08:15",
+            "2026-05-18 23:08:15",
+            "2026-05-18 23:08:15",
+            "2026-05-18 23:08:15"
+          ]
+        }
+      },
+      "pos_x": 304.91193,
+      "pos_y": 479.39624,
+      "size_x": 436.79242,
+      "size_y": 243.35846
+    },
+    {
+      "id": 8,
+      "uid": "b76714a3-2337-4952-b3e0-b684e6ca9103",
+      "kind": "Script",
+      "data": {
+        "Script": {
+          "title": "Script",
+          "code": "{  \n  \"theme\": {\n    \"bg\": \"#1a1a2e\",\n    \"surface\": \"#16213e\",\n    \"accent\": \"#4fc3f7\",\n    \"danger\": \"#ff6b6b\",\n    \"success\": \"#66bb6a\",\n    \"text\": \"#e0e0e0\",\n    \"text_secondary\": \"#a0a0b0\",\n    \"radius\": 10,\n    \"font_size\": 14\n  },\n  \"ports\": {\n    \"inputs\": {\n      \"input\": { \"type\": \"string\", \"description\": \"来自上游的消息\" }\n    },\n    \"outputs\": {\n      \"approve\": { \"type\": \"string\", \"description\": \"批准后转发的消息\" },\n      \"reject\": { \"type\": \"string\", \"description\": \"驳回后转发的消息\" }\n    }\n  },\n  \"body\": {\n    \"type\": \"col\",\n    \"gap\": 8,\n    \"children\": [\n      {\n        \"type\": \"text\",\n        \"text\": \"待处理: {state.queue_len} 条\",\n        \"style\": { \"font_size\": 18, \"bold\": true, \"color\": \"$accent\" }\n      },\n      {\n        \"type\": \"text\",\n        \"text\": \"最新: {state.queue_first}\",\n        \"style\": { \"font_size\": 13, \"color\": \"$text_secondary\" }\n      },\n      {\n        \"type\": \"divider\"\n      },\n      {\n        \"type\": \"row\",\n        \"gap\": 8,\n        \"children\": [\n          {\n            \"type\": \"button\",\n            \"text\": \"批准\",\n            \"event\": \"approve\",\n            \"style\": { \"bg\": \"$success\", \"color\": \"#000000\" }\n          },\n          {\n            \"type\": \"button\",\n            \"text\": \"全部批准\",\n            \"event\": \"approve\",\n            \"process_all\": true,\n            \"style\": { \"bg\": \"$accent\", \"color\": \"#000000\" }\n          }\n        ]\n      },\n      {\n        \"type\": \"button\",\n        \"text\": \"驳回\",\n        \"event\": \"reject\",\n        \"style\": { \"bg\": \"$danger\", \"color\": \"#000000\" }\n      }\n    ]\n  }\n}",
+          "pending_messages": [
+            "2026-05-18 23:08:15"
+          ]
+        }
+      },
+      "pos_x": 220.08707,
+      "pos_y": 2.7575378,
+      "size_x": 429.95734,
+      "size_y": 318.8244
+    },
+    {
+      "id": 9,
+      "uid": "8e0db596-5345-498c-b5b8-56d44a063aa7",
+      "kind": "Script",
+      "data": {
+        "Script": {
+          "title": "Script",
+          "code": "{  \n  \"theme\": {\n    \"bg\": \"#1a1a2e\",\n    \"surface\": \"#16213e\",\n    \"accent\": \"#4fc3f7\",\n    \"danger\": \"#ff6b6b\",\n    \"success\": \"#66bb6a\",\n    \"text\": \"#e0e0e0\",\n    \"text_secondary\": \"#a0a0b0\",\n    \"radius\": 10,\n    \"font_size\": 14\n  },\n  \"ports\": {\n    \"inputs\": {\n      \"input\": { \"type\": \"string\", \"description\": \"来自上游的消息\" }\n    },\n    \"outputs\": {\n      \"approve\": { \"type\": \"string\", \"description\": \"批准后转发的消息\" },\n      \"reject\": { \"type\": \"string\", \"description\": \"驳回后转发的消息\" }\n    }\n  },\n  \"body\": {\n    \"type\": \"col\",\n    \"gap\": 8,\n    \"children\": [\n      {\n        \"type\": \"text\",\n        \"text\": \"待处理: {state.queue_len} 条\",\n        \"style\": { \"font_size\": 18, \"bold\": true, \"color\": \"$accent\" }\n      },\n      {\n        \"type\": \"text\",\n        \"text\": \"最新: {state.queue_first}\",\n        \"style\": { \"font_size\": 13, \"color\": \"$text_secondary\" }\n      },\n      {\n        \"type\": \"divider\"\n      },\n      {\n        \"type\": \"row\",\n        \"gap\": 8,\n        \"children\": [\n          {\n            \"type\": \"button\",\n            \"text\": \"批准\",\n            \"event\": \"approve\",\n            \"style\": { \"bg\": \"$success\", \"color\": \"#000000\" }\n          },\n          {\n            \"type\": \"button\",\n            \"text\": \"全部批准\",\n            \"event\": \"approve\",\n            \"process_all\": true,\n            \"style\": { \"bg\": \"$accent\", \"color\": \"#000000\" }\n          }\n        ]\n      },\n      {\n        \"type\": \"button\",\n        \"text\": \"驳回\",\n        \"event\": \"reject\",\n        \"style\": { \"bg\": \"$danger\", \"color\": \"#000000\" }\n      }\n    ]\n  }\n}",
+          "pending_messages": [
+            "2026-05-18 23:08:15"
+          ]
+        }
+      },
+      "pos_x": 880.497,
+      "pos_y": 189.88907,
+      "size_x": 360.0,
+      "size_y": 260.0
+    }
+  ],
+  "edges": [
+    [
+      3,
+      7
+    ],
+    [
+      3,
+      8
+    ],
+    [
+      8,
+      9
+    ]
+  ],
+  "edge_routes": [
+    {
+      "from": 8,
+      "to": 9,
+      "route_key": "approve"
+    }
+  ],
+  "edge_curve_biases": [],
+  "edge_control_offsets": [],
+  "view": {
+    "pan_x": 333.48663,
+    "pan_y": 155.11093,
+    "zoom": 1.1240546
+  },
+  "workspace_name": "未命名画布",
+  "script_states": []
+}

@@ -59,6 +59,12 @@ pub enum NodeData {
         /// JSON spec string for the widget tree
         code: String,
         #[serde(default)]
+        /// Incoming message queue (like Decision node)
+        pending_messages: Vec<String>,
+        #[serde(default)]
+        /// Queue-action buttons (like Decision node buttons)
+        buttons: Vec<DecisionButton>,
+        #[serde(default)]
         /// Parsed cache (not serialized, reconstructed on load)
         #[serde(skip)]
         parsed_spec: Option<crate::script_node::types::ScriptNodeSpec>,

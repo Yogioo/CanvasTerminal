@@ -25,7 +25,7 @@ pub fn render_script_node(
 
     // Create a child UI positioned at the content rect.
     // This is critical: egui interactions only work inside a Ui's allocated area.
-    let inner_padding = 8.0 * zoom;
+    let inner_padding = 0.0;
     let inner_rect = egui::Rect::from_min_max(
         content_rect.min + egui::vec2(inner_padding, inner_padding),
         content_rect.max - egui::vec2(inner_padding, inner_padding),
@@ -45,12 +45,15 @@ pub fn render_script_node(
         let color = ColorSpec::parse(bg_str)
             .map(|c| c.resolve(&theme, Color32::from_rgb(22, 33, 62)))
             .unwrap_or_else(|| Color32::from_rgb(22, 33, 62));
-        let radius = body_style.radius.unwrap_or(theme.radius) * zoom;
-        if radius > 0.0 {
-            ui.painter().rect_filled(content_rect, radius, color);
-        } else {
-            ui.painter().rect_filled(content_rect, 0.0, color);
-        }
+        // Only round bottom corners — top is flush against the header divider
+        let bottom_r = (theme.radius * zoom).round() as u8;
+        let rounding = egui::CornerRadius {
+            nw: 0,
+            ne: 0,
+            sw: bottom_r,
+            se: bottom_r,
+        };
+        ui.painter().rect_filled(content_rect, rounding, color);
     }
 
     // Allocate a child UI for the interactive area
@@ -89,19 +92,10 @@ pub fn process_script_events(
 
     for event in events {
         match event {
-            ScriptEvent::ButtonClick { event_key } => {
-                outputs.push(("event".to_owned(), event_key.clone()));
-                output_values.insert("event".to_owned(), event_key.clone());
-                // Re-emit received input values so "发送" forwards incoming data
-                for (name, val) in input_values.iter() {
-                    outputs.push((name.clone(), val.clone()));
-                }
-                // Also re-emit all current output widget values
-                for (name, val) in output_values.iter() {
-                    if name != "event" {
-                        outputs.push((name.clone(), val.clone()));
-                    }
-                }
+            ScriptEvent::ButtonClick { .. } => {
+                // Button is now queue-driven: forwarding is handled by consume_script_queue
+                // in canvas_nodes_render.rs. Do not emit any output changes here.
+                // This prevents duplicate forwarding when queue is consumed.
             }
             ScriptEvent::SliderChange { name, value } => {
                 let val_str = format!("{:.2}", value);
@@ -119,6 +113,7 @@ pub fn process_script_events(
 }
 
 /// Default JSON template for a new script node.
+/// Now includes message queue support (like Decision node).
 pub fn default_script_template() -> String {
     [
         "{  ",
@@ -138,7 +133,8 @@ pub fn default_script_template() -> String {
         "      \"input\": { \"type\": \"string\", \"description\": \"来自上游的消息\" }",
         "    },",
         "    \"outputs\": {",
-        "      \"output\": { \"type\": \"string\", \"description\": \"输出到下游的值\" }",
+        "      \"approve\": { \"type\": \"string\", \"description\": \"批准后转发的消息\" },",
+        "      \"reject\": { \"type\": \"string\", \"description\": \"驳回后转发的消息\" }",
         "    }",
         "  },",
         "  \"body\": {",
@@ -147,19 +143,41 @@ pub fn default_script_template() -> String {
         "    \"children\": [",
         "      {",
         "        \"type\": \"text\",",
-        "        \"text\": \"收到: {inputs.input}\",",
+        "        \"text\": \"待处理: {state.queue_len} 条\",",
         "        \"style\": { \"font_size\": 18, \"bold\": true, \"color\": \"$accent\" }",
         "      },",
         "      {",
-        "        \"type\": \"input\",",
-        "        \"name\": \"output\",",
-        "        \"label\": \"输入: \",",
-        "        \"placeholder\": \"输入内容将输出到下游...\"",
+        "        \"type\": \"text\",",
+        "        \"text\": \"最新: {state.queue_first}\",",
+        "        \"style\": { \"font_size\": 13, \"color\": \"$text_secondary\" }",
+        "      },",
+        "      {",
+        "        \"type\": \"divider\"",
+        "      },",
+        "      {",
+        "        \"type\": \"row\",",
+        "        \"gap\": 8,",
+        "        \"children\": [",
+        "          {",
+        "            \"type\": \"button\",",
+        "            \"text\": \"批准\",",
+        "            \"event\": \"approve\",",
+        "            \"style\": { \"bg\": \"$success\", \"color\": \"#000000\" }",
+        "          },",
+        "          {",
+        "            \"type\": \"button\",",
+        "            \"text\": \"全部批准\",",
+        "            \"event\": \"approve\",",
+        "            \"process_all\": true,",
+        "            \"style\": { \"bg\": \"$accent\", \"color\": \"#000000\" }",
+        "          }",
+        "        ]",
         "      },",
         "      {",
         "        \"type\": \"button\",",
-        "        \"text\": \"发送\",",
-        "        \"event\": \"clicked\"",
+        "        \"text\": \"驳回\",",
+        "        \"event\": \"reject\",",
+        "        \"style\": { \"bg\": \"$danger\", \"color\": \"#000000\" }",
         "      }",
         "    ]",
         "  }",

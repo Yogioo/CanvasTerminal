@@ -285,6 +285,9 @@ pub enum Widget {
         event: String,
         #[serde(default)]
         style: Style,
+        /// If true, clicking consumes ALL queued messages instead of one
+        #[serde(default)]
+        process_all: bool,
     },
     #[serde(rename = "slider")]
     Slider {
@@ -470,7 +473,7 @@ impl ScriptNodeSpec {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ScriptEvent {
-    ButtonClick { event_key: String },
+    ButtonClick { event_key: String, process_all: bool },
     SliderChange { name: String, value: f64 },
     InputChange { name: String, value: String },
 }

@@ -155,6 +155,16 @@ pub struct GraphApp {
     editing_script_node: Option<usize>,
     pending_script_focus: Option<usize>,
     script_edit_buffer: String,
+
+    // ── Script node queue editing ──
+    editing_script_queue_node: Option<usize>,
+    pending_script_queue_focus: Option<usize>,
+    script_queue_edit_buffer: String,
+
+    // ── Script node button editor ──
+    editing_script_buttons_node: Option<usize>,
+    script_buttons_edit_rows: Vec<DecisionButtonDraft>,
+    script_buttons_edit_error: Option<String>,
     /// Per-node input port values (read from upstream edges, ephemeral)
     script_node_inputs: HashMap<usize, std::collections::HashMap<String, String>>,
     /// Per-node output port values (written by interactive widgets, ephemeral)
@@ -287,6 +297,12 @@ impl GraphApp {
             editing_script_node: None,
             pending_script_focus: None,
             script_edit_buffer: String::new(),
+            editing_script_queue_node: None,
+            pending_script_queue_focus: None,
+            script_queue_edit_buffer: String::new(),
+            editing_script_buttons_node: None,
+            script_buttons_edit_rows: Vec::new(),
+            script_buttons_edit_error: None,
             script_node_inputs: std::collections::HashMap::new(),
             script_node_outputs: std::collections::HashMap::new(),
             script_node_state: std::collections::HashMap::new(),
@@ -399,6 +415,12 @@ impl GraphApp {
         self.editing_script_node = None;
         self.pending_script_focus = None;
         self.script_edit_buffer.clear();
+        self.editing_script_queue_node = None;
+        self.pending_script_queue_focus = None;
+        self.script_queue_edit_buffer.clear();
+        self.editing_script_buttons_node = None;
+        self.script_buttons_edit_rows.clear();
+        self.script_buttons_edit_error = None;
         self.script_node_inputs.clear();
         self.script_node_outputs.clear();
         self.script_node_state.clear();
