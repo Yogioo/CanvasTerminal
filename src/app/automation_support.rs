@@ -16,6 +16,10 @@ pub(in crate::app) struct NodeCreatePayload {
     pub x: f32,
     pub y: f32,
     #[serde(default)]
+    pub width: Option<f32>,
+    #[serde(default)]
+    pub height: Option<f32>,
+    #[serde(default)]
     pub text_body: Option<String>,
     #[serde(default)]
     pub html_source: Option<String>,
@@ -59,6 +63,10 @@ pub(in crate::app) struct NodeDeletePayload {
 #[derive(Debug, Deserialize)]
 pub(in crate::app) struct NodeUpdatePayload {
     pub id: usize,
+    #[serde(default)]
+    pub width: Option<f32>,
+    #[serde(default)]
+    pub height: Option<f32>,
     #[serde(default)]
     pub text_body: Option<String>,
     #[serde(default)]

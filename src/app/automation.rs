@@ -413,6 +413,15 @@ impl GraphApp {
             }
         };
 
+        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+            if let Some(w) = payload.width {
+                node.size.x = w.max(40.0);
+            }
+            if let Some(h) = payload.height {
+                node.size.y = h.max(40.0);
+            }
+        }
+
         self.bump_automation_state_version();
 
         Ok(AutomationOutcome {
@@ -583,6 +592,13 @@ impl GraphApp {
                     *title = next;
                 }
             }
+        }
+
+        if let Some(w) = payload.width {
+            node.size.x = w.max(40.0);
+        }
+        if let Some(h) = payload.height {
+            node.size.y = h.max(40.0);
         }
 
         self.mark_workspace_dirty();

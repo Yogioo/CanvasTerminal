@@ -16,7 +16,7 @@ COMMANDS:
   done [--route <route_key>] <summary>  Emit a done event from the current terminal node
   debug metrics [--pretty] [--jsonpath p]
   debug graph get [--pretty] [--jsonpath p]
-  debug node create|update|move|delete ...
+  debug node create|update|move|delete ...  [--text, --html-source, --url, --title, --image-path, --startup-script, --working-directory, --width, --height]
   debug group create --node-ids <id,id,...> [--title <name>]
   debug edge create|reconnect|delete ...
   debug inject text|terminal ...
@@ -31,6 +31,8 @@ EXAMPLES:
   canvas debug metrics --pretty
   canvas debug graph get --pretty
   canvas debug node create --kind text --x 200 --y 120 --text \"hello\"
+  canvas debug node create --kind html --x 200 --y 120 --html-source \"<h1>Hello</h1>\"
+  canvas debug node create --kind webpage --x 300 --y 200 --url \"https://example.com\"
   canvas debug node update --id 2 --working-directory \"../wt-feature-abc\"
   canvas debug inject terminal --node-id 2 --command \"echo ok\" --wait";
 
@@ -179,7 +181,11 @@ fn try_build_debug_action(
             let kind = pop_flag_value(&mut args, "--kind").unwrap_or_else(|| "text".to_owned());
             let x = parse_f32(pop_flag_value(&mut args, "--x"), "--x");
             let y = parse_f32(pop_flag_value(&mut args, "--y"), "--y");
+            let width = pop_flag_value(&mut args, "--width").and_then(|v| v.parse::<f32>().ok());
+            let height = pop_flag_value(&mut args, "--height").and_then(|v| v.parse::<f32>().ok());
             let text = pop_flag_value(&mut args, "--text");
+            let html_source = pop_flag_value(&mut args, "--html-source");
+            let url = pop_flag_value(&mut args, "--url");
             let title = pop_flag_value(&mut args, "--title");
             let startup_script = pop_flag_value(&mut args, "--startup-script");
             let working_directory = pop_flag_value(&mut args, "--working-directory");
@@ -190,7 +196,11 @@ fn try_build_debug_action(
                     "kind": kind,
                     "x": x,
                     "y": y,
+                    "width": width,
+                    "height": height,
                     "text_body": text,
+                    "html_source": html_source,
+                    "url": url,
                     "title": title,
                     "startup_script": startup_script,
                     "working_directory": working_directory,
@@ -200,7 +210,11 @@ fn try_build_debug_action(
         }
         ("node", Some("update")) => {
             let id = parse_usize(pop_flag_value(&mut args, "--id"), "--id");
+            let width = pop_flag_value(&mut args, "--width").and_then(|v| v.parse::<f32>().ok());
+            let height = pop_flag_value(&mut args, "--height").and_then(|v| v.parse::<f32>().ok());
             let text = pop_flag_value(&mut args, "--text");
+            let html_source = pop_flag_value(&mut args, "--html-source");
+            let url = pop_flag_value(&mut args, "--url");
             let auto_size = pop_flag_value(&mut args, "--auto-size").map(|v| v == "true");
             let title = pop_flag_value(&mut args, "--title");
             let startup_script = pop_flag_value(&mut args, "--startup-script");
@@ -209,7 +223,11 @@ fn try_build_debug_action(
                 "node.update",
                 json!({
                     "id": id,
+                    "width": width,
+                    "height": height,
                     "text_body": text,
+                    "html_source": html_source,
+                    "url": url,
                     "auto_size": auto_size,
                     "title": title,
                     "startup_script": startup_script,
