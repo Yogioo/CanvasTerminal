@@ -327,8 +327,11 @@ ctx:text("Hello World", {
   bold = true,
   color = "$accent",       -- 或 "#ff6b6b"
   align = "center",        -- "left" | "center" | "right"
+  width = { type = "px", value = 50 },  -- 固定宽度（可选）
 })
 ```
+
+`width` 支持格式：`{ type = "px", value = number }` 或 `{ type = "fr", value = number }`。
 
 #### `ctx:button(text, opts?) -> boolean`
 
@@ -374,8 +377,13 @@ state.volume = vol
 #### `ctx:progress_bar(value, opts?)`
 
 ```lua
-ctx:progress_bar(state.remaining / total, { height = 12 })
+ctx:progress_bar(state.remaining / total, {
+  height = 12,        -- 进度条高度
+  fill   = "$accent", -- 填充色（可选），支持主题色或 "#rrggbb"
+})
 ```
+
+`fill` 支持主题色变量（`$accent`、`$success`、`$danger`、`$warning` 等）或十六进制颜色值。
 
 #### `ctx:separator(opts?)`
 

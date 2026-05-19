@@ -19,8 +19,7 @@ chrono = { version = "0.4", default-features = true, features = ["clock"] }
 rfd = "0.15"
 uuid = { version = "1", features = ["v4"] }
 sysinfo = "0.38.4"
-
-
+mlua = { version = "0.11", features = ["lua54", "serialize", "vendored"] }
 
 
 [patch.crates-io]

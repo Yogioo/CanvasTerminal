@@ -1,6 +1,7 @@
 pub mod types;
 pub mod parser;
 pub mod layout_render;
+pub mod lua;
 
 use eframe::egui::{self, Color32, Layout, Align};
 use std::collections::HashMap;
