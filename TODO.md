@@ -43,21 +43,84 @@
 
 ## 🟡 待优化 / 待修复
 
-- [ ] **BDD 测试迁移**：将 7 个因 mock 限制失败的测试改用真实 `LuaRuntime`（mlua）验证
-  - [ ] 梳理并列出 7 个失败用例名称 + 失败原因（mock 限制点）
-  - [ ] 为每个用例补齐最小可运行 Lua 脚本夹具（ports/state/hooks）
-  - [ ] 将 mock runtime 替换为真实 `LuaRuntime::new/new_with_state`
-  - [ ] 覆盖关键生命周期：`before_frame` / `capture_render` / `after_frame` / `advance_tick`
-  - [ ] 补充 emit、timer、state 序列化断言，去除对内部 mock 行为的耦合断言
-  - [ ] 单测分组执行并记录通过率（目标：7/7 通过）
-  - [ ] 全量测试回归并记录结果到本文件
-- [ ] **大 state 性能优化**：仅当 state 修改时才序列化（dirty flag 已留接口）
-- [ ] **日志限流**：`log()` 频繁调用时防止内存泄漏（当前无上限）
-- [ ] **超时机制**：帧级执行超时（5ms），防止 Lua 脚本长时间阻塞 UI
-- [ ] **指令计数 hook**：mlua `HookTriggers` 需要 `debug` feature，当前未启用
+- [x] **BDD 测试迁移**：将 7 个因 mock 限制失败的测试改用真实 `LuaRuntime`（mlua）验证
+  - [x] 梳理并列出 7 个失败用例名称 + 失败原因（mock 限制点）
+  - [x] 为每个用例补齐最小可运行 Lua 脚本夹具（ports/state/hooks）
+  - [x] 将 mock runtime 替换为真实 `LuaRuntime::new/new_with_state`
+  - [x] 覆盖关键生命周期：`before_frame` / `capture_render` / `after_frame` / `advance_tick`
+  - [x] 补充 emit、timer、state 序列化断言，去除对内部 mock 行为的耦合断言
+  - [x] 单测分组执行并记录通过率（目标：7/7 通过）
+  - [x] 全量测试回归并记录结果到本文件
 
-## 🟢 未来可能
+### BDD 测试迁移完成备注（2026-05-19）
+- 7 个失败用例（迁移前）
+  1. `feature_persistence::test_deserialize_merges_with_defaults`
+     - 原因：mock 的 `merge_serialized_state` 未正确保留 Lua 默认字段（`extra`）
+  2. `feature_pomodoro::test_initial_render`
+     - 原因：mock 对按钮文案分支模拟与脚本真实渲染路径不一致（期望“开始工作”，实际初始为“继续”）
+  3. `feature_render_api::test_card_basic`
+     - 原因：mock 渲染器未完整覆盖 `ctx:card` 语义
+  4. `feature_render_api::test_col_with_children`
+     - 原因：mock 对 `ctx:col(..., function)` 子节点执行不完整
+  5. `feature_render_api::test_complete_ui_composition`
+     - 原因：mock 对组合布局（col/row/children）事件生成不完整
+  6. `feature_timer::test_countdown_to_zero_emits`
+     - 原因：mock tick/emit 状态机与真实 Lua 执行不一致
+  7. `feature_timer::test_countdown_stops_running`
+     - 原因：mock 倒计时归零边界行为与真实 Lua 不一致
 
-- [ ] 代码片段库：内置更多模板（仪表盘、定时器、表单等）
-- [ ] Lua 调试器：断点/单步/变量查看
+- 迁移与修复摘要
+  - 已将上述失败场景切换到真实 `LuaRuntime`：
+    - `LuaRuntime::new_with_state`：`feature_persistence`
+    - `LuaRuntime::new` + `convert_events_for_test`：`feature_render_api`、`feature_pomodoro`
+    - `LuaRuntime::new`：`feature_timer`
+  - 同步修正番茄钟初始渲染断言为真实脚本行为（“继续”）
+
+- 分组执行结果
+  - 目标失败集：**7/7 通过**
+
+- 全量回归结果
+  - `cargo test -- --nocapture`
+  - `lib`: **171 passed, 0 failed**
+  - `bin(main)`: **205 passed, 0 failed**
+  - `bin(canvas)`: **6 passed, 0 failed**
+- [x] **大 state 性能优化**：仅当 state 修改时才同步/反序列化 state（基于 dirty + 首帧快照判断）
+- [x] **日志限流**：`log()` 增加上限（保留最近 1000 条，超限丢弃最早日志）
+- [x] **超时机制**：帧级执行超时（5ms）已接入 on_init/render/on_input/on_tick
+- [x] **指令计数 hook**：已启用 `HookTriggers::every_nth_instruction`（按调用重置预算，可中断死循环）
+
+### 运行时优化完成备注（2026-05-19）
+- state 同步优化
+  - `LuaRuntime` 新增 `is_state_dirty()` / `has_serialized_state()`
+  - `script_after_frame()` 仅在 dirty 或首帧时才执行 JSON 反序列化并写回 `script_node_state`
+- 日志限流
+  - `log()` 缓冲上限 `MAX_LOG_ENTRIES = 1000`
+  - 超限时从头部裁剪，保证内存有界
+- 帧级超时保护
+  - `FRAME_EXECUTION_TIMEOUT_MS = 5.0`
+  - 在 `on_init` / `render` / `on_input` / `on_tick` 执行后做耗时检查，超时返回 HookError
+- 指令预算（可中断）
+  - sandbox 接入 `HookTriggers::every_nth_instruction`
+  - 每次 Lua 调用前重置预算（内部 `__reset_instruction_budget`）
+  - 预算耗尽时报错 `instruction budget exceeded`
+- 兼容性说明
+  - `mlua 0.11.6` 无独立 `debug` feature；当前方案在现有 feature 集合下可用
+- 验证
+  - `cargo check` 通过
+  - 新增/相关测试通过（含 `test_log_is_bounded`）
+
+## 🟢 后续计划（已确认范围，2026-05-19）
+
+- [x] 代码片段库：内置更多模板（仪表盘、定时器、表单等）**暂不扩展（按当前需求冻结）**
+- [ ] Lua 调试器：断点/单步/变量查看（MVP）
+  - [ ] 行号断点（基础断点增删 + 命中暂停）
+  - [ ] 单步执行（Step Into）
+  - [ ] 变量查看（先支持全局表 + state）
 - [ ] 在画布上显示 Lua 节点运行状态（running/frozen/error）
+  - [ ] 增加节点运行态：Idle / Running / Frozen / Error
+  - [ ] 复用超时/指令预算中断逻辑映射 Frozen
+  - [ ] 节点 UI 状态徽标（颜色区分）
+
+### 说明
+- 本轮不做：条件断点、调用栈窗口、表达式求值、代码片段库扩展。
+- 实施顺序：先“运行状态可视化”，再“调试器 MVP”。

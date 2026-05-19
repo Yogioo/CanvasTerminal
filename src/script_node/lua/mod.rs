@@ -28,6 +28,9 @@ use mlua::{Lua, Value, Table, Function, IntoLua};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::time::Instant;
+
+const FRAME_EXECUTION_TIMEOUT_MS: f64 = 5.0;
 
 /// 脚本节点 Lua 运行时
 ///
@@ -100,6 +103,7 @@ impl LuaRuntime {
 
         // 执行 Lua 代码
         if !code.trim().is_empty() {
+            Self::reset_instruction_budget_for_lua(&lua)?;
             lua.load(code.as_bytes())
                 .exec()
                 .map_err(|e| format!("Lua 代码执行错误: {}", e))?;
@@ -171,6 +175,16 @@ impl LuaRuntime {
         Ok(json)
     }
 
+    /// 当前帧是否有 state 修改（用于外部避免不必要的 state JSON 反序列化）
+    pub fn is_state_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    /// 是否已存在可复用的序列化 state 快照
+    pub fn has_serialized_state(&self) -> bool {
+        self.last_serialized.is_some()
+    }
+
     /// 调用 Lua 的 render(ctx)，返回产生的 UI 事件列表
     ///
     /// 每次调用创建一个新的渲染上下文，执行 render 函数，返回事件列表。
@@ -188,8 +202,11 @@ impl LuaRuntime {
             .map_err(|e| format!("创建渲染上下文失败: {}", e))?;
 
         // 调用 render(ctx_ud)
+        Self::reset_instruction_budget_for_lua(&self.lua)?;
+        let started = Instant::now();
         render_func.call::<()>(ctx_ud.clone())
             .map_err(|e| format!("render 执行错误: {}", e))?;
+        Self::check_frame_timeout("render", started)?;
 
         // 取出上下文并返回事件
         let ctx = ctx_ud.take::<LuaRenderContext>()
@@ -293,8 +310,11 @@ impl LuaRuntime {
     fn run_on_init(&mut self) -> Result<(), String> {
         let globals = self.lua.globals();
         if let Ok(func) = globals.get::<Function>("on_init") {
+            Self::reset_instruction_budget_for_lua(&self.lua)?;
+            let started = Instant::now();
             func.call::<()>(())
                 .map_err(|e| format!("on_init 执行错误: {}", e))?;
+            Self::check_frame_timeout("on_init", started)?;
         }
         Ok(())
     }
@@ -312,8 +332,11 @@ impl LuaRuntime {
             } else {
                 Value::String(self.lua.create_string(value).unwrap())
             };
+            Self::reset_instruction_budget_for_lua(&self.lua)?;
+            let started = Instant::now();
             func.call::<()>((port.to_owned(), lua_value))
                 .map_err(|e| format!("on_input 执行错误: {}", e))?;
+            Self::check_frame_timeout("on_input", started)?;
             self.dirty = true;
         }
         Ok(())
@@ -323,9 +346,34 @@ impl LuaRuntime {
     fn run_on_tick(&mut self, _dt: f64) -> Result<(), String> {
         let globals = self.lua.globals();
         if let Ok(func) = globals.get::<Function>("on_tick") {
+            Self::reset_instruction_budget_for_lua(&self.lua)?;
+            let started = Instant::now();
             func.call::<()>(_dt)
                 .map_err(|e| format!("on_tick 执行错误: {}", e))?;
+            Self::check_frame_timeout("on_tick", started)?;
             self.dirty = true;
+        }
+        Ok(())
+    }
+
+    fn check_frame_timeout(hook: &str, started: Instant) -> Result<(), String> {
+        let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+        if elapsed_ms > FRAME_EXECUTION_TIMEOUT_MS {
+            return Err(format!(
+                "{} 执行超时: {:.2}ms > {:.2}ms",
+                hook,
+                elapsed_ms,
+                FRAME_EXECUTION_TIMEOUT_MS
+            ));
+        }
+        Ok(())
+    }
+
+    fn reset_instruction_budget_for_lua(lua: &Lua) -> Result<(), String> {
+        let globals = lua.globals();
+        if let Ok(reset) = globals.get::<Function>("__reset_instruction_budget") {
+            reset.call::<()>(())
+                .map_err(|e| format!("重置指令预算失败: {}", e))?;
         }
         Ok(())
     }

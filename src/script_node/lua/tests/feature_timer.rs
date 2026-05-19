@@ -120,7 +120,7 @@ mod tests {
     /// Scenario: 倒计时到 0 触发 emit
     #[test]
     fn test_countdown_to_zero_emits() {
-        let mut rt = TestLuaRuntime::new_test(TIMER_SCRIPT).unwrap();
+        let mut rt = crate::script_node::lua::LuaRuntime::new(TIMER_SCRIPT).unwrap();
         rt.set_state("running", true);
         rt.set_state("remaining", 2.0);
 
@@ -138,7 +138,7 @@ mod tests {
     /// Scenario: 倒计时到 0 后 running = false
     #[test]
     fn test_countdown_stops_running() {
-        let mut rt = TestLuaRuntime::new_test(TIMER_SCRIPT).unwrap();
+        let mut rt = crate::script_node::lua::LuaRuntime::new(TIMER_SCRIPT).unwrap();
         rt.set_state("running", true);
         rt.set_state("remaining", 1.0);
         rt.advance_tick(5.0).unwrap(); // 大幅超过

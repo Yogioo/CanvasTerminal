@@ -130,7 +130,7 @@ mod tests {
     /// Scenario: 反序列化的 JSON 只覆盖已有字段，代码默认值保留
     #[test]
     fn test_deserialize_merges_with_defaults() {
-        let rt = TestLuaRuntime::new_test_with_state(
+        let rt = crate::script_node::lua::LuaRuntime::new_with_state(
             r#"
             state = { queue = {}, extra = "default" }
             function on_input(name, value)

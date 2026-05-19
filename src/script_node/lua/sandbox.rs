@@ -3,10 +3,16 @@
 /// 提供沙箱配置函数，限制 Lua 脚本可访问的全局函数，
 /// 防止文件系统访问、系统命令执行、无限循环等危险操作。
 
-use mlua::Lua;
+use mlua::{Lua, HookTriggers, VmState};
+use std::cell::Cell;
+use std::rc::Rc;
 
 /// 内存限制（每节点）
 const MEMORY_LIMIT: usize = 8 * 1024 * 1024;
+/// 指令计数 hook 步长（每执行 N 条指令触发一次回调）
+const INSTRUCTION_HOOK_STEP: u32 = 200;
+/// 单次 Lua 调用最大指令预算（粗略）
+const MAX_INSTRUCTIONS_PER_CALL: i64 = 50_000;
 
 /// 配置 Lua 沙箱安全限制
 ///
@@ -76,9 +82,29 @@ pub fn setup_sandbox(lua: &Lua) -> mlua::Result<()> {
     globals.raw_remove("package")?;
 
     // ── 6. 设置指令计数 hook ──
-    // mlua 0.11 的 HookTriggers::every_n_instructions 需要 "debug" feature
-    // 此处简化处理：不设置 hook，靠 Lua 内部及超时机制限制
-    // 生产环境可通过外部帧级超时和指令计数来防止无限循环
+    // 使用每线程 hook 做粗粒度“可中断”保护，防止死循环卡住 UI。
+    // 每次 Lua 调用共享同一个预算计数器，调用开始后持续递减。
+    let budget = Rc::new(Cell::new(MAX_INSTRUCTIONS_PER_CALL));
+    let budget_for_hook = budget.clone();
+    lua.set_hook(
+        HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STEP),
+        move |_lua, _debug| {
+            let remaining = budget_for_hook.get() - INSTRUCTION_HOOK_STEP as i64;
+            budget_for_hook.set(remaining);
+            if remaining <= 0 {
+                Err(mlua::Error::runtime("instruction budget exceeded"))
+            } else {
+                Ok(VmState::Continue)
+            }
+        },
+    )?;
+
+    let budget_for_reset = budget.clone();
+    let reset_budget_fn = lua.create_function(move |_, ()| {
+        budget_for_reset.set(MAX_INSTRUCTIONS_PER_CALL);
+        Ok(())
+    })?;
+    globals.set("__reset_instruction_budget", reset_budget_fn)?;
 
     // ── 7. 设置内存限制 ──
     let _ = lua.set_memory_limit(MEMORY_LIMIT);

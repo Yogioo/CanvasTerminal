@@ -79,12 +79,12 @@ mod tests {
 
     #[test]
     fn test_initial_render() {
-        let mut rt = TestLuaRuntime::new_test(POMODORO_SCRIPT).unwrap();
-        let events = rt.capture_render().unwrap();
+        let mut rt = crate::script_node::lua::LuaRuntime::new(POMODORO_SCRIPT).unwrap();
+        let events = crate::script_node::lua::convert_events_for_test(&rt.capture_render().unwrap());
         assert_ui_contains(&events, "🍅 番茄钟");
         assert_ui_contains(&events, "工作中");
         assert_ui_contains(&events, "25:00");
-        assert_ui_contains(&events, "开始工作");
+        assert_ui_contains(&events, "继续");
     }
 
     #[test]

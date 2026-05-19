@@ -546,6 +546,7 @@ mod tests {
             edge_control_offsets: vec![],
             view: ViewConfig::default(),
             workspace_name: Some("工作区C".to_owned()),
+            script_states: vec![],
         };
 
         let text = serde_json::to_string(&config).unwrap();
@@ -568,6 +569,7 @@ mod tests {
             edge_control_offsets: vec![],
             view: ViewConfig::default(),
             workspace_name: Some("工作区A".to_owned()),
+            script_states: vec![],
         };
 
         let text = serde_json::to_string(&config).unwrap();
@@ -598,6 +600,7 @@ mod tests {
             }],
             view: ViewConfig::default(),
             workspace_name: Some("工作区B".to_owned()),
+            script_states: vec![],
         };
 
         let text = serde_json::to_string(&config).unwrap();

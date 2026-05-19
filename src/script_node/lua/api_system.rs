@@ -6,6 +6,8 @@ use mlua::{Lua, Result as LuaResult, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+const MAX_LOG_ENTRIES: usize = 1000;
+
 /// 系统回调容器，用于在 Lua 运行时和外部系统之间传递消息
 pub struct LuaSystemState {
     /// emit 缓冲区：port_name → value
@@ -79,7 +81,13 @@ pub fn register_system_api(lua: &Lua, system: Rc<RefCell<LuaSystemState>>) -> Lu
     let log_fn = lua.create_function(move |_, args: mlua::MultiValue| {
         let parts: Vec<String> = args.iter().map(|v| lua_value_to_string(v)).collect();
         let msg = parts.join(" ");
-        system_clone.borrow_mut().logs.push(msg);
+
+        let mut state = system_clone.borrow_mut();
+        if state.logs.len() >= MAX_LOG_ENTRIES {
+            let overflow = state.logs.len() + 1 - MAX_LOG_ENTRIES;
+            state.logs.drain(0..overflow);
+        }
+        state.logs.push(msg);
         Ok(())
     })?;
     globals.set("log", log_fn)?;
@@ -168,5 +176,19 @@ mod tests {
         let state = system.borrow();
         assert_eq!(state.logs.len(), 1);
         assert_eq!(state.logs[0], "");
+    }
+
+    #[test]
+    fn test_log_is_bounded() {
+        let lua = Lua::new();
+        let system = Rc::new(RefCell::new(LuaSystemState::new()));
+        register_system_api(&lua, system.clone()).unwrap();
+
+        lua.load("for i=1,1200 do log(i) end").exec().unwrap();
+
+        let state = system.borrow();
+        assert_eq!(state.logs.len(), MAX_LOG_ENTRIES);
+        assert_eq!(state.logs.first().map(String::as_str), Some("201"));
+        assert_eq!(state.logs.last().map(String::as_str), Some("1200"));
     }
 }

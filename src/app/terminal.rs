@@ -393,7 +393,8 @@ impl GraphApp {
     pub(in crate::app) fn script_after_frame(&mut self) {
         let ids: Vec<usize> = self.script_lua_runtimes.keys().copied().collect();
         for node_id in ids {
-            let (state_json, emits, interval) = if let Some(rt) = self.script_lua_runtimes.get_mut(&node_id) {
+            let (state_json, should_sync_state, emits, interval) = if let Some(rt) = self.script_lua_runtimes.get_mut(&node_id) {
+                let should_sync_state = rt.is_state_dirty() || !rt.has_serialized_state();
                 let state_json = match rt.after_frame() {
                     Ok(json) => Some(json),
                     Err(err) => {
@@ -409,22 +410,24 @@ impl GraphApp {
                 };
                 let emits = rt.drain_emits();
                 let interval = rt.timer_interval();
-                (state_json, emits, interval)
+                (state_json, should_sync_state, emits, interval)
             } else {
-                (None, Vec::new(), 0.0)
+                (None, false, Vec::new(), 0.0)
             };
 
-            if let Some(json) = state_json {
-                if let Ok(val) = serde_json::from_str::<JsonValue>(&json) {
-                    if let Some(obj) = val.as_object() {
-                        let mut map = std::collections::HashMap::new();
-                        for (k, v) in obj {
-                            map.insert(k.clone(), match v {
-                                JsonValue::String(s) => s.clone(),
-                                _ => v.to_string(),
-                            });
+            if should_sync_state {
+                if let Some(json) = state_json {
+                    if let Ok(val) = serde_json::from_str::<JsonValue>(&json) {
+                        if let Some(obj) = val.as_object() {
+                            let mut map = std::collections::HashMap::new();
+                            for (k, v) in obj {
+                                map.insert(k.clone(), match v {
+                                    JsonValue::String(s) => s.clone(),
+                                    _ => v.to_string(),
+                                });
+                            }
+                            self.script_node_state.insert(node_id, map);
                         }
-                        self.script_node_state.insert(node_id, map);
                     }
                 }
             }

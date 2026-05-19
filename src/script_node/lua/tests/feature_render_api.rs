@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn test_card_basic() {
-        let mut rt = TestLuaRuntime::new_test(
+        let mut rt = crate::script_node::lua::LuaRuntime::new(
             r#"
             state = {}
             function render(ctx)
@@ -155,7 +155,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        let events = rt.capture_render().unwrap();
+        let events = crate::script_node::lua::convert_events_for_test(&rt.capture_render().unwrap());
         let has = events.iter().any(|e| {
             matches!(e, UiEvent::Card { text, .. } if text == "这是一段笔记")
         });
@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn test_col_with_children() {
-        let mut rt = TestLuaRuntime::new_test(
+        let mut rt = crate::script_node::lua::LuaRuntime::new(
             r#"
             state = {}
             function render(ctx)
@@ -176,7 +176,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        let events = rt.capture_render().unwrap();
+        let events = crate::script_node::lua::convert_events_for_test(&rt.capture_render().unwrap());
         assert!(events.iter().any(|e| matches!(e, UiEvent::ColStart { .. })), "应有 ColStart");
         assert!(events.iter().any(|e| matches!(e, UiEvent::ColEnd)), "应有 ColEnd");
         assert_ui_contains(&events, "a");
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn test_complete_ui_composition() {
-        let mut rt = TestLuaRuntime::new_test(
+        let mut rt = crate::script_node::lua::LuaRuntime::new(
             r#"
             state = {}
             function render(ctx)
@@ -213,7 +213,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        let events = rt.capture_render().unwrap();
+        let events = crate::script_node::lua::convert_events_for_test(&rt.capture_render().unwrap());
         assert_ui_contains(&events, "标题");
         assert_ui_contains(&events, "确认");
         assert_ui_contains(&events, "取消");
