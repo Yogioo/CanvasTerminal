@@ -93,6 +93,23 @@ impl GraphApp {
                     ui.close_menu();
                 }
 
+                if is_script_node {
+                    ui.menu_button("插入代码片段", |ui| {
+                        if ui.button("番茄钟").clicked() {
+                            self.apply_script_snippet(node_id, crate::script_node::script_snippet_pomodoro(), true);
+                            ui.close_menu();
+                        }
+                        if ui.button("笔记").clicked() {
+                            self.apply_script_snippet(node_id, crate::script_node::script_snippet_notes(), true);
+                            ui.close_menu();
+                        }
+                        if ui.button("审批").clicked() {
+                            self.apply_script_snippet(node_id, crate::script_node::script_snippet_approval_queue(), true);
+                            ui.close_menu();
+                        }
+                    });
+                }
+
                 if is_decision_node {
                     ui.separator();
                     ui.label("待处理队列");

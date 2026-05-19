@@ -25,6 +25,7 @@ use self::performance::PerformanceMetrics;
 use crate::event_protocol::{AppEvent, AutomationResponse};
 use crate::event_server::start_event_server;
 use crate::model::Node;
+use crate::script_node::lua::LuaRuntime;
 use eframe::egui::{self, vec2, Pos2, Rect, TextureHandle};
 use egui_commonmark::CommonMarkCache;
 use egui_term::{PtyEvent, TerminalBackend};
@@ -168,6 +169,14 @@ pub struct GraphApp {
     script_node_outputs: HashMap<usize, std::collections::HashMap<String, String>>,
     /// Per-node persistent state (key-value, saved/loaded)
     script_node_state: HashMap<usize, std::collections::HashMap<String, String>>,
+    /// Per-node Lua runtime (Script Node V2)
+    script_lua_runtimes: HashMap<usize, LuaRuntime>,
+    /// Per-node Lua timer accumulator in seconds
+    script_lua_timer_accum: HashMap<usize, f64>,
+    /// Next repaint requested by Lua timers (seconds)
+    script_lua_next_repaint_after: Option<f64>,
+    /// Per-node Lua runtime/render error text
+    script_lua_errors: HashMap<usize, String>,
     /// Id counter for script widget interaction IDs (resets each frame)
     script_widget_id_counter: u64,
     suspend_terminal_focus: Option<usize>,
@@ -298,10 +307,14 @@ impl GraphApp {
             pending_script_queue_focus: None,
             script_queue_edit_buffer: String::new(),
 
-            // placeholder for future use
+            // Script node runtime state
             script_node_inputs: std::collections::HashMap::new(),
             script_node_outputs: std::collections::HashMap::new(),
             script_node_state: std::collections::HashMap::new(),
+            script_lua_runtimes: std::collections::HashMap::new(),
+            script_lua_timer_accum: std::collections::HashMap::new(),
+            script_lua_next_repaint_after: None,
+            script_lua_errors: std::collections::HashMap::new(),
             script_widget_id_counter: 0,
             suspend_terminal_focus: None,
             resizing: None,
@@ -418,6 +431,10 @@ impl GraphApp {
         self.script_node_inputs.clear();
         self.script_node_outputs.clear();
         self.script_node_state.clear();
+        self.script_lua_runtimes.clear();
+        self.script_lua_timer_accum.clear();
+        self.script_lua_next_repaint_after = None;
+        self.script_lua_errors.clear();
         self.script_widget_id_counter = 0;
         self.suspend_terminal_focus = None;
         self.resizing = None;
@@ -473,6 +490,10 @@ impl eframe::App for GraphApp {
         self.poll_done_events();
         self.process_terminal_start_queue(ctx);
 
+        let dt = ctx.input(|i| i.unstable_dt).max(0.0) as f64;
+        self.script_before_frame();
+        self.script_advance_timers(dt);
+
         self.handle_global_shortcuts(ctx);
         self.apply_workspace_dirty_ui(ctx);
         self.performance_metrics
@@ -495,6 +516,7 @@ impl eframe::App for GraphApp {
         self.show_workspace_dirty_indicator(ctx);
         self.show_toast_notifications(ctx);
         self.show_performance_overlay(ctx);
+        self.script_after_frame();
         self.schedule_repaint(ctx, show_window_bar, pointer_near_top, now);
     }
 }

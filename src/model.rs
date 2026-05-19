@@ -56,15 +56,11 @@ pub enum NodeData {
     },
     Script {
         title: String,
-        /// JSON spec string for the widget tree
+        /// Lua source code
         code: String,
         #[serde(default)]
         /// Incoming message queue (like Decision node)
         pending_messages: Vec<String>,
-        #[serde(default)]
-        /// Parsed cache (not serialized, reconstructed on load)
-        #[serde(skip)]
-        parsed_spec: Option<crate::script_node::types::ScriptNodeSpec>,
     },
 }
 

@@ -1,6 +1,7 @@
 use super::GraphApp;
 use crate::event_protocol::{AppEvent, DoneEvent};
 use crate::model::{NodeData, NodeKind};
+use serde_json::Value as JsonValue;
 use crate::shell::{system_shell, terminal_shell_args};
 use eframe::egui;
 use egui_term::{BackendCommand, BackendSettings, PtyEvent, TerminalBackend};
@@ -304,6 +305,167 @@ impl GraphApp {
                 _ => None,
             })
             .unwrap_or((0, String::new()))
+    }
+
+    // ── Script Node V2 lifecycle ─────────────────────────────────────────────
+
+    pub(in crate::app) fn ensure_script_lua_runtime(&mut self, node_id: usize) -> Result<(), String> {
+        if self.script_lua_runtimes.contains_key(&node_id) {
+            return Ok(());
+        }
+
+        let code = self
+            .nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .and_then(|n| match &n.data {
+                NodeData::Script { code, .. } => Some(code.clone()),
+                _ => None,
+            })
+            .ok_or_else(|| "Script node not found".to_owned())?;
+
+        let state_json = self
+            .script_node_state
+            .get(&node_id)
+            .and_then(|m| serde_json::to_string(m).ok());
+
+        let rt = crate::script_node::lua::LuaRuntime::new_with_state(&code, state_json.as_deref())
+            .map_err(|err| {
+                let lower = err.to_lowercase();
+                if lower.contains("syntax") || lower.contains("unexpected") {
+                    format!("[SyntaxError] {err}")
+                } else if lower.contains("hook") || lower.contains("instruction") || lower.contains("timeout") {
+                    format!("[HookError] {err}")
+                } else {
+                    format!("[RuntimeError] {err}")
+                }
+            })?;
+        self.script_lua_runtimes.insert(node_id, rt);
+        self.script_lua_timer_accum.entry(node_id).or_insert(0.0);
+        self.script_lua_errors.remove(&node_id);
+        Ok(())
+    }
+
+    pub(in crate::app) fn script_before_frame(&mut self) {
+        self.script_lua_next_repaint_after = None;
+        let script_ids: Vec<usize> = self
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Script)
+            .map(|n| n.id)
+            .collect();
+
+        for node_id in script_ids {
+            if let Err(err) = self.ensure_script_lua_runtime(node_id) {
+                self.script_lua_errors.insert(node_id, err);
+                continue;
+            }
+            let pending = self
+                .nodes
+                .iter_mut()
+                .find(|n| n.id == node_id)
+                .and_then(|n| match &mut n.data {
+                    NodeData::Script { pending_messages, .. } => Some(std::mem::take(pending_messages)),
+                    _ => None,
+                })
+                .unwrap_or_default();
+
+            let msgs: Vec<(String, String)> = pending
+                .into_iter()
+                .filter(|m| !m.trim().is_empty())
+                .map(|m| ("input".to_owned(), m))
+                .collect();
+
+            if let Some(rt) = self.script_lua_runtimes.get_mut(&node_id) {
+                if let Err(err) = rt.before_frame(&msgs) {
+                    let lower = err.to_lowercase();
+                    let tagged = if lower.contains("hook") || lower.contains("instruction") || lower.contains("timeout") {
+                        format!("[HookError] {err}")
+                    } else {
+                        format!("[RuntimeError] {err}")
+                    };
+                    self.script_lua_errors.insert(node_id, tagged);
+                }
+            }
+        }
+    }
+
+    pub(in crate::app) fn script_after_frame(&mut self) {
+        let ids: Vec<usize> = self.script_lua_runtimes.keys().copied().collect();
+        for node_id in ids {
+            let (state_json, emits, interval) = if let Some(rt) = self.script_lua_runtimes.get_mut(&node_id) {
+                let state_json = match rt.after_frame() {
+                    Ok(json) => Some(json),
+                    Err(err) => {
+                        let lower = err.to_lowercase();
+                        let tagged = if lower.contains("hook") || lower.contains("instruction") || lower.contains("timeout") {
+                            format!("[HookError] {err}")
+                        } else {
+                            format!("[RuntimeError] {err}")
+                        };
+                        self.script_lua_errors.insert(node_id, tagged);
+                        None
+                    }
+                };
+                let emits = rt.drain_emits();
+                let interval = rt.timer_interval();
+                (state_json, emits, interval)
+            } else {
+                (None, Vec::new(), 0.0)
+            };
+
+            if let Some(json) = state_json {
+                if let Ok(val) = serde_json::from_str::<JsonValue>(&json) {
+                    if let Some(obj) = val.as_object() {
+                        let mut map = std::collections::HashMap::new();
+                        for (k, v) in obj {
+                            map.insert(k.clone(), match v {
+                                JsonValue::String(s) => s.clone(),
+                                _ => v.to_string(),
+                            });
+                        }
+                        self.script_node_state.insert(node_id, map);
+                    }
+                }
+            }
+
+            for (event_key, value) in &emits {
+                let targets: Vec<(usize, Option<String>)> = self
+                    .edges
+                    .iter()
+                    .filter_map(|(from, to)| {
+                        if *from != node_id { return None; }
+                        let route = self.edge_route_key(node_id, *to).map(|s| s.to_owned());
+                        if route.as_deref() != Some(event_key.as_str()) { return None; }
+                        Some((*to, route))
+                    })
+                    .collect();
+                let _ = self.forward_message_to_targets(&targets, value);
+            }
+
+            if interval > 0.0 {
+                self.script_lua_next_repaint_after = Some(
+                    self.script_lua_next_repaint_after
+                        .map_or(interval, |v| v.min(interval))
+                );
+            }
+        }
+    }
+
+    pub(in crate::app) fn script_advance_timers(&mut self, dt: f64) {
+        for (id, rt) in self.script_lua_runtimes.iter_mut() {
+            let interval = rt.timer_interval();
+            if interval <= 0.0 {
+                self.script_lua_timer_accum.insert(*id, 0.0);
+                continue;
+            }
+            let acc = self.script_lua_timer_accum.entry(*id).or_insert(0.0);
+            *acc += dt.max(0.0);
+            while *acc >= interval {
+                *acc -= interval;
+                let _ = rt.advance_tick(interval);
+            }
+        }
     }
 
     // ── Script node queue helpers (mirrors Decision's enqueue/consume pattern) ──

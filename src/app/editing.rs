@@ -1,6 +1,5 @@
 use super::{DecisionButtonDraft, DecisionColorInputMode, GraphApp};
 use crate::model::{DecisionButton, NodeData};
-use crate::script_node;
 use eframe::egui;
 use std::collections::HashSet;
 
@@ -609,20 +608,40 @@ impl GraphApp {
         self.script_edit_buffer = code;
     }
 
+    pub(in crate::app) fn apply_script_snippet(&mut self, node_id: usize, code: String, start_edit: bool) {
+        let mut changed = false;
+        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+            if let NodeData::Script { code: node_code, .. } = &mut node.data {
+                if *node_code != code {
+                    *node_code = code.clone();
+                    self.script_lua_runtimes.remove(&node_id);
+                    self.script_lua_timer_accum.remove(&node_id);
+                    self.script_lua_errors.remove(&node_id);
+                    changed = true;
+                }
+            }
+        }
+
+        if changed {
+            self.mark_workspace_dirty();
+        }
+
+        if start_edit {
+            self.start_script_edit(node_id);
+        }
+    }
+
     pub(in crate::app) fn commit_script_edit(&mut self, node_id: usize) {
         let mut changed = false;
         if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
-            if let NodeData::Script {
-                code,
-                parsed_spec,
-                ..
-            } = &mut node.data
-            {
+            if let NodeData::Script { code, .. } = &mut node.data {
                 let new_code = self.script_edit_buffer.trim().to_owned();
                 if *code != new_code {
                     *code = new_code;
-                    // Re-parse the spec
-                    *parsed_spec = script_node::parser::parse_script_spec(code).ok();
+                    // Lua runtime must be rebuilt on code change
+                    self.script_lua_runtimes.remove(&node_id);
+                    self.script_lua_timer_accum.remove(&node_id);
+                    self.script_lua_errors.remove(&node_id);
                     changed = true;
                 }
             }

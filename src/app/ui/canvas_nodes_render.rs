@@ -16,114 +16,102 @@ const RAINBOW: [Color32; 6] = [
     Color32::from_rgb(200, 140, 255),  // purple
 ];
 
-/// Build a syntax-highlighted LayoutJob for JSON text.
-/// Uses byte-level indexing via char_indices() to handle multi-byte UTF-8 correctly.
-fn highlight_json(text: &str, font: FontId) -> LayoutJob {
+/// Build a syntax-highlighted LayoutJob for Lua text.
+fn highlight_lua(text: &str, font: FontId) -> LayoutJob {
     let mut job = LayoutJob::default();
-    // (byte_offset, char) pairs
     let chars: Vec<(usize, char)> = text.char_indices().collect();
     let len = chars.len();
-    let mut idx = 0; // index into chars Vec
-    let mut bracket_depth: i32 = 0; // combined nesting depth for rainbow coloring
+    let mut idx = 0;
+    let mut bracket_depth: i32 = 0;
 
     while idx < len {
         let (byte_start, c) = chars[idx];
 
-        // Whitespace
         if c.is_whitespace() {
-            while idx < len && chars[idx].1.is_whitespace() {
-                idx += 1;
-            }
+            while idx < len && chars[idx].1.is_whitespace() { idx += 1; }
             let byte_end = if idx < len { chars[idx].0 } else { text.len() };
-            job.append(&text[byte_start..byte_end], 0.0,
-                TextFormat::simple(font.clone(), Color32::from_rgb(120, 120, 140)));
+            job.append(&text[byte_start..byte_end], 0.0, TextFormat::simple(font.clone(), Color32::from_rgb(120, 120, 140)));
             continue;
         }
 
-        // String (key or value)
-        if c == '"' {
+        if c == '-' && idx + 1 < len && chars[idx + 1].1 == '-' {
+            idx += 2;
+            while idx < len && chars[idx].1 != '\n' { idx += 1; }
+            let byte_end = if idx < len { chars[idx].0 } else { text.len() };
+            job.append(&text[byte_start..byte_end], 0.0, TextFormat::simple(font.clone(), Color32::from_rgb(130, 150, 130)));
+            continue;
+        }
+
+        if c == '\'' || c == '"' {
+            let quote = c;
             idx += 1;
             while idx < len {
                 if chars[idx].1 == '\\' { idx += 2; continue; }
-                if chars[idx].1 == '"' { idx += 1; break; }
+                if chars[idx].1 == quote { idx += 1; break; }
                 idx += 1;
             }
             let byte_end = if idx < len { chars[idx].0 } else { text.len() };
-            // Peek ahead past whitespace to see if this is a key (followed by ':')
-            let after_slice = &text[byte_end..];
-            let after_trim = after_slice.trim_start();
-            let is_key = after_trim.starts_with(':');
-            let color = if is_key {
-                Color32::from_rgb(100, 200, 255)  // cyan for keys
-            } else {
-                Color32::from_rgb(160, 220, 140)  // green for string values
-            };
-            job.append(&text[byte_start..byte_end], 0.0, TextFormat::simple(font.clone(), color));
+            job.append(&text[byte_start..byte_end], 0.0, TextFormat::simple(font.clone(), Color32::from_rgb(160, 220, 140)));
             continue;
         }
 
-        // Number (including negative) — all ASCII, one byte per char
         if c.is_ascii_digit() || (c == '-' && idx + 1 < len && chars[idx + 1].1.is_ascii_digit()) {
-            let num_start = byte_start;
             idx += 1;
             while idx < len {
                 let ch = chars[idx].1;
-                let ok = ch.is_ascii_digit() || ch == '.'
-                    || ch == 'e' || ch == 'E'
+                let ok = ch.is_ascii_digit() || ch == '.' || ch == 'e' || ch == 'E'
                     || ((ch == '+' || ch == '-') && matches!(chars[idx.saturating_sub(1)].1, 'e' | 'E'));
-                if ok {
-                    idx += 1;
-                } else {
-                    break;
-                }
+                if ok { idx += 1; } else { break; }
             }
-            let num_end = if idx < len { chars[idx].0 } else { text.len() };
-            job.append(&text[num_start..num_end], 0.0,
-                TextFormat::simple(font.clone(), Color32::from_rgb(255, 190, 80)));
+            let byte_end = if idx < len { chars[idx].0 } else { text.len() };
+            job.append(&text[byte_start..byte_end], 0.0, TextFormat::simple(font.clone(), Color32::from_rgb(255, 190, 80)));
             continue;
         }
 
-        // Keywords: true, false, null (all ASCII, safe to slice by byte)
-        let rest = &text[byte_start..];
-        if rest.starts_with("true") || rest.starts_with("false") || rest.starts_with("null") {
-            let kw_len = if rest.starts_with("false") { 5 } else { 4 };
-            // Advance idx by the number of chars in the keyword
-            for _ in 0..kw_len {
-                if idx < len { idx += 1; }
+        if c == '_' || c.is_ascii_alphabetic() {
+            idx += 1;
+            while idx < len {
+                let ch = chars[idx].1;
+                if ch == '_' || ch.is_ascii_alphanumeric() { idx += 1; } else { break; }
             }
-            let byte_end = byte_start + kw_len;
-            job.append(&text[byte_start..byte_end], 0.0,
-                TextFormat::simple(font.clone(), Color32::from_rgb(210, 150, 255)));
+            let byte_end = if idx < len { chars[idx].0 } else { text.len() };
+            let token = &text[byte_start..byte_end];
+            let color = if matches!(token,
+                "and" | "break" | "do" | "else" | "elseif" | "end" | "false" | "for" | "function"
+                | "goto" | "if" | "in" | "local" | "nil" | "not" | "or" | "repeat" | "return"
+                | "then" | "true" | "until" | "while") {
+                Color32::from_rgb(210, 150, 255)
+            } else if matches!(token, "state" | "ctx" | "ports") {
+                Color32::from_rgb(100, 200, 255)
+            } else {
+                Color32::from_rgb(210, 210, 220)
+            };
+            job.append(token, 0.0, TextFormat::simple(font.clone(), color));
             continue;
         }
 
-        // Structural characters — rainbow brackets on combined depth
-        if matches!(c, '{' | '}' | '[' | ']' | ':' | ',') {
+        if matches!(c, '{' | '}' | '[' | ']' | '(' | ')' | ':' | ',' | '.') {
             let color = match c {
-                '{' | '[' => {
+                '{' | '[' | '(' => {
                     let depth = bracket_depth.max(0) as usize % RAINBOW.len();
                     bracket_depth += 1;
                     RAINBOW[depth]
                 }
-                '}' | ']' => {
+                '}' | ']' | ')' => {
                     bracket_depth = (bracket_depth - 1).max(0);
                     let depth = bracket_depth as usize % RAINBOW.len();
                     RAINBOW[depth]
                 }
-                ':' => Color32::from_rgb(130, 130, 160),
-                ',' => Color32::from_rgb(130, 130, 160),
-                _ => Color32::WHITE,
+                _ => Color32::from_rgb(130, 130, 160),
             };
-            let byte_end = byte_start + c.len_utf8(); // 1 for ASCII
+            let byte_end = byte_start + c.len_utf8();
             job.append(&text[byte_start..byte_end], 0.0, TextFormat::simple(font.clone(), color));
             idx += 1;
             continue;
         }
 
-        // Fallback: multi-byte char or unknown
         let byte_end = byte_start + c.len_utf8();
-        job.append(&text[byte_start..byte_end], 0.0,
-            TextFormat::simple(font.clone(), Color32::from_rgb(200, 200, 220)));
+        job.append(&text[byte_start..byte_end], 0.0, TextFormat::simple(font.clone(), Color32::from_rgb(200, 200, 220)));
         idx += 1;
     }
 
@@ -1002,7 +990,7 @@ impl GraphApp {
                                 .desired_rows(10)
                                 .frame(true)
                                 .layouter(&mut |ui: &egui::Ui, text: &str, wrap_width: f32| {
-                                    let mut job = highlight_json(text, hl_font.clone());
+                                    let mut job = highlight_lua(text, hl_font.clone());
                                     job.wrap.max_width = wrap_width;
                                     ui.fonts(|f| f.layout_job(job))
                                 }),
@@ -1027,46 +1015,21 @@ impl GraphApp {
                     self.commit_script_edit(node.id);
                 }
             } else {
-                // Render the script's widget tree
                 let zoom = zoom_scale;
 
-                let inputs = self.script_node_inputs.get(&node.id).cloned().unwrap_or_default();
-                let mut outputs = self.script_node_outputs.get(&node.id).cloned().unwrap_or_default();
-
-                // ── Sync queue state from NodeData into state bindings ──
-                let mut state_vals = self.script_node_state.get(&node.id).cloned().unwrap_or_default();
-                let (queue_len, queue_first) = self.script_pending_queue_info(node.id);
-                if queue_len > 0 {
-                    state_vals.insert("queue_len".to_owned(), queue_len.to_string());
-                    state_vals.insert("queue_first".to_owned(), queue_first.clone());
-                } else {
-                    state_vals.insert("queue_len".to_owned(), "0".to_owned());
-                    state_vals.insert("queue_first".to_owned(), String::new());
-                }
-
-                let mut events = Vec::new();
-
-                // Get parsed spec first (requires mutable self)
-                let spec = self.fetch_script_node_spec(node.id);
-
-                // Now borrow id_counter separately
-                let id_counter = &mut self.script_widget_id_counter;
-
-                // ── Queue toolbar (查看/编辑全部消息 button) ──
                 let toolbar_h = (28.0 * zoom).max(22.0);
                 let toolbar_rect = Rect::from_min_size(
                     content_rect.left_top(),
                     vec2(content_rect.width(), toolbar_h),
                 );
                 let mut deferred_review = false;
+                let (queue_len, _queue_first) = self.script_pending_queue_info(node.id);
                 if toolbar_rect.is_positive() {
-                    // Draw toolbar background
                     ui.painter().rect_filled(
                         toolbar_rect,
                         0.0,
                         Color32::from_rgba_premultiplied(24, 28, 46, 200),
                     );
-                    // Subtle bottom line
                     ui.painter().line_segment(
                         [
                             Pos2::new(toolbar_rect.left(), toolbar_rect.bottom()),
@@ -1074,30 +1037,20 @@ impl GraphApp {
                         ],
                         Stroke::new(1.0, Color32::from_rgba_premultiplied(130, 108, 170, 60)),
                     );
-
-                    // Label on the left
                     let label = format!("  待处理: {queue_len} 条");
                     ui.painter().text(
-                        Pos2::new(
-                            toolbar_rect.left() + 8.0 * zoom,
-                            toolbar_rect.center().y,
-                        ),
+                        Pos2::new(toolbar_rect.left() + 8.0 * zoom, toolbar_rect.center().y),
                         Align2::LEFT_CENTER,
                         label,
                         FontId::proportional((13.0 * zoom).max(9.0)),
                         Color32::from_rgb(205, 195, 230),
                     );
 
-                    // "查看/编辑全部" button on the right
                     let btn_h = (toolbar_h - 6.0 * zoom).max(18.0);
                     let review_w = (120.0 * zoom).max(80.0);
                     let btn_y = toolbar_rect.top() + 3.0 * zoom;
-
                     let review_btn_rect = Rect::from_min_size(
-                        Pos2::new(
-                            toolbar_rect.right() - review_w - 6.0 * zoom,
-                            btn_y,
-                        ),
+                        Pos2::new(toolbar_rect.right() - review_w - 6.0 * zoom, btn_y),
                         vec2(review_w, btn_h),
                     );
                     let review_btn = egui::Button::new(
@@ -1114,67 +1067,152 @@ impl GraphApp {
                     }
                 }
 
-                // Widget tree renders below the toolbar
                 let widget_rect = Rect::from_min_max(
                     Pos2::new(content_rect.min.x, content_rect.min.y + toolbar_h),
                     content_rect.max,
                 );
 
-                if let Some(spec) = spec {
-                    let _used_h = crate::script_node::render_script_node(
-                        &spec,
-                        widget_rect,
-                        ui,
-                        zoom,
-                        &inputs,
-                        &mut outputs,
-                        &state_vals,
-                        &mut events,
-                        id_counter,
-                    );
+                if self.ensure_script_lua_runtime(node.id).is_ok() {
+                    if let Some(rt) = self.script_lua_runtimes.get_mut(&node.id) {
+                        let events = match rt.capture_render() {
+                            Ok(v) => {
+                                self.script_lua_errors.remove(&node.id);
+                                v
+                            }
+                            Err(err) => {
+                                let lower = err.to_lowercase();
+                                let tagged = if lower.contains("hook") || lower.contains("instruction") || lower.contains("timeout") {
+                                    format!("[HookError] {err}")
+                                } else {
+                                    format!("[RuntimeError] {err}")
+                                };
+                                self.script_lua_errors.insert(node.id, tagged);
+                                Vec::new()
+                            }
+                        };
 
-                    // Process events
-                    let output_changes = crate::script_node::process_script_events(
-                        &events,
-                        &inputs,
-                        &mut outputs,
-                        &mut std::collections::HashMap::new(),
-                    );
+                        let mut body_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(widget_rect)
+                                .layout(Layout::top_down(Align::Min)),
+                        );
+                        body_ui.set_clip_rect(widget_rect);
 
-                    // Update output values for the node
-                    self.script_node_outputs.insert(node.id, outputs);
-
-                    // ── Handle queue-consuming button clicks ──
-                    for event in &events {
-                        if let crate::script_node::types::ScriptEvent::ButtonClick { event_key, process_all } = event {
-                            self.consume_script_queue(node.id, event_key, *process_all);
-                        }
-                    }
-
-                    // ── Forward remaining output changes (slider, input) ──
-                    for (port_name, value) in &output_changes {
-                        let targets: Vec<(usize, Option<String>)> = self.edges.iter()
-                            .filter(|(from, _)| *from == node.id)
-                            .filter(|(from, to)| {
-                                match self.edge_route_key(*from, *to) {
-                                    Some(k) => k == port_name.as_str(),
-                                    None => true,
+                        for event in events {
+                            match event {
+                                crate::script_node::lua::api_ctx::UiEvent::Text { text, .. } => {
+                                    body_ui.label(text);
                                 }
-                            })
-                            .map(|(_, to)| {
-                                let route = self.edge_route_key(node.id, *to).map(|s| s.to_owned());
-                                (*to, route)
-                            })
-                            .collect();
-
-                        for (to_node, route_key) in &targets {
-                            self.forward_message_to_node(*to_node, route_key.as_deref(), value);
+                                crate::script_node::lua::api_ctx::UiEvent::ButtonWithCallback { label, event_key, enabled, .. } => {
+                                    let resp = body_ui.add_enabled(enabled, egui::Button::new(label.clone()));
+                                    if resp.clicked() && enabled {
+                                        let key = event_key.as_deref().unwrap_or(&label);
+                                        self.consume_script_queue(node.id, key, false);
+                                    }
+                                }
+                                crate::script_node::lua::api_ctx::UiEvent::Button { label, enabled, .. } => {
+                                    let resp = body_ui.add_enabled(enabled, egui::Button::new(label.clone()));
+                                    if resp.clicked() && enabled {
+                                        self.consume_script_queue(node.id, &label, false);
+                                    }
+                                }
+                                crate::script_node::lua::api_ctx::UiEvent::Input { label, mut value, enabled, .. } => {
+                                    body_ui.horizontal(|ui| {
+                                        if !label.is_empty() { ui.label(label.clone()); }
+                                        let resp = ui.add_enabled(enabled, egui::TextEdit::singleline(&mut value));
+                                        if resp.changed() {
+                                            let port_name = if label.is_empty() { "input".to_owned() } else { label.clone() };
+                                            self.script_node_outputs.entry(node.id).or_default().insert(port_name.clone(), value.clone());
+                                            let targets: Vec<(usize, Option<String>)> = self.edges.iter()
+                                                .filter(|(from, _)| *from == node.id)
+                                                .filter(|(from, to)| {
+                                                    match self.edge_route_key(*from, *to) {
+                                                        Some(k) => k == port_name.as_str(),
+                                                        None => true,
+                                                    }
+                                                })
+                                                .map(|(_, to)| {
+                                                    let route = self.edge_route_key(node.id, *to).map(|s| s.to_owned());
+                                                    (*to, route)
+                                                })
+                                                .collect();
+                                            for (to_node, route_key) in &targets {
+                                                self.forward_message_to_node(*to_node, route_key.as_deref(), &value);
+                                            }
+                                        }
+                                    });
+                                }
+                                crate::script_node::lua::api_ctx::UiEvent::Slider { label, mut value, min, max, enabled } => {
+                                    body_ui.horizontal(|ui| {
+                                        if !label.is_empty() { ui.label(label.clone()); }
+                                        let resp = ui.add_enabled(enabled, egui::Slider::new(&mut value, min..=max));
+                                        if resp.changed() {
+                                            let val_str = format!("{value}");
+                                            let port_name = if label.is_empty() { "slider".to_owned() } else { label.clone() };
+                                            self.script_node_outputs.entry(node.id).or_default().insert(port_name.clone(), val_str.clone());
+                                            let targets: Vec<(usize, Option<String>)> = self.edges.iter()
+                                                .filter(|(from, _)| *from == node.id)
+                                                .filter(|(from, to)| {
+                                                    match self.edge_route_key(*from, *to) {
+                                                        Some(k) => k == port_name.as_str(),
+                                                        None => true,
+                                                    }
+                                                })
+                                                .map(|(_, to)| {
+                                                    let route = self.edge_route_key(node.id, *to).map(|s| s.to_owned());
+                                                    (*to, route)
+                                                })
+                                                .collect();
+                                            for (to_node, route_key) in &targets {
+                                                self.forward_message_to_node(*to_node, route_key.as_deref(), &val_str);
+                                            }
+                                        }
+                                    });
+                                }
+                                crate::script_node::lua::api_ctx::UiEvent::Separator { .. } => { body_ui.separator(); }
+                                crate::script_node::lua::api_ctx::UiEvent::Spacer(h) => { body_ui.add_space(h); }
+                                crate::script_node::lua::api_ctx::UiEvent::Badge { text, .. } => { body_ui.label(text); }
+                                crate::script_node::lua::api_ctx::UiEvent::Card { text, caption } => {
+                                    body_ui.group(|ui| {
+                                        ui.label(text);
+                                        if let Some(c) = caption { ui.small(c); }
+                                    });
+                                }
+                                crate::script_node::lua::api_ctx::UiEvent::ProgressBar { value, .. } => {
+                                    body_ui.add(egui::ProgressBar::new(value as f32));
+                                }
+                                _ => {}
+                            }
                         }
                     }
-
                 }
 
-                // Deferred actions
+                if let Some(err) = self.script_lua_errors.get(&node.id) {
+                    let err_rect = Rect::from_min_max(
+                        Pos2::new(widget_rect.left() + 6.0 * zoom, widget_rect.bottom() - 56.0 * zoom),
+                        Pos2::new(widget_rect.right() - 6.0 * zoom, widget_rect.bottom() - 6.0 * zoom),
+                    );
+                    if err_rect.is_positive() {
+                        ui.painter().rect_filled(err_rect, 4.0, Color32::from_rgba_premultiplied(90, 20, 28, 220));
+                        let (title, detail) = if let Some(rest) = err.strip_prefix("[SyntaxError] ") {
+                            ("Lua SyntaxError", rest)
+                        } else if let Some(rest) = err.strip_prefix("[HookError] ") {
+                            ("Lua HookError", rest)
+                        } else if let Some(rest) = err.strip_prefix("[RuntimeError] ") {
+                            ("Lua RuntimeError", rest)
+                        } else {
+                            ("Lua Error", err.as_str())
+                        };
+                        ui.painter().text(
+                            err_rect.left_top() + vec2(6.0 * zoom, 6.0 * zoom),
+                            Align2::LEFT_TOP,
+                            format!("{title}\n{detail}"),
+                            FontId::monospace((11.0 * zoom).max(9.0)),
+                            Color32::from_rgb(255, 210, 210),
+                        );
+                    }
+                }
+
                 if deferred_review {
                     self.start_script_queue_edit(node.id);
                 }
@@ -1191,27 +1229,5 @@ impl GraphApp {
         }
 
         title_edit_rect
-    }
-
-    /// Get a parsed script node spec, attempting to parse and cache if needed.
-    fn fetch_script_node_spec(&mut self, node_id: usize) -> Option<crate::script_node::types::ScriptNodeSpec> {
-        let node = self.nodes.iter().find(|n| n.id == node_id)?;
-        match &node.data {
-            NodeData::Script {
-                parsed_spec: Some(spec),
-                ..
-            } => Some(spec.clone()),
-            NodeData::Script { code, .. } => {
-                let parsed = crate::script_node::parser::parse_script_spec(code).ok()?;
-                // Cache back
-                if let Some(n) = self.nodes.iter_mut().find(|n| n.id == node_id) {
-                    if let NodeData::Script { parsed_spec, .. } = &mut n.data {
-                        *parsed_spec = Some(parsed.clone());
-                    }
-                }
-                Some(parsed)
-            }
-            _ => None,
-        }
     }
 }

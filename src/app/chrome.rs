@@ -455,6 +455,12 @@ impl GraphApp {
         if self.performance_metrics.is_visible() {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
+
+        if let Some(secs) = self.script_lua_next_repaint_after {
+            if secs > 0.0 {
+                ctx.request_repaint_after(Duration::from_secs_f64(secs.min(0.1)));
+            }
+        }
     }
 }
 

@@ -381,17 +381,12 @@ impl GraphApp {
             "script" => {
                 let id = self.create_script_node(pos);
                 if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
-                    if let NodeData::Script {
-                        title, code, parsed_spec, ..
-                    } = &mut node.data
-                    {
+                    if let NodeData::Script { title, code, .. } = &mut node.data {
                         if let Some(next_title) = payload.title {
                             *title = next_title;
                         }
                         if let Some(next_code) = payload.code {
-                            let parsed = crate::script_node::parser::parse_script_spec(&next_code).ok();
                             *code = next_code;
-                            *parsed_spec = parsed;
                         }
                     }
                 }
@@ -576,14 +571,12 @@ impl GraphApp {
                     *title = next;
                 }
             }
-            NodeData::Script { title, code, parsed_spec, .. } => {
+            NodeData::Script { title, code, .. } => {
                 if let Some(next) = payload.title {
                     *title = next;
                 }
                 if let Some(next_code) = payload.code {
-                    let parsed = crate::script_node::parser::parse_script_spec(&next_code).ok();
                     *code = next_code;
-                    *parsed_spec = parsed;
                 }
             }
         }

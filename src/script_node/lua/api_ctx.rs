@@ -21,7 +21,7 @@ pub enum UiEvent {
     ColEnd,
     RowStart { gap: Option<f32>, padding: Option<[f32; 4]> },
     RowEnd,
-    ButtonWithCallback { label: String, enabled: bool, bg: Option<String>, color: Option<String>, callback_index: usize },
+    ButtonWithCallback { label: String, event_key: Option<String>, enabled: bool, bg: Option<String>, color: Option<String>, callback_index: usize },
     Error(String),
 }
 
@@ -74,16 +74,17 @@ impl UserData for LuaRenderContext {
         // button
         methods.add_method_mut("button", |_lua, ctx, args: (String, Option<HashMap<String, Value>>)| {
             let (label, opts) = args;
-            let mut enabled = true; let mut bg = None; let mut color = None;
+            let mut enabled = true; let mut bg = None; let mut color = None; let mut event_key = None;
             if let Some(opts) = opts {
                 if let Some(v) = opts.get("enabled") { enabled = val_bool(v).unwrap_or(true); }
                 if let Some(v) = opts.get("bg") { bg = val_str(v); }
                 if let Some(v) = opts.get("color") { color = val_str(v); }
+                if let Some(v) = opts.get("event_key") { event_key = val_str(v); }
             }
             let should_click = ctx.pending_click.as_ref().map_or(false, |pc| pc == &label);
             let callback_index = ctx.button_callbacks.len();
             ctx.button_callbacks.push(Box::new(|| {}));
-            ctx.events.push(UiEvent::ButtonWithCallback { label, enabled, bg, color, callback_index });
+            ctx.events.push(UiEvent::ButtonWithCallback { label, event_key, enabled, bg, color, callback_index });
             Ok(should_click)
         });
 
