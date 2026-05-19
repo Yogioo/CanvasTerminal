@@ -980,6 +980,9 @@ impl GraphApp {
                 );
                 editor_ui.set_clip_rect(content_rect);
 
+                // Track whether the text editor lost focus this frame
+                let mut focus_lost = false;
+
                 egui::ScrollArea::vertical()
                     .id_salt(scroll_id)
                     .auto_shrink([false, false])
@@ -1013,7 +1016,16 @@ impl GraphApp {
                         if resp.changed() {
                             self.mark_workspace_dirty();
                         }
+
+                        // Auto-save when text editor loses focus (clicked elsewhere)
+                        if resp.lost_focus() {
+                            focus_lost = true;
+                        }
                     });
+
+                if focus_lost {
+                    self.commit_script_edit(node.id);
+                }
             } else {
                 // Render the script's widget tree
                 let zoom = zoom_scale;

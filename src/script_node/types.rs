@@ -288,6 +288,9 @@ pub enum Widget {
         /// If true, clicking consumes ALL queued messages instead of one
         #[serde(default)]
         process_all: bool,
+        /// Template string; when resolved to "0", "false" or empty → disabled (grayed, non-interactive)
+        #[serde(default)]
+        enabled: Option<String>,
     },
     #[serde(rename = "slider")]
     Slider {
@@ -301,6 +304,9 @@ pub enum Widget {
         default: f64,
         #[serde(default)]
         style: Style,
+        /// Template string; when resolved to "0", "false" or empty → disabled
+        #[serde(default)]
+        enabled: Option<String>,
     },
     #[serde(rename = "input")]
     Input {
@@ -310,6 +316,9 @@ pub enum Widget {
         placeholder: String,
         #[serde(default)]
         style: Style,
+        /// Template string; when resolved to "0", "false" or empty → disabled
+        #[serde(default)]
+        enabled: Option<String>,
     },
     #[serde(rename = "bar")]
     Bar {

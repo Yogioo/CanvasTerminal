@@ -78,6 +78,7 @@ impl GraphApp {
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()
+            && self.editing_script_node.is_none()
         {
             self.focus_selected_or_all(rect);
             just_focused = true;
@@ -125,6 +126,7 @@ impl GraphApp {
             && !pointer_over_terminal_before_zoom
             && !pointer_over_text_node_before_zoom
             && !pointer_over_decision_node_before_zoom
+            && self.editing_script_node.is_none()
             && !just_focused
         {
             let zoom_change = ctx.input(|i| {
@@ -234,6 +236,7 @@ impl GraphApp {
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()
+            && self.editing_script_node.is_none()
             && !self.selected_nodes.is_empty()
             && !keyboard_has_focus;
 
@@ -277,6 +280,7 @@ impl GraphApp {
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()
+            && self.editing_script_node.is_none()
             && self.editing_edge.is_none()
             && !ctx.wants_keyboard_input()
             && self.selected_edge.is_some()

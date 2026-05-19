@@ -1,6 +1,6 @@
 use crate::script_node::parser::bind_text;
 use crate::script_node::types::*;
-use eframe::egui::{self, vec2, Align2, Color32, FontId, Pos2, Rect, Stroke};
+use eframe::egui::{self, vec2, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke};
 use std::collections::HashMap;
 
 /// Context for rendering and layout computation.
@@ -30,6 +30,28 @@ impl<'a> RenderContext<'a> {
             fallback
         }
     }
+
+    /// Resolve an `enabled` template string: returns true if widget should be interactive.
+    /// A missing `enabled` field means "always enabled".
+    /// Resolves "0", "false", or empty → disabled; anything else → enabled.
+    fn is_enabled(&self, enabled: &Option<String>) -> bool {
+        let Some(template) = enabled else {
+            return true;
+        };
+        let resolved = bind_text(template, &|var| {
+            if let Some(rest) = var.strip_prefix("inputs.") {
+                self.input_values.get(rest).cloned()
+            } else if let Some(rest) = var.strip_prefix("outputs.") {
+                self.output_values.get(rest).cloned()
+            } else if let Some(rest) = var.strip_prefix("state.") {
+                self.state_values.get(rest).cloned()
+            } else {
+                None
+            }
+        });
+        // "0", "false", or empty → disabled (return false)
+        !(resolved.is_empty() || resolved == "0" || resolved.eq_ignore_ascii_case("false"))
+    }
 }
 
 /// Layout & render a widget tree into the given content rect.
@@ -48,21 +70,23 @@ pub fn layout_and_render(
             render_row(ctx, children, *gap, padding, style, rect)
         }
         Widget::Text { text, .. } => render_text(ctx, text, style, rect),
-        Widget::Button { text, event, process_all, .. } => render_button(ctx, text, event, *process_all, style, rect),
+        Widget::Button { text, event, process_all, enabled, .. } => render_button(ctx, text, event, *process_all, enabled, style, rect),
         Widget::Slider {
             name,
             label,
             min,
             max,
             default,
+            enabled,
             ..
-        } => render_slider(ctx, name, label, *min, *max, *default, style, rect),
+        } => render_slider(ctx, name, label, *min, *max, *default, enabled, style, rect),
         Widget::Input {
             name,
             label,
             placeholder,
+            enabled,
             ..
-        } => render_input(ctx, name, label, placeholder, style, rect),
+        } => render_input(ctx, name, label, placeholder, enabled, style, rect),
         Widget::Bar {
             value,
             max,
@@ -297,6 +321,7 @@ fn render_button(
     text: &str,
     event: &str,
     process_all: bool,
+    enabled: &Option<String>,
     style: &Style,
     rect: Rect,
 ) -> f32 {
@@ -309,16 +334,34 @@ fn render_button(
     });
 
     let font_size = style.font_size.unwrap_or(ctx.theme.font_size()) * ctx.zoom;
-    let bg = style
+    let disabled = !ctx.is_enabled(enabled);
+
+    let mut bg = style
         .bg
         .as_ref()
         .map(|c| ctx.resolve_color(c, Color32::from_rgb(60, 80, 120)))
         .unwrap_or_else(|| Color32::from_rgb(60, 80, 120));
-    let text_color = style
+    let mut text_color = style
         .color
         .as_ref()
         .map(|c| ctx.resolve_color(c, Color32::WHITE))
-        .unwrap_or(Color32::BLACK); // egui Button defaults to black text
+        .unwrap_or(Color32::BLACK);
+
+    // Dim when disabled
+    if disabled {
+        bg = Color32::from_rgba_premultiplied(
+            (bg.r() as f32 * 0.35) as u8,
+            (bg.g() as f32 * 0.35) as u8,
+            (bg.b() as f32 * 0.35) as u8,
+            bg.a(),
+        );
+        text_color = Color32::from_rgba_premultiplied(
+            (text_color.r() as f32 * 0.45) as u8,
+            (text_color.g() as f32 * 0.45) as u8,
+            (text_color.b() as f32 * 0.45) as u8,
+            text_color.a(),
+        );
+    }
 
     let btn_h = (28.0 * ctx.zoom).max(22.0);
     let btn_rect = Rect::from_min_size(
@@ -326,8 +369,7 @@ fn render_button(
         vec2(rect.width(), btn_h),
     );
 
-    // Use a real egui Button widget — handles hover/press/click correctly
-    let egui_btn = egui::Button::new(
+    let mut egui_btn = egui::Button::new(
         egui::RichText::new(bound_text)
             .color(text_color)
             .size(font_size.max(9.0))
@@ -335,7 +377,10 @@ fn render_button(
     .fill(bg)
     .min_size(vec2(btn_rect.width(), btn_h));
 
-    // Apply border via stroke
+    if disabled {
+        egui_btn = egui_btn.sense(Sense::hover());
+    }
+
     let egui_btn = if let Some(border_str) = &style.border {
         let parts: Vec<&str> = border_str.splitn(2, ',').collect();
         if parts.len() == 2 {
@@ -349,13 +394,12 @@ fn render_button(
         egui_btn
     };
 
-    // Apply rounding
     let radius = style.radius.unwrap_or(ctx.theme.radius()) * ctx.zoom;
     let egui_btn = egui_btn.corner_radius(radius as f32);
 
     let response = ctx.ui.put(btn_rect, egui_btn);
 
-    if response.clicked() {
+    if !disabled && response.clicked() {
         ctx.events.push(ScriptEvent::ButtonClick {
             event_key: event.to_owned(),
             process_all,
@@ -376,6 +420,7 @@ fn render_slider(
     min: f64,
     max: f64,
     default: f64,
+    enabled: &Option<String>,
     style: &Style,
     rect: Rect,
 ) -> f32 {
@@ -410,6 +455,8 @@ fn render_slider(
     }
 
     // Use egui Slider widget for reliable interaction
+    let disabled = !ctx.is_enabled(enabled);
+
     let slider_rect = Rect::from_min_size(
         Pos2::new(rect.left(), rect.top() + label_h + 4.0 * ctx.zoom),
         vec2(rect.width(), slider_h),
@@ -417,21 +464,36 @@ fn render_slider(
 
     let accent_color = ctx.resolve_color(&ctx.theme.accent, Color32::from_rgb(79, 195, 247));
     let mut val_f32 = current_val as f32;
-    let response = ctx.ui.scope(|ui| {
-        ui.style_mut().visuals.widgets.inactive.bg_fill = Color32::from_rgb(40, 44, 60);
-        ui.style_mut().visuals.widgets.active.bg_fill = Color32::from_rgb(50, 55, 75);
-        ui.style_mut().visuals.widgets.hovered.bg_fill = Color32::from_rgb(45, 49, 67);
-        ui.style_mut().visuals.widgets.inactive.fg_stroke.color = accent_color;
-        ui.style_mut().visuals.widgets.active.fg_stroke.color = accent_color;
-        ui.put(
-            slider_rect,
-            egui::Slider::new(&mut val_f32, (min as f32)..=(max as f32))
-                .show_value(false)
-                .trailing_fill(true),
+
+    let dim_bg = Color32::from_rgba_premultiplied(40, 44, 60, if disabled { 100 } else { 255 });
+    let dim_accent = if disabled {
+        Color32::from_rgba_premultiplied(
+            (accent_color.r() as f32 * 0.35) as u8,
+            (accent_color.g() as f32 * 0.35) as u8,
+            (accent_color.b() as f32 * 0.35) as u8,
+            accent_color.a(),
         )
+    } else {
+        accent_color
+    };
+
+    let slider = egui::Slider::new(&mut val_f32, (min as f32)..=(max as f32))
+        .show_value(false)
+        .trailing_fill(true);
+
+    let response = ctx.ui.scope(|ui| {
+        if disabled {
+            ui.disable();
+        }
+        ui.style_mut().visuals.widgets.inactive.bg_fill = dim_bg;
+        ui.style_mut().visuals.widgets.active.bg_fill = dim_bg;
+        ui.style_mut().visuals.widgets.hovered.bg_fill = dim_bg;
+        ui.style_mut().visuals.widgets.inactive.fg_stroke.color = dim_accent;
+        ui.style_mut().visuals.widgets.active.fg_stroke.color = dim_accent;
+        ui.put(slider_rect, slider)
     }).inner;
 
-    if response.changed() {
+    if !disabled && response.changed() {
         let new_val = val_f32 as f64;
         ctx.events.push(ScriptEvent::SliderChange {
             name: name.to_owned(),
@@ -451,6 +513,7 @@ fn render_input(
     name: &str,
     label: &str,
     placeholder: &str,
+    enabled: &Option<String>,
     style: &Style,
     rect: Rect,
 ) -> f32 {
@@ -483,36 +546,60 @@ fn render_input(
         );
     }
 
+    let disabled = !ctx.is_enabled(enabled);
+
+    let dim_factor = if disabled { 0.35 } else { 1.0 };
+    let text_col = Color32::from_rgba_premultiplied(
+        (255.0 * dim_factor) as u8,
+        (255.0 * dim_factor) as u8,
+        (255.0 * dim_factor) as u8,
+        255,
+    );
+    let bg_color = Color32::from_rgba_premultiplied(
+        (30.0 * dim_factor) as u8,
+        (34.0 * dim_factor) as u8,
+        (50.0 * dim_factor) as u8,
+        255,
+    );
+    let stroke_color = Color32::from_rgba_premultiplied(
+        (80.0 * dim_factor) as u8,
+        (90.0 * dim_factor) as u8,
+        (120.0 * dim_factor) as u8,
+        255,
+    );
+
     // Input area
     let input_rect = Rect::from_min_size(
         Pos2::new(rect.left(), rect.top() + label_h + 4.0 * ctx.zoom),
         vec2(rect.width(), input_h),
     );
 
-    let bg_color = Color32::from_rgb(30, 34, 50);
     ctx.ui.painter().rect_filled(input_rect, 6.0 * ctx.zoom, bg_color);
     ctx.ui.painter().rect_stroke(
         input_rect,
         6.0 * ctx.zoom,
-        Stroke::new(1.0, Color32::from_rgb(80, 90, 120)),
+        Stroke::new(1.0, stroke_color),
         egui::StrokeKind::Outside,
     );
 
     // Text display (editable via egui TextEdit)
     let input_id = ctx.next_id();
     let mut buffer = current_val.clone();
-    let text_response = ctx.ui.put(
-        input_rect,
-        egui::TextEdit::singleline(&mut buffer)
-            .id(input_id)
-            .font(FontId::proportional(font_size.max(8.0)))
-            .text_color(Color32::WHITE)
-            .background_color(Color32::from_rgb(30, 34, 50))
-            .desired_width(f32::INFINITY)
-            .hint_text(placeholder),
-    );
+    let mut text_edit = egui::TextEdit::singleline(&mut buffer)
+        .id(input_id)
+        .font(FontId::proportional(font_size.max(8.0)))
+        .text_color(text_col)
+        .background_color(bg_color)
+        .desired_width(f32::INFINITY)
+        .hint_text(placeholder);
 
-    if text_response.changed() && buffer != current_val {
+    if disabled {
+        text_edit = text_edit.interactive(false);
+    }
+
+    let text_response = ctx.ui.put(input_rect, text_edit);
+
+    if !disabled && text_response.changed() && buffer != current_val {
         ctx.events.push(ScriptEvent::InputChange {
             name: name.to_owned(),
             value: buffer,
