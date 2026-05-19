@@ -119,7 +119,6 @@ impl GraphApp {
                 title: "Script".to_owned(),
                 code,
                 pending_messages: Vec::new(),
-                buttons: Vec::new(),
                 parsed_spec: parsed,
             },
             pos,
@@ -691,9 +690,6 @@ impl GraphApp {
             self.editing_script_queue_node = None;
             self.pending_script_queue_focus = None;
             self.script_queue_edit_buffer.clear();
-        }
-        if self.editing_script_buttons_node == Some(node_id) {
-            self.cancel_script_buttons_edit();
         }
         self.script_node_inputs.remove(&node_id);
         self.script_node_outputs.remove(&node_id);

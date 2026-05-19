@@ -827,367 +827,19 @@ impl GraphApp {
                     }
                 }
                 NodeKind::Script => {
-                    painter.rect_stroke(
+                    let script_title_rect = self.draw_script_node_body(
+                        painter,
                         node_rect,
-                        8.0 * zoom_scale,
+                        zoom_scale,
                         stroke,
-                        egui::StrokeKind::Outside,
+                        fill,
+                        ui,
+                        ctx,
+                        node,
+                        is_selected,
                     );
-
-                    let header_height = crate::constants::SCRIPT_HEADER_HEIGHT * zoom_scale;
-                    let header_bottom = (node_rect.min.y + header_height).min(node_rect.max.y);
-                    let header_rect = Rect::from_min_max(
-                        node_rect.min,
-                        Pos2::new(node_rect.max.x, header_bottom),
-                    );
-                    let header_rounding = egui::CornerRadius {
-                        nw: (8.0 * zoom_scale).round() as u8,
-                        ne: (8.0 * zoom_scale).round() as u8,
-                        sw: 0,
-                        se: 0,
-                    };
-                    painter.rect_filled(header_rect, header_rounding, fill);
-
-                    let is_title_editing = self.editing_title_node == Some(node.id);
-                    if !is_title_editing {
-                        let title = match &node.data {
-                            NodeData::Script { title, .. } => title.as_str(),
-                            _ => "Script",
-                        };
-                        painter.text(
-                            Pos2::new(node_rect.min.x + 12.0 * zoom_scale, header_rect.center().y),
-                            Align2::LEFT_CENTER,
-                            title,
-                            FontId::proportional((16.0 * zoom_scale).max(10.0)),
-                            Color32::from_rgb(220, 200, 240),
-                        );
-                    } else {
-                        let rect_min = node_rect.left_top() + vec2(10.0, 6.0) * zoom_scale;
-                        let rect_max = Pos2::new(
-                            node_rect.max.x - 10.0 * zoom_scale,
-                            (node_rect.min.y + header_height - 6.0 * zoom_scale)
-                                .min(node_rect.max.y),
-                        );
-                        title_edit_rect = Some((node.id, Rect::from_min_max(rect_min, rect_max)));
-                    }
-
-                    painter.line_segment(
-                        [
-                            Pos2::new(node_rect.min.x, header_bottom),
-                            Pos2::new(node_rect.max.x, header_bottom),
-                        ],
-                        Stroke::new(
-                            1.0 * zoom_scale.clamp(0.6, 1.6),
-                            Color32::from_rgb(130, 108, 170),
-                        ),
-                    );
-
-                    // No extra padding — content fills the node edge-to-edge
-                    let content_rect = Rect::from_min_max(
-                        Pos2::new(
-                            node_rect.min.x,
-                            header_bottom,
-                        ),
-                        node_rect.max,
-                    );
-
-                    if content_rect.is_positive() {
-                        let is_editing = self.editing_script_node == Some(node.id);
-
-                        if is_editing {
-                            // Show JSON editor area
-                            let scroll_id = egui::Id::new(("script-node-scroll", node.id));
-                            let mut editor_ui = ui.new_child(
-                                egui::UiBuilder::new()
-                                    .max_rect(content_rect)
-                                    .layout(Layout::top_down(Align::Min)),
-                            );
-                            editor_ui.set_clip_rect(content_rect);
-
-                            egui::ScrollArea::vertical()
-                                .id_salt(scroll_id)
-                                .auto_shrink([false, false])
-                                .show(&mut editor_ui, |ui| {
-                                    ui.set_width(content_rect.width());
-                                    let edit_id = egui::Id::new(("script-node-editor", node.id));
-                                    let font_size = (12.0 * zoom_scale).round().max(9.0);
-                                    let hl_font = FontId::monospace(font_size);
-                                    let resp = ui.add_sized(
-                                        vec2(content_rect.width(), content_rect.height()),
-                                        egui::TextEdit::multiline(&mut self.script_edit_buffer)
-                                            .id(edit_id)
-                                            .font(hl_font.clone())
-                                            .text_color(Color32::from_rgb(200, 210, 230))
-                                            .background_color(Color32::from_rgb(20, 22, 34))
-                                            .desired_width(f32::INFINITY)
-                                            .desired_rows(10)
-                                            .frame(true)
-                                            .layouter(&mut |ui: &egui::Ui, text: &str, wrap_width: f32| {
-                                                let mut job = highlight_json(text, hl_font.clone());
-                                                job.wrap.max_width = wrap_width;
-                                                ui.fonts(|f| f.layout_job(job))
-                                            }),
-                                    );
-
-                                    if self.pending_script_focus == Some(node.id) {
-                                        ctx.memory_mut(|m| m.request_focus(edit_id));
-                                        self.pending_script_focus = None;
-                                    }
-
-                                    if resp.changed() {
-                                        self.mark_workspace_dirty();
-                                    }
-                                });
-                        } else {
-                            // Render the script's widget tree
-                            let zoom = zoom_scale;
-
-                            let inputs = self.script_node_inputs.get(&node.id).cloned().unwrap_or_default();
-                            let mut outputs = self.script_node_outputs.get(&node.id).cloned().unwrap_or_default();
-
-                            // ── Sync queue state from NodeData into state bindings ──
-                            let mut state_vals = self.script_node_state.get(&node.id).cloned().unwrap_or_default();
-                            let (queue_len, queue_first) = self.script_pending_queue_info(node.id);
-                            if queue_len > 0 {
-                                state_vals.insert("queue_len".to_owned(), queue_len.to_string());
-                                state_vals.insert("queue_first".to_owned(), queue_first.clone());
-                            } else {
-                                state_vals.insert("queue_len".to_owned(), "0".to_owned());
-                                state_vals.insert("queue_first".to_owned(), String::new());
-                            }
-
-                            let mut events = Vec::new();
-
-                            // Get parsed spec first (requires mutable self)
-                            let spec = self.fetch_script_node_spec(node.id);
-
-                            // Now borrow id_counter separately
-                            let id_counter = &mut self.script_widget_id_counter;
-
-                            // ── Queue toolbar (查看/编辑全部消息 button) ──
-                            let toolbar_h = (28.0 * zoom).max(22.0);
-                            let toolbar_rect = Rect::from_min_size(
-                                content_rect.left_top(),
-                                vec2(content_rect.width(), toolbar_h),
-                            );
-                            let mut clicked_review = false;
-                            let mut clicked_config = false;
-                            let mut clicked_button_event: Option<(String, bool)> = None;
-                            if toolbar_rect.is_positive() {
-                                // Draw toolbar background
-                                ui.painter().rect_filled(
-                                    toolbar_rect,
-                                    0.0,
-                                    Color32::from_rgba_premultiplied(20, 24, 40, 180),
-                                );
-
-                                // Label on the left
-                                let label = format!("  待处理: {queue_len} 条");
-                                ui.painter().text(
-                                    Pos2::new(
-                                        toolbar_rect.left() + 8.0 * zoom,
-                                        toolbar_rect.center().y,
-                                    ),
-                                    Align2::LEFT_CENTER,
-                                    label,
-                                    FontId::proportional((13.0 * zoom).max(9.0)),
-                                    Color32::from_rgb(200, 190, 220),
-                                );
-
-                                // "设置按钮" and "查看/编辑全部" buttons on the right
-                                let btn_w = (90.0 * zoom).max(62.0);
-                                let btn_h = (toolbar_h - 6.0 * zoom).max(18.0);
-                                let gap = 4.0 * zoom;
-                                let review_w = (120.0 * zoom).max(80.0);
-                                let total_w = btn_w + gap + review_w;
-                                let btn_y = toolbar_rect.top() + 3.0 * zoom;
-
-                                // "设置按钮"
-                                let cfg_btn_rect = Rect::from_min_size(
-                                    Pos2::new(toolbar_rect.right() - total_w - 6.0 * zoom, btn_y),
-                                    vec2(btn_w, btn_h),
-                                );
-                                let cfg_btn = egui::Button::new(
-                                    egui::RichText::new("设置按钮")
-                                        .color(Color32::from_rgb(22, 24, 30))
-                                        .size((11.0 * zoom).max(9.0))
-                                        .strong(),
-                                )
-                                .fill(Color32::from_rgb(233, 239, 255))
-                                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(130, 146, 185)))
-                                .min_size(vec2(btn_w, btn_h));
-                                if ui.put(cfg_btn_rect, cfg_btn).clicked() {
-                                    clicked_config = true;
-                                }
-
-                                // "查看/编辑全部"
-                                let review_btn_rect = Rect::from_min_size(
-                                    Pos2::new(
-                                        toolbar_rect.right() - review_w - 6.0 * zoom,
-                                        btn_y,
-                                    ),
-                                    vec2(review_w, btn_h),
-                                );
-                                let review_btn = egui::Button::new(
-                                    egui::RichText::new("查看/编辑全部")
-                                        .color(Color32::from_rgb(22, 24, 30))
-                                        .size((11.0 * zoom).max(9.0))
-                                        .strong(),
-                                )
-                                .fill(Color32::from_rgb(223, 239, 255))
-                                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(120, 146, 185)))
-                                .min_size(vec2(review_w, btn_h));
-                                if ui.put(review_btn_rect, review_btn).clicked() {
-                                    clicked_review = true;
-                                }
-                            }
-
-                            // Widget tree renders below the toolbar
-                            let widget_rect = Rect::from_min_max(
-                                Pos2::new(content_rect.min.x, content_rect.min.y + toolbar_h),
-                                content_rect.max,
-                            );
-
-                            if let Some(spec) = spec {
-                                let used_h = crate::script_node::render_script_node(
-                                    &spec,
-                                    widget_rect,
-                                    ui,
-                                    zoom,
-                                    &inputs,
-                                    &mut outputs,
-                                    &state_vals,
-                                    &mut events,
-                                    id_counter,
-                                );
-
-                                // Process events
-                                let output_changes = crate::script_node::process_script_events(
-                                    &events,
-                                    &inputs,
-                                    &mut outputs,
-                                    &mut std::collections::HashMap::new(),
-                                );
-
-                                // Update output values for the node
-                                self.script_node_outputs.insert(node.id, outputs);
-
-                                // ── Handle queue-consuming button clicks ──
-                                // ButtonClick events no longer produce output_changes.
-                                // consume_script_queue handles the full lifecycle:
-                                //   take from queue → forward_message_to_targets → put back remaining.
-                                for event in &events {
-                                    if let crate::script_node::types::ScriptEvent::ButtonClick { event_key, process_all } = event {
-                                        self.consume_script_queue(node.id, event_key, *process_all);
-                                    }
-                                }
-
-                                // ── Forward remaining output changes (slider, input) ──
-                                for (port_name, value) in &output_changes {
-                                    let targets: Vec<(usize, Option<String>)> = self.edges.iter()
-                                        .filter(|(from, _)| *from == node.id)
-                                        .filter(|(from, to)| {
-                                            match self.edge_route_key(*from, *to) {
-                                                Some(k) => k == port_name.as_str(),
-                                                None => true,
-                                            }
-                                        })
-                                        .map(|(_, to)| {
-                                            let route = self.edge_route_key(node.id, *to).map(|s| s.to_owned());
-                                            (*to, route)
-                                        })
-                                        .collect();
-
-                                    for (to_node, route_key) in &targets {
-                                        self.forward_message_to_node(*to_node, route_key.as_deref(), value);
-                                    }
-                                }
-
-                                // ── Render queue-action buttons (from NodeData.Script.buttons) ──
-                                let buttons: Vec<crate::model::DecisionButton> = self.nodes.iter()
-                                    .find(|n| n.id == node.id)
-                                    .and_then(|n| match &n.data {
-                                        NodeData::Script { buttons, .. } => Some(buttons.clone()),
-                                        _ => None,
-                                    })
-                                    .unwrap_or_default();
-
-                                if !buttons.is_empty() {
-                                    let btn_start_y = widget_rect.min.y + used_h + 8.0 * zoom;
-                                let btn_area_h = (32.0 * buttons.len() as f32 * zoom).max(28.0 * zoom);
-                                let btn_area_rect = Rect::from_min_size(
-                                    Pos2::new(widget_rect.min.x + 4.0 * zoom, btn_start_y),
-                                    vec2(widget_rect.width() - 8.0 * zoom, btn_area_h),
-                                );
-
-                                if btn_area_rect.is_positive() {
-                                    let mut btn_ui = ui.new_child(
-                                        egui::UiBuilder::new()
-                                            .max_rect(btn_area_rect)
-                                            .layout(egui::Layout::top_down(egui::Align::Min)),
-                                    );
-                                    btn_ui.set_clip_rect(btn_area_rect);
-                                    let _ = btn_ui.allocate_space(btn_area_rect.size());
-
-                                    for button in &buttons {
-                                        let key = button.event_key.to_ascii_lowercase();
-                                        let color = button.color_rgb.unwrap_or([200, 200, 220]);
-                                        let fill = Color32::from_rgb(color[0], color[1], color[2]);
-                                        let stroke = Color32::from_rgb(
-                                            color[0].saturating_sub(30),
-                                            color[1].saturating_sub(30),
-                                            color[2].saturating_sub(30),
-                                        );
-
-                                        let (text_col, btn_fill, btn_stroke) = if queue_len > 0 {
-                                            (Color32::BLACK, fill, stroke)
-                                        } else {
-                                            (
-                                                Color32::from_rgb(83, 94, 108),
-                                                Color32::from_rgb(188, 196, 205),
-                                                Color32::from_rgb(150, 161, 174),
-                                            )
-                                        };
-
-                                        let row_h = (26.0 * zoom).max(22.0);
-                                        if btn_ui.add_enabled(queue_len > 0,
-                                            egui::Button::new(
-                                                egui::RichText::new(&button.label)
-                                                    .color(text_col)
-                                                    .size((13.0 * zoom).max(9.0)),
-                                            )
-                                            .fill(btn_fill)
-                                            .stroke(egui::Stroke::new(1.0, btn_stroke))
-                                            .min_size(vec2(btn_area_rect.width(), row_h)),
-                                        ).clicked() {
-                                            clicked_button_event = Some((button.event_key.clone(), false));
-                                        }
-                                        btn_ui.add_space((3.0 * zoom).max(1.0));
-                                    }
-                                }
-                                }
-                            }
-
-                            // Deferred actions (outside borrow scope of id_counter)
-                            if let Some((event_key, process_all)) = clicked_button_event.take() {
-                                self.consume_script_queue(node.id, &event_key, process_all);
-                            }
-                            if clicked_review {
-                                self.start_script_queue_edit(node.id);
-                            }
-                            if clicked_config {
-                                self.start_script_buttons_edit(node.id);
-                            }
-                        }
-                    }
-
-                    if is_selected {
-                        let handle_size = 12.0 * zoom_scale.clamp(0.75, 1.6);
-                        let handle_rect = Rect::from_min_size(
-                            node_rect.right_bottom() - vec2(handle_size + 6.0, handle_size + 6.0),
-                            vec2(handle_size, handle_size),
-                        );
-                        painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(200, 140, 255));
+                    if let Some(rect) = script_title_rect {
+                        title_edit_rect = Some(rect);
                     }
                 }
                 NodeKind::Group => {
@@ -1232,6 +884,301 @@ impl GraphApp {
             decision_edit_rect,
             working_directory_edit_rect,
         )
+    }
+
+    /// Render the Script node body content (header, JSON editor, or widget tree + buttons).
+    /// Extracted from draw_nodes() to keep that function under control.
+    /// Returns the title edit rect if the title is being edited.
+    fn draw_script_node_body(
+        &mut self,
+        painter: &Painter,
+        node_rect: Rect,
+        zoom_scale: f32,
+        stroke: Stroke,
+        fill: Color32,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        node: &crate::model::Node,
+        is_selected: bool,
+    ) -> Option<(usize, Rect)> {
+        let mut title_edit_rect: Option<(usize, Rect)> = None;
+
+        painter.rect_stroke(
+            node_rect,
+            8.0 * zoom_scale,
+            stroke,
+            egui::StrokeKind::Outside,
+        );
+
+        let header_height = crate::constants::SCRIPT_HEADER_HEIGHT * zoom_scale;
+        let header_bottom = (node_rect.min.y + header_height).min(node_rect.max.y);
+        let header_rect = Rect::from_min_max(
+            node_rect.min,
+            Pos2::new(node_rect.max.x, header_bottom),
+        );
+        let header_rounding = egui::CornerRadius {
+            nw: (8.0 * zoom_scale).round() as u8,
+            ne: (8.0 * zoom_scale).round() as u8,
+            sw: 0,
+            se: 0,
+        };
+        painter.rect_filled(header_rect, header_rounding, fill);
+
+        let is_title_editing = self.editing_title_node == Some(node.id);
+        if !is_title_editing {
+            let title = match &node.data {
+                NodeData::Script { title, .. } => title.as_str(),
+                _ => "Script",
+            };
+            painter.text(
+                Pos2::new(node_rect.min.x + 12.0 * zoom_scale, header_rect.center().y),
+                Align2::LEFT_CENTER,
+                title,
+                FontId::proportional((16.0 * zoom_scale).max(10.0)),
+                Color32::from_rgb(220, 200, 240),
+            );
+        } else {
+            let rect_min = node_rect.left_top() + vec2(10.0, 6.0) * zoom_scale;
+            let rect_max = Pos2::new(
+                node_rect.max.x - 10.0 * zoom_scale,
+                (node_rect.min.y + header_height - 6.0 * zoom_scale)
+                    .min(node_rect.max.y),
+            );
+            title_edit_rect = Some((node.id, Rect::from_min_max(rect_min, rect_max)));
+        }
+
+        painter.line_segment(
+            [
+                Pos2::new(node_rect.min.x, header_bottom),
+                Pos2::new(node_rect.max.x, header_bottom),
+            ],
+            Stroke::new(
+                1.0 * zoom_scale.clamp(0.6, 1.6),
+                Color32::from_rgb(130, 108, 170),
+            ),
+        );
+
+        // No extra padding — content fills the node edge-to-edge
+        let content_rect = Rect::from_min_max(
+            Pos2::new(
+                node_rect.min.x,
+                header_bottom,
+            ),
+            node_rect.max,
+        );
+
+        if content_rect.is_positive() {
+            let is_editing = self.editing_script_node == Some(node.id);
+
+            if is_editing {
+                // Show JSON editor area
+                let scroll_id = egui::Id::new(("script-node-scroll", node.id));
+                let mut editor_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(content_rect)
+                        .layout(Layout::top_down(Align::Min)),
+                );
+                editor_ui.set_clip_rect(content_rect);
+
+                egui::ScrollArea::vertical()
+                    .id_salt(scroll_id)
+                    .auto_shrink([false, false])
+                    .show(&mut editor_ui, |ui| {
+                        ui.set_width(content_rect.width());
+                        let edit_id = egui::Id::new(("script-node-editor", node.id));
+                        let font_size = (12.0 * zoom_scale).round().max(9.0);
+                        let hl_font = FontId::monospace(font_size);
+                        let resp = ui.add_sized(
+                            vec2(content_rect.width(), content_rect.height()),
+                            egui::TextEdit::multiline(&mut self.script_edit_buffer)
+                                .id(edit_id)
+                                .font(hl_font.clone())
+                                .text_color(Color32::from_rgb(200, 210, 230))
+                                .background_color(Color32::from_rgb(20, 22, 34))
+                                .desired_width(f32::INFINITY)
+                                .desired_rows(10)
+                                .frame(true)
+                                .layouter(&mut |ui: &egui::Ui, text: &str, wrap_width: f32| {
+                                    let mut job = highlight_json(text, hl_font.clone());
+                                    job.wrap.max_width = wrap_width;
+                                    ui.fonts(|f| f.layout_job(job))
+                                }),
+                        );
+
+                        if self.pending_script_focus == Some(node.id) {
+                            ctx.memory_mut(|m| m.request_focus(edit_id));
+                            self.pending_script_focus = None;
+                        }
+
+                        if resp.changed() {
+                            self.mark_workspace_dirty();
+                        }
+                    });
+            } else {
+                // Render the script's widget tree
+                let zoom = zoom_scale;
+
+                let inputs = self.script_node_inputs.get(&node.id).cloned().unwrap_or_default();
+                let mut outputs = self.script_node_outputs.get(&node.id).cloned().unwrap_or_default();
+
+                // ── Sync queue state from NodeData into state bindings ──
+                let mut state_vals = self.script_node_state.get(&node.id).cloned().unwrap_or_default();
+                let (queue_len, queue_first) = self.script_pending_queue_info(node.id);
+                if queue_len > 0 {
+                    state_vals.insert("queue_len".to_owned(), queue_len.to_string());
+                    state_vals.insert("queue_first".to_owned(), queue_first.clone());
+                } else {
+                    state_vals.insert("queue_len".to_owned(), "0".to_owned());
+                    state_vals.insert("queue_first".to_owned(), String::new());
+                }
+
+                let mut events = Vec::new();
+
+                // Get parsed spec first (requires mutable self)
+                let spec = self.fetch_script_node_spec(node.id);
+
+                // Now borrow id_counter separately
+                let id_counter = &mut self.script_widget_id_counter;
+
+                // ── Queue toolbar (查看/编辑全部消息 button) ──
+                let toolbar_h = (28.0 * zoom).max(22.0);
+                let toolbar_rect = Rect::from_min_size(
+                    content_rect.left_top(),
+                    vec2(content_rect.width(), toolbar_h),
+                );
+                let mut deferred_review = false;
+                if toolbar_rect.is_positive() {
+                    // Draw toolbar background
+                    ui.painter().rect_filled(
+                        toolbar_rect,
+                        0.0,
+                        Color32::from_rgba_premultiplied(24, 28, 46, 200),
+                    );
+                    // Subtle bottom line
+                    ui.painter().line_segment(
+                        [
+                            Pos2::new(toolbar_rect.left(), toolbar_rect.bottom()),
+                            Pos2::new(toolbar_rect.right(), toolbar_rect.bottom()),
+                        ],
+                        Stroke::new(1.0, Color32::from_rgba_premultiplied(130, 108, 170, 60)),
+                    );
+
+                    // Label on the left
+                    let label = format!("  待处理: {queue_len} 条");
+                    ui.painter().text(
+                        Pos2::new(
+                            toolbar_rect.left() + 8.0 * zoom,
+                            toolbar_rect.center().y,
+                        ),
+                        Align2::LEFT_CENTER,
+                        label,
+                        FontId::proportional((13.0 * zoom).max(9.0)),
+                        Color32::from_rgb(205, 195, 230),
+                    );
+
+                    // "查看/编辑全部" button on the right
+                    let btn_h = (toolbar_h - 6.0 * zoom).max(18.0);
+                    let review_w = (120.0 * zoom).max(80.0);
+                    let btn_y = toolbar_rect.top() + 3.0 * zoom;
+
+                    let review_btn_rect = Rect::from_min_size(
+                        Pos2::new(
+                            toolbar_rect.right() - review_w - 6.0 * zoom,
+                            btn_y,
+                        ),
+                        vec2(review_w, btn_h),
+                    );
+                    let review_btn = egui::Button::new(
+                        egui::RichText::new("📋 队列")
+                            .color(Color32::from_rgb(22, 24, 30))
+                            .size((11.0 * zoom).max(9.0)),
+                    )
+                    .fill(Color32::from_rgb(228, 234, 250))
+                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(130, 146, 185)))
+                    .corner_radius(4.0)
+                    .min_size(vec2(review_w, btn_h));
+                    if ui.put(review_btn_rect, review_btn).clicked() {
+                        deferred_review = true;
+                    }
+                }
+
+                // Widget tree renders below the toolbar
+                let widget_rect = Rect::from_min_max(
+                    Pos2::new(content_rect.min.x, content_rect.min.y + toolbar_h),
+                    content_rect.max,
+                );
+
+                if let Some(spec) = spec {
+                    let _used_h = crate::script_node::render_script_node(
+                        &spec,
+                        widget_rect,
+                        ui,
+                        zoom,
+                        &inputs,
+                        &mut outputs,
+                        &state_vals,
+                        &mut events,
+                        id_counter,
+                    );
+
+                    // Process events
+                    let output_changes = crate::script_node::process_script_events(
+                        &events,
+                        &inputs,
+                        &mut outputs,
+                        &mut std::collections::HashMap::new(),
+                    );
+
+                    // Update output values for the node
+                    self.script_node_outputs.insert(node.id, outputs);
+
+                    // ── Handle queue-consuming button clicks ──
+                    for event in &events {
+                        if let crate::script_node::types::ScriptEvent::ButtonClick { event_key, process_all } = event {
+                            self.consume_script_queue(node.id, event_key, *process_all);
+                        }
+                    }
+
+                    // ── Forward remaining output changes (slider, input) ──
+                    for (port_name, value) in &output_changes {
+                        let targets: Vec<(usize, Option<String>)> = self.edges.iter()
+                            .filter(|(from, _)| *from == node.id)
+                            .filter(|(from, to)| {
+                                match self.edge_route_key(*from, *to) {
+                                    Some(k) => k == port_name.as_str(),
+                                    None => true,
+                                }
+                            })
+                            .map(|(_, to)| {
+                                let route = self.edge_route_key(node.id, *to).map(|s| s.to_owned());
+                                (*to, route)
+                            })
+                            .collect();
+
+                        for (to_node, route_key) in &targets {
+                            self.forward_message_to_node(*to_node, route_key.as_deref(), value);
+                        }
+                    }
+
+                }
+
+                // Deferred actions
+                if deferred_review {
+                    self.start_script_queue_edit(node.id);
+                }
+            }
+        }
+
+        if is_selected {
+            let handle_size = 12.0 * zoom_scale.clamp(0.75, 1.6);
+            let handle_rect = Rect::from_min_size(
+                node_rect.right_bottom() - vec2(handle_size + 6.0, handle_size + 6.0),
+                vec2(handle_size, handle_size),
+            );
+            painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(200, 140, 255));
+        }
+
+        title_edit_rect
     }
 
     /// Get a parsed script node spec, attempting to parse and cache if needed.

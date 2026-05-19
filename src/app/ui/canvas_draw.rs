@@ -453,8 +453,6 @@ impl GraphApp {
         );
         self.handle_decision_queue_editor(ctx);
         self.handle_script_queue_editor(ctx);
-        self.handle_script_buttons_editor(ctx);
-
         if alt_passthrough && !self.selected_nodes.is_empty() {
             if let Some(pointer) = pointer_pos {
                 let local = self.screen_to_world_pos(rect, pointer);

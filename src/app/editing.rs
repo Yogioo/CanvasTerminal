@@ -373,6 +373,7 @@ impl GraphApp {
         });
     }
 
+
     pub(in crate::app) fn remove_decision_button_row(&mut self, row: usize) {
         if row < self.decision_buttons_edit_rows.len() {
             self.decision_buttons_edit_rows.remove(row);
@@ -526,105 +527,6 @@ impl GraphApp {
         }
 
         self.cancel_script_queue_edit();
-    }
-
-    // ── Script node button editor ──
-
-    pub(in crate::app) fn start_script_buttons_edit(&mut self, node_id: usize) {
-        let Some(buttons) = self.nodes.iter().find(|n| n.id == node_id).and_then(|n| match &n.data {
-            NodeData::Script { buttons, .. } => Some(buttons.clone()),
-            _ => None,
-        }) else {
-            return;
-        };
-
-        self.editing_script_buttons_node = Some(node_id);
-        self.script_buttons_edit_rows = buttons.into_iter().map(|b| DecisionButtonDraft {
-            label: b.label,
-            event_key: b.event_key,
-            color_rgb: b.color_rgb.unwrap_or([200, 200, 220]),
-            color_text: String::new(),
-        }).collect();
-        self.sync_script_button_color_texts();
-        self.script_buttons_edit_error = None;
-    }
-
-    fn sync_script_button_color_texts(&mut self) {
-        for row in &mut self.script_buttons_edit_rows {
-            row.color_text = Self::decision_color_text_from_rgb(
-                DecisionColorInputMode::Rgb,
-                row.color_rgb,
-            );
-        }
-    }
-
-    pub(in crate::app) fn cancel_script_buttons_edit(&mut self) {
-        self.editing_script_buttons_node = None;
-        self.script_buttons_edit_rows.clear();
-        self.script_buttons_edit_error = None;
-    }
-
-    pub(in crate::app) fn add_script_button_row(&mut self) {
-        self.script_buttons_edit_rows.push(DecisionButtonDraft {
-            label: String::new(),
-            event_key: String::new(),
-            color_rgb: [200, 200, 220],
-            color_text: String::new(),
-        });
-        self.sync_script_button_color_texts();
-    }
-
-    pub(in crate::app) fn remove_script_button_row(&mut self, row: usize) {
-        if row < self.script_buttons_edit_rows.len() {
-            self.script_buttons_edit_rows.remove(row);
-        }
-    }
-
-    pub(in crate::app) fn commit_script_buttons_edit(&mut self) -> bool {
-        let Some(node_id) = self.editing_script_buttons_node else {
-            return false;
-        };
-
-        let mut parsed_buttons = Vec::new();
-        let mut seen_event_keys = std::collections::HashSet::new();
-
-        for (idx, row) in self.script_buttons_edit_rows.iter().enumerate() {
-            let label = row.label.trim();
-            let event_key = row.event_key.trim();
-
-            if label.is_empty() {
-                self.script_buttons_edit_error =
-                    Some(format!("第 {} 行显示名称不能为空", idx + 1));
-                return false;
-            }
-            if event_key.is_empty() {
-                self.script_buttons_edit_error = Some(format!("第 {} 行事件名不能为空", idx + 1));
-                return false;
-            }
-            if !seen_event_keys.insert(event_key.to_owned()) {
-                self.script_buttons_edit_error = Some(format!(
-                    "第 {} 行事件名 '{event_key}' 重复",
-                    idx + 1
-                ));
-                return false;
-            }
-
-            parsed_buttons.push(DecisionButton {
-                label: label.to_owned(),
-                event_key: event_key.to_owned(),
-                color_rgb: Some(row.color_rgb),
-            });
-        }
-
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
-            if let NodeData::Script { buttons, .. } = &mut node.data {
-                *buttons = parsed_buttons;
-            }
-        }
-
-        self.mark_workspace_dirty();
-        self.cancel_script_buttons_edit();
-        true
     }
 
     pub(in crate::app) fn commit_decision_buttons_edit(&mut self) -> bool {
