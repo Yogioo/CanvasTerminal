@@ -221,4 +221,91 @@ mod tests {
         assert!(events.iter().any(|e| matches!(e, UiEvent::ColStart { .. })));
         assert!(events.iter().any(|e| matches!(e, UiEvent::ColEnd)));
     }
+
+    #[test]
+    fn test_input_interaction_updates_state_through_render() {
+        let mut rt = crate::script_node::lua::LuaRuntime::new(
+            r#"
+            state = { edit_buffer = "" }
+            function render(ctx)
+                local text = ctx:input({label="新笔记", value=state.edit_buffer})
+                state.edit_buffer = text
+            end
+            "#,
+        )
+        .unwrap();
+
+        rt.capture_render().unwrap();
+        rt.queue_input_value("新笔记", "hello");
+        rt.capture_render().unwrap();
+
+        let value: String = rt.get_state("edit_buffer").unwrap();
+        assert_eq!(value, "hello");
+    }
+
+    #[test]
+    fn test_nested_input_interaction_updates_state_through_render() {
+        let mut rt = crate::script_node::lua::LuaRuntime::new(
+            r#"
+            state = { edit_buffer = "" }
+            function render(ctx)
+                ctx:col({gap=4}, function(sub)
+                    local text = sub:input({label="新笔记", value=state.edit_buffer})
+                    state.edit_buffer = text
+                end)
+            end
+            "#,
+        )
+        .unwrap();
+
+        rt.capture_render().unwrap();
+        rt.queue_input_value("新笔记", "nested");
+        rt.capture_render().unwrap();
+
+        let value: String = rt.get_state("edit_buffer").unwrap();
+        assert_eq!(value, "nested");
+    }
+
+    #[test]
+    fn test_button_interaction_executes_lua_branch() {
+        let mut rt = crate::script_node::lua::LuaRuntime::new(
+            r#"
+            state = { count = 0 }
+            function render(ctx)
+                if ctx:button("加一") then
+                    state.count = state.count + 1
+                end
+            end
+            "#,
+        )
+        .unwrap();
+
+        rt.capture_render().unwrap();
+        rt.queue_button_click("加一");
+        rt.capture_render().unwrap();
+
+        let count: i64 = rt.get_state("count").unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_button_interaction_can_emit() {
+        let mut rt = crate::script_node::lua::LuaRuntime::new(
+            r#"
+            state = { text = "hello" }
+            function render(ctx)
+                if ctx:button("发送") then
+                    emit("saved", state.text)
+                end
+            end
+            "#,
+        )
+        .unwrap();
+
+        rt.queue_button_click("发送");
+        rt.capture_render().unwrap();
+
+        let emits = rt.drain_emits();
+        assert_eq!(emits, vec![("saved".to_owned(), "hello".to_owned())]);
+    }
 }

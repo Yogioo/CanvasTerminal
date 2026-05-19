@@ -332,13 +332,15 @@ impl GraphApp {
         let rt = crate::script_node::lua::LuaRuntime::new_with_state(&code, state_json.as_deref())
             .map_err(|err| {
                 let lower = err.to_lowercase();
-                if lower.contains("syntax") || lower.contains("unexpected") {
+                let tagged = if lower.contains("syntax") || lower.contains("unexpected") {
                     format!("[SyntaxError] {err}")
                 } else if lower.contains("hook") || lower.contains("instruction") || lower.contains("timeout") {
                     format!("[HookError] {err}")
                 } else {
                     format!("[RuntimeError] {err}")
-                }
+                };
+                eprintln!("[script-node:{node_id}] ensure_script_lua_runtime failed: {tagged}");
+                tagged
             })?;
         self.script_lua_runtimes.insert(node_id, rt);
         self.script_lua_timer_accum.entry(node_id).or_insert(0.0);
@@ -357,6 +359,7 @@ impl GraphApp {
 
         for node_id in script_ids {
             if let Err(err) = self.ensure_script_lua_runtime(node_id) {
+                eprintln!("[script-node:{node_id}] before_frame runtime unavailable: {err}");
                 self.script_lua_errors.insert(node_id, err);
                 continue;
             }
@@ -384,6 +387,7 @@ impl GraphApp {
                     } else {
                         format!("[RuntimeError] {err}")
                     };
+                    eprintln!("[script-node:{node_id}] before_frame failed: {tagged}");
                     self.script_lua_errors.insert(node_id, tagged);
                 }
             }
@@ -404,6 +408,7 @@ impl GraphApp {
                         } else {
                             format!("[RuntimeError] {err}")
                         };
+                        eprintln!("[script-node:{node_id}] after_frame failed: {tagged}");
                         self.script_lua_errors.insert(node_id, tagged);
                         None
                     }

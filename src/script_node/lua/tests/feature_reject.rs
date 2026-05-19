@@ -36,15 +36,23 @@ mod tests {
                 end
                 sub:row({gap=8}, function(r)
                     if r:button("✓ 批准", {bg="$success", enabled=#state.queue > 0}) then
-                        emit("approve", table.remove(state.queue, 1))
+                        if #state.queue > 0 then
+                            local msg = table.remove(state.queue, 1)
+                            if msg ~= nil then emit("approve", tostring(msg)) end
+                        end
                     end
                     if r:button("✓ 全部批准", {bg="$accent", enabled=#state.queue > 0}) then
-                        for _, msg in ipairs(state.queue) do emit("approve", msg) end
+                        for _, msg in ipairs(state.queue) do
+                            if msg ~= nil then emit("approve", tostring(msg)) end
+                        end
                         state.queue = {}
                     end
                 end)
                 if sub:button("✕ 驳回", {bg="$danger", enabled=#state.queue > 0}) then
-                    emit("reject", table.remove(state.queue, 1))
+                    if #state.queue > 0 then
+                        local msg = table.remove(state.queue, 1)
+                        if msg ~= nil then emit("reject", tostring(msg)) end
+                    end
                 end
             end)
         end

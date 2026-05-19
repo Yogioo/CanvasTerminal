@@ -3,7 +3,9 @@
 /// 为 Lua 脚本的 `render(ctx)` 提供 UI 声明式 API。
 
 use mlua::{UserData, UserDataMethods, Value};
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 /// 由 Lua 的 ctx.* 方法产生的 UI 事件类型
 #[derive(Debug, Clone, PartialEq)]
@@ -38,11 +40,38 @@ pub struct LuaRenderContext {
     pub button_callbacks: Vec<Box<dyn FnMut()>>,
     pub clicked_buttons: Vec<String>,
     pub pending_click: Option<String>,
+    pending_input_values: Rc<RefCell<HashMap<String, String>>>,
+    pending_button_clicks: Rc<RefCell<Vec<String>>>,
 }
 
 impl LuaRenderContext {
     pub fn new() -> Self {
-        LuaRenderContext { events: Vec::new(), button_callbacks: Vec::new(), clicked_buttons: Vec::new(), pending_click: None }
+        Self::new_with_interactions(HashMap::new(), Vec::new())
+    }
+
+    pub fn new_with_interactions(
+        pending_input_values: HashMap<String, String>,
+        pending_button_clicks: Vec<String>,
+    ) -> Self {
+        LuaRenderContext {
+            events: Vec::new(),
+            button_callbacks: Vec::new(),
+            clicked_buttons: Vec::new(),
+            pending_click: None,
+            pending_input_values: Rc::new(RefCell::new(pending_input_values)),
+            pending_button_clicks: Rc::new(RefCell::new(pending_button_clicks)),
+        }
+    }
+
+    fn child_context(&self) -> Self {
+        LuaRenderContext {
+            events: Vec::new(),
+            button_callbacks: Vec::new(),
+            clicked_buttons: Vec::new(),
+            pending_click: None,
+            pending_input_values: self.pending_input_values.clone(),
+            pending_button_clicks: self.pending_button_clicks.clone(),
+        }
     }
 }
 
@@ -81,7 +110,16 @@ impl UserData for LuaRenderContext {
                 if let Some(v) = opts.get("color") { color = val_str(v); }
                 if let Some(v) = opts.get("event_key") { event_key = val_str(v); }
             }
-            let should_click = ctx.pending_click.as_ref().map_or(false, |pc| pc == &label);
+            let key = event_key.clone().unwrap_or_else(|| label.clone());
+            let should_click = {
+                let mut clicks = ctx.pending_button_clicks.borrow_mut();
+                if let Some(pos) = clicks.iter().position(|pending| pending == &key) {
+                    clicks.remove(pos);
+                    enabled
+                } else {
+                    false
+                }
+            };
             let callback_index = ctx.button_callbacks.len();
             ctx.button_callbacks.push(Box::new(|| {}));
             ctx.events.push(UiEvent::ButtonWithCallback { label, event_key, enabled, bg, color, callback_index });
@@ -101,8 +139,14 @@ impl UserData for LuaRenderContext {
                 if let Some(v) = opts.get("rows") { rows = val_u32(v).unwrap_or(3); }
                 if let Some(v) = opts.get("placeholder") { placeholder = val_str(v).unwrap_or_default(); }
             }
-            ctx.events.push(UiEvent::Input { label: label.clone(), value: value.clone(), enabled, multiline, rows, placeholder });
-            Ok(value)
+            let key = if label.is_empty() { "input".to_owned() } else { label.clone() };
+            let actual_value = ctx
+                .pending_input_values
+                .borrow_mut()
+                .remove(&key)
+                .unwrap_or(value);
+            ctx.events.push(UiEvent::Input { label: label.clone(), value: actual_value.clone(), enabled, multiline, rows, placeholder });
+            Ok(actual_value)
         });
 
         // slider
@@ -189,7 +233,7 @@ impl UserData for LuaRenderContext {
             ctx.events.push(UiEvent::ColStart { gap, padding });
             // Use the Lua state to get the AnyUserData on the stack, then pass it back to the callback
             // We create a sub-context userdata for the inner scope
-            let sub_ud = lua.create_userdata(LuaRenderContext::new())?;
+            let sub_ud = lua.create_userdata(ctx.child_context())?;
             func.call::<()>(sub_ud.clone())?;
             let sub = sub_ud.take::<LuaRenderContext>()?;
             ctx.events.extend(sub.events);
@@ -216,7 +260,7 @@ impl UserData for LuaRenderContext {
                 }
             }
             ctx.events.push(UiEvent::RowStart { gap, padding });
-            let sub_ud = lua.create_userdata(LuaRenderContext::new())?;
+            let sub_ud = lua.create_userdata(ctx.child_context())?;
             func.call::<()>(sub_ud.clone())?;
             let sub = sub_ud.take::<LuaRenderContext>()?;
             ctx.events.extend(sub.events);

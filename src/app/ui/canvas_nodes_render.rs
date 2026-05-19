@@ -1075,10 +1075,7 @@ impl GraphApp {
                 if self.ensure_script_lua_runtime(node.id).is_ok() {
                     if let Some(rt) = self.script_lua_runtimes.get_mut(&node.id) {
                         let events = match rt.capture_render() {
-                            Ok(v) => {
-                                self.script_lua_errors.remove(&node.id);
-                                v
-                            }
+                            Ok(v) => v,
                             Err(err) => {
                                 let lower = err.to_lowercase();
                                 let tagged = if lower.contains("hook") || lower.contains("instruction") || lower.contains("timeout") {
@@ -1086,6 +1083,7 @@ impl GraphApp {
                                 } else {
                                     format!("[RuntimeError] {err}")
                                 };
+                                eprintln!("[script-node:{}] capture_render failed: {}", node.id, tagged);
                                 self.script_lua_errors.insert(node.id, tagged);
                                 Vec::new()
                             }
@@ -1106,39 +1104,40 @@ impl GraphApp {
                                 crate::script_node::lua::api_ctx::UiEvent::ButtonWithCallback { label, event_key, enabled, .. } => {
                                     let resp = body_ui.add_enabled(enabled, egui::Button::new(label.clone()));
                                     if resp.clicked() && enabled {
-                                        let key = event_key.as_deref().unwrap_or(&label);
-                                        self.consume_script_queue(node.id, key, false);
+                                        let key = event_key.as_deref().unwrap_or(&label).to_owned();
+                                        if let Some(rt) = self.script_lua_runtimes.get_mut(&node.id) {
+                                            rt.queue_button_click(&key);
+                                        }
+                                        self.mark_workspace_dirty();
+                                        ctx.request_repaint();
                                     }
                                 }
                                 crate::script_node::lua::api_ctx::UiEvent::Button { label, enabled, .. } => {
                                     let resp = body_ui.add_enabled(enabled, egui::Button::new(label.clone()));
                                     if resp.clicked() && enabled {
-                                        self.consume_script_queue(node.id, &label, false);
+                                        if let Some(rt) = self.script_lua_runtimes.get_mut(&node.id) {
+                                            rt.queue_button_click(&label);
+                                        }
+                                        self.mark_workspace_dirty();
+                                        ctx.request_repaint();
                                     }
                                 }
-                                crate::script_node::lua::api_ctx::UiEvent::Input { label, mut value, enabled, .. } => {
+                                crate::script_node::lua::api_ctx::UiEvent::Input { label, mut value, enabled, multiline, rows, .. } => {
                                     body_ui.horizontal(|ui| {
                                         if !label.is_empty() { ui.label(label.clone()); }
-                                        let resp = ui.add_enabled(enabled, egui::TextEdit::singleline(&mut value));
+                                        let resp = if multiline {
+                                            let row_count = rows.max(1) as usize;
+                                            ui.add_enabled(enabled, egui::TextEdit::multiline(&mut value).desired_rows(row_count))
+                                        } else {
+                                            ui.add_enabled(enabled, egui::TextEdit::singleline(&mut value))
+                                        };
                                         if resp.changed() {
-                                            let port_name = if label.is_empty() { "input".to_owned() } else { label.clone() };
-                                            self.script_node_outputs.entry(node.id).or_default().insert(port_name.clone(), value.clone());
-                                            let targets: Vec<(usize, Option<String>)> = self.edges.iter()
-                                                .filter(|(from, _)| *from == node.id)
-                                                .filter(|(from, to)| {
-                                                    match self.edge_route_key(*from, *to) {
-                                                        Some(k) => k == port_name.as_str(),
-                                                        None => true,
-                                                    }
-                                                })
-                                                .map(|(_, to)| {
-                                                    let route = self.edge_route_key(node.id, *to).map(|s| s.to_owned());
-                                                    (*to, route)
-                                                })
-                                                .collect();
-                                            for (to_node, route_key) in &targets {
-                                                self.forward_message_to_node(*to_node, route_key.as_deref(), &value);
+                                            let key = if label.is_empty() { "input".to_owned() } else { label.clone() };
+                                            if let Some(rt) = self.script_lua_runtimes.get_mut(&node.id) {
+                                                rt.queue_input_value(&key, &value);
                                             }
+                                            self.mark_workspace_dirty();
+                                            ctx.request_repaint();
                                         }
                                     });
                                 }
@@ -1187,9 +1186,9 @@ impl GraphApp {
                     }
                 }
 
-                if let Some(err) = self.script_lua_errors.get(&node.id) {
+                if let Some(err) = self.script_lua_errors.get(&node.id).cloned() {
                     let err_rect = Rect::from_min_max(
-                        Pos2::new(widget_rect.left() + 6.0 * zoom, widget_rect.bottom() - 56.0 * zoom),
+                        Pos2::new(widget_rect.left() + 6.0 * zoom, widget_rect.bottom() - 86.0 * zoom),
                         Pos2::new(widget_rect.right() - 6.0 * zoom, widget_rect.bottom() - 6.0 * zoom),
                     );
                     if err_rect.is_positive() {
@@ -1203,13 +1202,62 @@ impl GraphApp {
                         } else {
                             ("Lua Error", err.as_str())
                         };
-                        ui.painter().text(
-                            err_rect.left_top() + vec2(6.0 * zoom, 6.0 * zoom),
-                            Align2::LEFT_TOP,
-                            format!("{title}\n{detail}"),
-                            FontId::monospace((11.0 * zoom).max(9.0)),
-                            Color32::from_rgb(255, 210, 210),
+
+                        let actions_h = 22.0 * zoom;
+                        let clear_w = 46.0 * zoom;
+                        let copy_w = 46.0 * zoom;
+                        let gap = 6.0 * zoom;
+
+                        let clear_rect = Rect::from_min_size(
+                            Pos2::new(err_rect.right() - clear_w - 6.0 * zoom, err_rect.top() + 4.0 * zoom),
+                            vec2(clear_w, actions_h),
                         );
+                        let copy_rect = Rect::from_min_size(
+                            Pos2::new(clear_rect.left() - copy_w - gap, err_rect.top() + 4.0 * zoom),
+                            vec2(copy_w, actions_h),
+                        );
+
+                        let clear_btn = egui::Button::new("清除")
+                            .fill(Color32::from_rgba_premultiplied(120, 40, 40, 220))
+                            .stroke(egui::Stroke::new(1.0, Color32::from_rgb(220, 140, 140)))
+                            .min_size(clear_rect.size());
+                        if ui.put(clear_rect, clear_btn).clicked() {
+                            self.script_lua_errors.remove(&node.id);
+                        }
+
+                        let copy_btn = egui::Button::new("复制")
+                            .fill(Color32::from_rgba_premultiplied(70, 40, 90, 220))
+                            .stroke(egui::Stroke::new(1.0, Color32::from_rgb(170, 140, 220)))
+                            .min_size(copy_rect.size());
+                        if ui.put(copy_rect, copy_btn).clicked() {
+                            ctx.copy_text(format!("{title}\n{detail}"));
+                            self.push_toast_notification("Lua 错误已复制到剪贴板");
+                        }
+
+                        let text_rect = Rect::from_min_max(
+                            Pos2::new(err_rect.left() + 6.0 * zoom, err_rect.top() + actions_h + 8.0 * zoom),
+                            Pos2::new(err_rect.right() - 6.0 * zoom, err_rect.bottom() - 6.0 * zoom),
+                        );
+
+                        let mut err_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(text_rect)
+                                .layout(Layout::top_down(Align::Min)),
+                        );
+                        err_ui.set_clip_rect(text_rect);
+                        egui::ScrollArea::vertical()
+                            .id_salt(("script-error-scroll", node.id))
+                            .show(&mut err_ui, |ui| {
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(format!("{title}\n{detail}"))
+                                            .monospace()
+                                            .color(Color32::from_rgb(255, 210, 210))
+                                            .size((11.0 * zoom).max(9.0)),
+                                    )
+                                    .wrap(),
+                                );
+                            });
                     }
                 }
 

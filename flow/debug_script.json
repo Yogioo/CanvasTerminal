@@ -2,127 +2,109 @@
   "version": 10,
   "nodes": [
     {
-      "id": 3,
-      "uid": "9a02e411-0e54-4ae8-9865-168315e869f3",
+      "id": 1,
+      "uid": "21a2ed64-e8c8-4ef9-9e8f-1084ef2cec8e",
       "kind": "Text",
       "data": {
         "Text": {
-          "text_body": "2026-05-18 23:08:15",
+          "text_body": "2026-05-19 23:03:24",
           "auto_size": false
         }
       },
-      "pos_x": -142.79242,
-      "pos_y": 331.59436,
+      "pos_x": 396.32446,
+      "pos_y": 244.0,
       "size_x": 260.0,
       "size_y": 140.0
     },
     {
-      "id": 7,
-      "uid": "d5b2cd22-d7af-4eda-84c7-6df72abd7fe7",
-      "kind": "Decision",
-      "data": {
-        "Decision": {
-          "title": "Decision",
-          "buttons": [
-            {
-              "label": "通过",
-              "event_key": "approve",
-              "color_rgb": [
-                212,
-                244,
-                226
-              ]
-            },
-            {
-              "label": "驳回",
-              "event_key": "reject",
-              "color_rgb": [
-                248,
-                208,
-                208
-              ]
-            }
-          ],
-          "pending_message": "2026-05-18 23:08:15",
-          "pending_messages": [
-            "2026-05-18 23:08:15",
-            "2026-05-18 23:08:15",
-            "2026-05-18 23:08:15",
-            "2026-05-18 23:08:15",
-            "2026-05-18 23:08:15"
-          ]
-        }
-      },
-      "pos_x": 304.91193,
-      "pos_y": 479.39624,
-      "size_x": 436.79242,
-      "size_y": 243.35846
-    },
-    {
-      "id": 8,
-      "uid": "b76714a3-2337-4952-b3e0-b684e6ca9103",
+      "id": 2,
+      "uid": "0e80f61a-63f7-4b79-9258-9e1c2a5ebb84",
       "kind": "Script",
       "data": {
         "Script": {
           "title": "Script",
-          "code": "{  \n  \"theme\": {\n    \"bg\": \"#1a1a2e\",\n    \"surface\": \"#16213e\",\n    \"accent\": \"#4fc3f7\",\n    \"danger\": \"#ff6b6b\",\n    \"success\": \"#66bb6a\",\n    \"text\": \"#e0e0e0\",\n    \"text_secondary\": \"#a0a0b0\",\n    \"radius\": 10,\n    \"font_size\": 14\n  },\n  \"ports\": {\n    \"inputs\": {\n      \"input\": { \"type\": \"string\", \"description\": \"来自上游的消息\" }\n    },\n    \"outputs\": {\n      \"approve\": { \"type\": \"string\", \"description\": \"批准后转发的消息\" },\n      \"reject\": { \"type\": \"string\", \"description\": \"驳回后转发的消息\" }\n    }\n  },\n  \"body\": {\n    \"type\": \"col\",\n    \"gap\": 8,\n    \"children\": [\n      {\n        \"type\": \"text\",\n        \"text\": \"待处理: {state.queue_len} 条\",\n        \"style\": { \"font_size\": 18, \"bold\": true, \"color\": \"$accent\" }\n      },\n      {\n        \"type\": \"text\",\n        \"text\": \"最新: {state.queue_first}\",\n        \"style\": { \"font_size\": 13, \"color\": \"$text_secondary\" }\n      },\n      {\n        \"type\": \"divider\"\n      },\n      {\n        \"type\": \"row\",\n        \"gap\": 8,\n        \"children\": [\n          {\n            \"type\": \"button\",\n            \"text\": \"批准\",\n            \"event\": \"approve\",\n            \"style\": { \"bg\": \"$success\", \"color\": \"#000000\" }\n          },\n          {\n            \"type\": \"button\",\n            \"text\": \"全部批准\",\n            \"event\": \"approve\",\n            \"process_all\": true,\n            \"style\": { \"bg\": \"$accent\", \"color\": \"#000000\" }\n          }\n        ]\n      },\n      {\n        \"type\": \"button\",\n        \"text\": \"驳回\",\n        \"event\": \"reject\",\n        \"style\": { \"bg\": \"$danger\", \"color\": \"#000000\" }\n      }\n    ]\n  }\n}",
-          "pending_messages": [
-            "2026-05-18 23:08:15"
-          ]
+          "code": "ports = {\n    inputs = { input = { type = \"string\" } },\n    outputs = {\n        approve = { type = \"string\" },\n        reject = { type = \"string\" },\n    },\n}\n\nstate = { queue = {} }\n\nfunction on_input(name, value)\n    table.insert(state.queue, value)\nend\n\nfunction render(ctx)\n    ctx:col({gap=8, padding={12,12,12,12}}, function(sub)\n        sub:text(\"审批队列\", {font_size=18, bold=true, color=\"$accent\"})\n        sub:text(\"待处理: \" .. tostring(#state.queue) .. \" 条\")\n        sub:separator()\n        sub:row({gap=8}, function(r)\n            if r:button(\"✓ 批准\", {enabled=#state.queue > 0, bg=\"$success\"}) then\n                if #state.queue > 0 then\n                    local msg = table.remove(state.queue, 1)\n                    if msg ~= nil then\n                        emit(\"approve\", tostring(msg))\n                    else\n                        log(\"approve clicked but message is nil\")\n                    end\n                else\n                    log(\"approve clicked with empty queue\")\n                end\n            end\n            if r:button(\"✕ 驳回\", {enabled=#state.queue > 0, bg=\"$danger\"}) then\n                if #state.queue > 0 then\n                    local msg = table.remove(state.queue, 1)\n                    if msg ~= nil then\n                        emit(\"reject\", tostring(msg))\n                    else\n                        log(\"reject clicked but message is nil\")\n                    end\n                else\n                    log(\"reject clicked with empty queue\")\n                end\n            end\n        end)\n    end)\nend",
+          "pending_messages": []
         }
       },
-      "pos_x": 220.08707,
-      "pos_y": 2.7575378,
-      "size_x": 429.95734,
-      "size_y": 318.8244
-    },
-    {
-      "id": 9,
-      "uid": "8e0db596-5345-498c-b5b8-56d44a063aa7",
-      "kind": "Script",
-      "data": {
-        "Script": {
-          "title": "Script",
-          "code": "{  \n  \"theme\": {\n    \"bg\": \"#1a1a2e\",\n    \"surface\": \"#16213e\",\n    \"accent\": \"#4fc3f7\",\n    \"danger\": \"#ff6b6b\",\n    \"success\": \"#66bb6a\",\n    \"text\": \"#e0e0e0\",\n    \"text_secondary\": \"#a0a0b0\",\n    \"radius\": 10,\n    \"font_size\": 14\n  },\n  \"ports\": {\n    \"inputs\": {\n      \"input\": { \"type\": \"string\", \"description\": \"来自上游的消息\" }\n    },\n    \"outputs\": {\n      \"approve\": { \"type\": \"string\", \"description\": \"批准后转发的消息\" },\n      \"reject\": { \"type\": \"string\", \"description\": \"驳回后转发的消息\" }\n    }\n  },\n  \"body\": {\n    \"type\": \"col\",\n    \"gap\": 8,\n    \"children\": [\n      {\n        \"type\": \"text\",\n        \"text\": \"待处理: {state.queue_len} 条\",\n        \"style\": { \"font_size\": 18, \"bold\": true, \"color\": \"$accent\" }\n      },\n      {\n        \"type\": \"text\",\n        \"text\": \"最新: {state.queue_first}\",\n        \"style\": { \"font_size\": 13, \"color\": \"$text_secondary\" }\n      },\n      {\n        \"type\": \"divider\"\n      },\n      {\n        \"type\": \"row\",\n        \"gap\": 8,\n        \"children\": [\n          {\n            \"type\": \"button\",\n            \"text\": \"批准\",\n            \"event\": \"approve\",\n            \"style\": { \"bg\": \"$success\", \"color\": \"#000000\" }\n          },\n          {\n            \"type\": \"button\",\n            \"text\": \"全部批准\",\n            \"event\": \"approve\",\n            \"process_all\": true,\n            \"style\": { \"bg\": \"$accent\", \"color\": \"#000000\" }\n          }\n        ]\n      },\n      {\n        \"type\": \"button\",\n        \"text\": \"驳回\",\n        \"event\": \"reject\",\n        \"style\": { \"bg\": \"$danger\", \"color\": \"#000000\" }\n      }\n    ]\n  }\n}",
-          "pending_messages": [
-            "2026-05-18 23:08:15"
-          ]
-        }
-      },
-      "pos_x": 880.497,
-      "pos_y": 189.88907,
+      "pos_x": 929.6456,
+      "pos_y": 275.41446,
       "size_x": 360.0,
-      "size_y": 260.0
+      "size_y": 320.0
+    },
+    {
+      "id": 4,
+      "uid": "86653811-e664-430b-8c61-e3968493393d",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Terminal",
+          "startup_script": "",
+          "working_directory": null
+        }
+      },
+      "pos_x": 1556.2776,
+      "pos_y": 283.96262,
+      "size_x": 840.0,
+      "size_y": 660.0
+    },
+    {
+      "id": 5,
+      "uid": "c509a7b1-1f03-4f1d-8b6c-c42589f392de",
+      "kind": "Terminal",
+      "data": {
+        "Terminal": {
+          "title": "Terminal",
+          "startup_script": "",
+          "working_directory": null
+        }
+      },
+      "pos_x": 843.9962,
+      "pos_y": 774.7718,
+      "size_x": 840.0,
+      "size_y": 660.0
     }
   ],
   "edges": [
     [
-      3,
-      7
+      2,
+      4
     ],
     [
-      3,
-      8
+      2,
+      5
     ],
     [
-      8,
-      9
+      1,
+      2
     ]
   ],
   "edge_routes": [
     {
-      "from": 8,
-      "to": 9,
+      "from": 2,
+      "to": 4,
       "route_key": "approve"
+    },
+    {
+      "from": 2,
+      "to": 5,
+      "route_key": "reject"
     }
   ],
   "edge_curve_biases": [],
   "edge_control_offsets": [],
   "view": {
-    "pan_x": 333.48663,
-    "pan_y": 155.11093,
-    "zoom": 1.1240546
+    "pan_x": -357.57178,
+    "pan_y": -128.74506,
+    "zoom": 0.90553623
   },
   "workspace_name": "未命名画布",
-  "script_states": []
+  "script_states": [
+    {
+      "node_id": 2,
+      "state": {
+        "queue": "{}"
+      }
+    }
+  ]
 }

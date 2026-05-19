@@ -109,6 +109,34 @@
   - `cargo check` 通过
   - 新增/相关测试通过（含 `test_log_is_bounded`）
 
+## 🟣 本轮修复进展（2026-05-19）
+
+- [x] 修复 Script 节点输入/点击后“瞬间复原”问题（UI 交互回放到 LuaRuntime）
+  - [x] `LuaRuntime` 增加 pending 交互队列（input/button）
+  - [x] `ctx:input` 返回交互后的最新值（不再总是旧值）
+  - [x] `ctx:button` 按真实点击回放返回 `true`
+  - [x] `col/row` 子上下文共享交互队列（嵌套输入/按钮可用）
+  - [x] 画布渲染侧改为“记录交互 -> 下帧 Lua 执行”，不再绕过 Lua 逻辑直连转发
+- [x] 修复 `after_frame` 过早清空 `emit` 缓冲导致事件丢失
+- [x] 增加回归测试（feature_render_api）
+  - [x] input 回放更新 state
+  - [x] 嵌套 col 内 input 回放更新 state
+  - [x] button 回放触发 Lua 分支
+  - [x] button 回放触发 emit
+
+### 本轮验证结果（2026-05-19）
+- `cargo check`：通过（仅 warnings）
+- `cargo test feature_render_api`：通过（16 passed, 0 failed）
+- `cargo test --all`：未全绿（209 passed, 1 failed）
+  - 失败用例：`event_server::tests::event_server_metrics_get_and_automation_error_paths`
+  - 失败原因：端口占用 `os error 10048`（环境/端口冲突，非 Script 节点改动引入）
+
+### 待办补充
+- [ ] 稳定化 event_server 测试端口分配（避免固定端口冲突）
+  - [ ] 改为动态端口/随机可用端口
+  - [ ] 清理测试生命周期中的端口释放竞态
+  - [ ] 目标：`cargo test --all` 全绿
+
 ## 🟢 后续计划（已确认范围，2026-05-19）
 
 - [x] 代码片段库：内置更多模板（仪表盘、定时器、表单等）**暂不扩展（按当前需求冻结）**

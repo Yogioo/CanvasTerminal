@@ -55,6 +55,10 @@ pub struct LuaRuntime {
     last_serialized: Option<String>,
     /// state 脏标记
     dirty: bool,
+    /// Pending UI input values to replay into the next render pass.
+    pending_input_values: HashMap<String, String>,
+    /// Pending UI button clicks to replay into the next render pass.
+    pending_button_clicks: Vec<String>,
 }
 
 /// 端口信息
@@ -126,6 +130,8 @@ impl LuaRuntime {
             code: code.to_owned(),
             last_serialized: None,
             dirty: false,
+            pending_input_values: HashMap::new(),
+            pending_button_clicks: Vec::new(),
         };
 
         // 执行 on_init
@@ -154,6 +160,7 @@ impl LuaRuntime {
     ///
     /// 对每条 pending_messages，如果定义了 on_input，调用 on_input(port, value)。
     pub fn before_frame(&mut self, pending_messages: &[(String, String)]) -> Result<(), String> {
+        self.ensure_state_queue_table()?;
         for (port, value) in pending_messages {
             self.run_on_input(port, value)?;
         }
@@ -170,8 +177,6 @@ impl LuaRuntime {
         let json = serialize_state(&self.lua).map_err(|e| format!("state 序列化失败: {}", e))?;
         self.last_serialized = Some(json.clone());
         self.dirty = false;
-        // 清空 emit 缓冲区
-        self.system.borrow_mut().emits.clear();
         Ok(json)
     }
 
@@ -189,6 +194,7 @@ impl LuaRuntime {
     ///
     /// 每次调用创建一个新的渲染上下文，执行 render 函数，返回事件列表。
     pub fn capture_render(&mut self) -> Result<Vec<ApiUiEvent>, String> {
+        self.ensure_state_queue_table()?;
         let globals = self.lua.globals();
 
         // 检查是否有 render 函数
@@ -198,7 +204,13 @@ impl LuaRuntime {
         };
 
         // 创建渲染上下文 userdata，传入 render 函数
-        let ctx_ud = self.lua.create_userdata(LuaRenderContext::new())
+        let pending_input_values = std::mem::take(&mut self.pending_input_values);
+        let pending_button_clicks = std::mem::take(&mut self.pending_button_clicks);
+        let had_interactions = !pending_input_values.is_empty() || !pending_button_clicks.is_empty();
+        let ctx_ud = self.lua.create_userdata(LuaRenderContext::new_with_interactions(
+            pending_input_values,
+            pending_button_clicks,
+        ))
             .map_err(|e| format!("创建渲染上下文失败: {}", e))?;
 
         // 调用 render(ctx_ud)
@@ -211,16 +223,30 @@ impl LuaRuntime {
         // 取出上下文并返回事件
         let ctx = ctx_ud.take::<LuaRenderContext>()
             .map_err(|e| format!("读取渲染上下文失败: {}", e))?;
+        if had_interactions {
+            self.dirty = true;
+        }
 
         Ok(ctx.events)
+    }
+
+    /// Queue a UI input value for the next render pass.
+    pub fn queue_input_value(&mut self, key: &str, value: &str) {
+        self.pending_input_values.insert(key.to_owned(), value.to_owned());
+    }
+
+    /// Queue a UI button click for the next render pass.
+    pub fn queue_button_click(&mut self, key: &str) {
+        self.pending_button_clicks.push(key.to_owned());
     }
 
     /// 模拟点击按钮
     ///
     /// 执行 render 并在渲染过程中模拟按钮点击。
-    pub fn simulate_button_click(&mut self, _label: &str) -> Result<bool, String> {
-        // TODO: 实现按钮点击模拟
-        Ok(false)
+    pub fn simulate_button_click(&mut self, label: &str) -> Result<bool, String> {
+        self.queue_button_click(label);
+        self.capture_render()?;
+        Ok(true)
     }
 
     /// 模拟从指定端口接收消息
@@ -308,6 +334,7 @@ impl LuaRuntime {
 
     /// 执行 on_init
     fn run_on_init(&mut self) -> Result<(), String> {
+        self.ensure_state_queue_table()?;
         let globals = self.lua.globals();
         if let Ok(func) = globals.get::<Function>("on_init") {
             Self::reset_instruction_budget_for_lua(&self.lua)?;
@@ -315,12 +342,14 @@ impl LuaRuntime {
             func.call::<()>(())
                 .map_err(|e| format!("on_init 执行错误: {}", e))?;
             Self::check_frame_timeout("on_init", started)?;
+            self.ensure_state_queue_table()?;
         }
         Ok(())
     }
 
     /// 执行 on_input
     fn run_on_input(&mut self, port: &str, value: &str) -> Result<(), String> {
+        self.ensure_state_queue_table()?;
         if !self.has_on_input {
             return Ok(());
         }
@@ -337,6 +366,7 @@ impl LuaRuntime {
             func.call::<()>((port.to_owned(), lua_value))
                 .map_err(|e| format!("on_input 执行错误: {}", e))?;
             Self::check_frame_timeout("on_input", started)?;
+            self.ensure_state_queue_table()?;
             self.dirty = true;
         }
         Ok(())
@@ -382,7 +412,34 @@ impl LuaRuntime {
     fn merge_serialized_state(&mut self, json_str: &str) -> Result<(), String> {
         deserialize_and_merge_state(&self.lua, json_str)
             .map_err(|e| format!("合并 state 失败: {}", e))?;
+        self.ensure_state_queue_table()?;
         self.dirty = true;
+        Ok(())
+    }
+
+    fn ensure_state_queue_table(&mut self) -> Result<(), String> {
+        let globals = self.lua.globals();
+        let state_value: Value = globals.get("state").unwrap_or(Value::Nil);
+
+        let state_table = match state_value {
+            Value::Table(t) => t,
+            _ => {
+                let t = self.lua.create_table().map_err(|e| format!("创建 state 失败: {}", e))?;
+                globals.set("state", t.clone()).map_err(|e| format!("写入 state 失败: {}", e))?;
+                self.dirty = true;
+                t
+            }
+        };
+
+        let queue_value: Value = state_table.get("queue").unwrap_or(Value::Nil);
+        if !matches!(queue_value, Value::Table(_)) {
+            let queue = self.lua.create_table().map_err(|e| format!("创建 state.queue 失败: {}", e))?;
+            state_table
+                .set("queue", queue)
+                .map_err(|e| format!("修复 state.queue 失败: {}", e))?;
+            self.dirty = true;
+        }
+
         Ok(())
     }
 }

@@ -22,10 +22,28 @@ function render(ctx)
         sub:separator()
         sub:row({gap=8}, function(r)
             if r:button("✓ 批准", {enabled=#state.queue > 0, bg="$success"}) then
-                if #state.queue > 0 then emit("approve", table.remove(state.queue, 1)) end
+                if #state.queue > 0 then
+                    local msg = table.remove(state.queue, 1)
+                    if msg ~= nil then
+                        emit("approve", tostring(msg))
+                    else
+                        log("approve clicked but message is nil")
+                    end
+                else
+                    log("approve clicked with empty queue")
+                end
             end
             if r:button("✕ 驳回", {enabled=#state.queue > 0, bg="$danger"}) then
-                if #state.queue > 0 then emit("reject", table.remove(state.queue, 1)) end
+                if #state.queue > 0 then
+                    local msg = table.remove(state.queue, 1)
+                    if msg ~= nil then
+                        emit("reject", tostring(msg))
+                    else
+                        log("reject clicked but message is nil")
+                    end
+                else
+                    log("reject clicked with empty queue")
+                end
             end
         end)
     end)
