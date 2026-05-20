@@ -94,6 +94,10 @@ impl GraphApp {
                             self.start_script_edit(node_id);
                             action_triggered = true;
                         }
+                        if is_script_node && ui.button("调试模式").clicked() {
+                            self.start_script_debug(node_id);
+                            action_triggered = true;
+                        }
                         if is_script_node
                             && self.editing_script_node == Some(node_id)
                             && ui.button("完成编辑").clicked()

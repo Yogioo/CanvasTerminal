@@ -1007,10 +1007,11 @@ impl GraphApp {
         if content_rect.is_positive() {
             let is_editing = self.editing_script_node == Some(node.id);
 
-            if is_editing {
+            if is_editing && self.script_debug_node != Some(node.id) {
                 script_edit_rect = Some((node.id, content_rect));
             } else {
                 let zoom = zoom_scale;
+                let is_debug = self.script_debug_node == Some(node.id);
 
                 let toolbar_h = (54.0 * zoom).max(40.0);
                 let toolbar_rect = Rect::from_min_size(
@@ -1018,6 +1019,15 @@ impl GraphApp {
                     vec2(content_rect.width(), toolbar_h),
                 );
                 let mut deferred_review = false;
+                let mut deferred_exit_debug = false;
+                let body_rect = if is_debug {
+                    Rect::from_min_max(
+                        Pos2::new(content_rect.min.x, content_rect.min.y + toolbar_h),
+                        content_rect.max,
+                    )
+                } else {
+                    content_rect
+                };
                 if toolbar_rect.is_positive() {
                     ui.painter().rect_filled(
                         toolbar_rect,
@@ -1047,8 +1057,30 @@ impl GraphApp {
                     let btn_h = (22.0 * zoom).max(18.0);
                     let review_w = (120.0 * zoom).max(80.0);
                     let btn_y = toolbar_rect.top() + 3.0 * zoom;
+                    let right_edge = if is_debug {
+                        let exit_w = (84.0 * zoom).max(66.0);
+                        let exit_rect = Rect::from_min_size(
+                            Pos2::new(toolbar_rect.right() - exit_w - 6.0 * zoom, btn_y),
+                            vec2(exit_w, btn_h),
+                        );
+                        let exit_btn = egui::Button::new(
+                            egui::RichText::new("退出调试")
+                                .color(Color32::from_rgb(22, 24, 30))
+                                .size((11.0 * zoom).max(9.0)),
+                        )
+                        .fill(Color32::from_rgb(238, 220, 220))
+                        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(190, 130, 130)))
+                        .corner_radius(4.0)
+                        .min_size(vec2(exit_w, btn_h));
+                        if ui.put(exit_rect, exit_btn).clicked() {
+                            deferred_exit_debug = true;
+                        }
+                        exit_rect.left() - 6.0 * zoom
+                    } else {
+                        toolbar_rect.right() - 6.0 * zoom
+                    };
                     let review_btn_rect = Rect::from_min_size(
-                        Pos2::new(toolbar_rect.right() - review_w - 6.0 * zoom, btn_y),
+                        Pos2::new(right_edge - review_w, btn_y),
                         vec2(review_w, btn_h),
                     );
                     let review_btn = egui::Button::new(
@@ -1165,10 +1197,33 @@ impl GraphApp {
                     );
                 }
 
-                let widget_rect = Rect::from_min_max(
-                    Pos2::new(content_rect.min.x, content_rect.min.y + toolbar_h),
-                    content_rect.max,
-                );
+                let widget_rect = if is_debug {
+                    let gap = 6.0 * zoom;
+                    let editor_w = (body_rect.width() * 0.56).max(180.0).min(body_rect.width() - 120.0);
+                    let editor_rect = Rect::from_min_max(
+                        body_rect.left_top(),
+                        Pos2::new(body_rect.left() + editor_w, body_rect.bottom()),
+                    );
+                    if editor_rect.is_positive() {
+                        script_edit_rect = Some((node.id, editor_rect.shrink2(vec2(0.0, gap))));
+                        ui.painter().line_segment(
+                            [
+                                Pos2::new(editor_rect.right() + gap * 0.5, editor_rect.top()),
+                                Pos2::new(editor_rect.right() + gap * 0.5, editor_rect.bottom()),
+                            ],
+                            Stroke::new(1.0, Color32::from_rgba_premultiplied(130, 108, 170, 70)),
+                        );
+                    }
+                    Rect::from_min_max(
+                        Pos2::new(editor_rect.right() + gap, body_rect.top()),
+                        body_rect.right_bottom(),
+                    )
+                } else {
+                    Rect::from_min_max(
+                        Pos2::new(content_rect.min.x, content_rect.min.y + toolbar_h),
+                        content_rect.max,
+                    )
+                };
 
                 if self.ensure_script_lua_runtime(node.id).is_ok() {
                     if let Some(rt) = self.script_lua_runtimes.get_mut(&node.id) {
@@ -1421,6 +1476,9 @@ impl GraphApp {
 
                 if deferred_review {
                     self.start_script_queue_edit(node.id);
+                }
+                if deferred_exit_debug {
+                    self.stop_script_debug(node.id);
                 }
             }
         }

@@ -789,29 +789,88 @@ impl GraphApp {
         }
 
         let font_size = (12.0 * self.zoom).round().max(9.0);
+        let line_h = (font_size * 1.35).max(16.0);
+        let gutter_w = (52.0 * self.zoom).clamp(42.0, 70.0);
         let hl_font = FontId::monospace(font_size);
+        let line_count = self.script_edit_buffer.lines().count().max(1);
+        let pause_line = self.script_lua_pause_line.get(&id).copied();
+        let breakpoints = self.script_lua_breakpoints.get(&id).cloned().unwrap_or_default();
+
         let resp = egui::ScrollArea::vertical()
             .id_salt(("script-node-scroll", id))
             .auto_shrink([false, false])
             .show(&mut editor_ui, |ui| {
                 ui.set_width(edit_rect.width());
-                ui.add_sized(
-                    vec2(edit_rect.width(), edit_rect.height()),
-                    TextEdit::multiline(&mut self.script_edit_buffer)
-                        .id(edit_id)
-                        .font(hl_font.clone())
-                        .text_color(Color32::from_rgb(200, 210, 230))
-                        .background_color(Color32::from_rgb(20, 22, 34))
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(10)
-                        .frame(true)
-                        .layouter(&mut |ui: &egui::Ui, text: &str, wrap_width: f32| {
-                            let mut job =
-                                super::canvas_nodes_render::highlight_lua(text, hl_font.clone());
-                            job.wrap.max_width = wrap_width;
-                            ui.fonts(|f| f.layout_job(job))
-                        }),
-                )
+                ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+
+                    ui.vertical(|ui| {
+                        ui.set_width(gutter_w);
+                        ui.add_space(6.0);
+                        for line in 1..=line_count {
+                            let line_i32 = line as i32;
+                            let has_bp = breakpoints.contains(&line_i32);
+                            let is_pause = pause_line == Some(line_i32);
+                            let marker = if is_pause {
+                                "▶"
+                            } else if has_bp {
+                                "●"
+                            } else {
+                                ""
+                            };
+                            let marker_color = if is_pause {
+                                Color32::from_rgb(245, 205, 95)
+                            } else if has_bp {
+                                Color32::from_rgb(240, 95, 105)
+                            } else {
+                                Color32::from_rgb(100, 115, 145)
+                            };
+                            let label = format!("{:>3} {marker}", line);
+                            let text = egui::RichText::new(label)
+                                .monospace()
+                                .size(font_size)
+                                .color(marker_color);
+                            let response = ui.add_sized(
+                                vec2(gutter_w, line_h),
+                                egui::Label::new(text).sense(egui::Sense::click()),
+                            );
+                            if response.clicked() {
+                                let set = self.script_lua_breakpoints.entry(id).or_default();
+                                let enable = !set.contains(&line_i32);
+                                if enable {
+                                    set.insert(line_i32);
+                                } else {
+                                    set.remove(&line_i32);
+                                }
+                                if let Some(rt) = self.script_lua_runtimes.get_mut(&id) {
+                                    let _ = rt.set_breakpoint(line_i32, enable);
+                                }
+                                self.mark_workspace_dirty();
+                                ctx.request_repaint();
+                            }
+                        }
+                    });
+
+                    let editor_w = (edit_rect.width() - gutter_w).max(120.0);
+                    ui.add_sized(
+                        vec2(editor_w, edit_rect.height()),
+                        TextEdit::multiline(&mut self.script_edit_buffer)
+                            .id(edit_id)
+                            .font(hl_font.clone())
+                            .text_color(Color32::from_rgb(200, 210, 230))
+                            .background_color(Color32::from_rgb(20, 22, 34))
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(line_count.max(10))
+                            .frame(true)
+                            .layouter(&mut |ui: &egui::Ui, text: &str, wrap_width: f32| {
+                                let mut job =
+                                    super::canvas_nodes_render::highlight_lua(text, hl_font.clone());
+                                job.wrap.max_width = wrap_width;
+                                ui.fonts(|f| f.layout_job(job))
+                            }),
+                    )
+                })
+                .inner
             })
             .inner;
 
@@ -823,12 +882,10 @@ impl GraphApp {
             self.mark_workspace_dirty();
         }
 
-        if resp.lost_focus() {
-            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                self.cancel_script_edit();
-            } else {
-                self.commit_script_edit(id);
-            }
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.cancel_script_edit();
+        } else if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter)) {
+            self.commit_script_edit(id);
         }
     }
 

@@ -167,6 +167,7 @@ pub struct GraphApp {
     editing_script_node: Option<usize>,
     pending_script_focus: Option<usize>,
     script_edit_buffer: String,
+    script_debug_node: Option<usize>,
 
     // ── Script node queue editing ──
     editing_script_queue_node: Option<usize>,
@@ -325,6 +326,7 @@ impl GraphApp {
             editing_script_node: None,
             pending_script_focus: None,
             script_edit_buffer: String::new(),
+            script_debug_node: None,
             editing_script_queue_node: None,
             pending_script_queue_focus: None,
             script_queue_edit_buffer: String::new(),
@@ -453,6 +455,7 @@ impl GraphApp {
         self.editing_script_node = None;
         self.pending_script_focus = None;
         self.script_edit_buffer.clear();
+        self.script_debug_node = None;
         self.editing_script_queue_node = None;
         self.pending_script_queue_focus = None;
         self.script_queue_edit_buffer.clear();

@@ -632,6 +632,13 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn commit_script_edit(&mut self, node_id: usize) {
+        self.save_script_edit_buffer(node_id);
+        self.editing_script_node = None;
+        self.pending_script_focus = None;
+        self.script_edit_buffer.clear();
+    }
+
+    pub(in crate::app) fn save_script_edit_buffer(&mut self, node_id: usize) {
         let mut changed = false;
         if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
             if let NodeData::Script { code, .. } = &mut node.data {
@@ -650,14 +657,28 @@ impl GraphApp {
         if changed {
             self.mark_workspace_dirty();
         }
+    }
 
-        self.editing_script_node = None;
-        self.pending_script_focus = None;
-        self.script_edit_buffer.clear();
+    pub(in crate::app) fn start_script_debug(&mut self, node_id: usize) {
+        if self.editing_script_node != Some(node_id) {
+            self.start_script_edit(node_id);
+        }
+        self.script_debug_node = Some(node_id);
+    }
+
+    pub(in crate::app) fn stop_script_debug(&mut self, node_id: usize) {
+        if self.script_debug_node == Some(node_id) {
+            self.script_debug_node = None;
+        }
     }
 
     #[allow(dead_code)]
     pub(in crate::app) fn cancel_script_edit(&mut self) {
+        if let Some(node_id) = self.editing_script_node {
+            if self.script_debug_node == Some(node_id) {
+                self.script_debug_node = None;
+            }
+        }
         self.editing_script_node = None;
         self.pending_script_focus = None;
         self.script_edit_buffer.clear();

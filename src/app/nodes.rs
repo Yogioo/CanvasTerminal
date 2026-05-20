@@ -656,6 +656,9 @@ impl GraphApp {
             self.pending_script_focus = None;
             self.script_edit_buffer.clear();
         }
+        if self.script_debug_node == Some(node_id) {
+            self.script_debug_node = None;
+        }
         if self.editing_script_queue_node == Some(node_id) {
             self.editing_script_queue_node = None;
             self.pending_script_queue_focus = None;
