@@ -505,6 +505,7 @@ impl GraphApp {
 
     /// Consume messages from Script node queue and forward to downstream edges
     /// matching `event_key` as route_key. Returns number of messages forwarded.
+    #[allow(dead_code)]
     pub(in crate::app) fn consume_script_queue(
         &mut self,
         node_id: usize,

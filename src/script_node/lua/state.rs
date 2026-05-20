@@ -27,6 +27,7 @@ pub fn serialize_state(lua: &Lua) -> LuaResult<String> {
 }
 
 /// 检查 State 表是否为空（无有效字段）
+#[allow(dead_code)]
 pub fn is_state_empty(lua: &Lua) -> LuaResult<bool> {
     let globals = lua.globals();
     if let Ok(state) = globals.get::<Table>("state") {
@@ -81,6 +82,7 @@ pub fn deserialize_and_merge_state(lua: &Lua, json_str: &str) -> LuaResult<()> {
 /// # 类型参数
 ///
 /// * `T` - 目标 Rust 类型（需实现 mlua::FromLua）
+#[allow(dead_code)]
 pub fn get_state_value<T: mlua::FromLua>(lua: &Lua, key: &str) -> LuaResult<T> {
     let globals = lua.globals();
     let state: Table = globals.get("state")?;
@@ -94,6 +96,7 @@ pub fn get_state_value<T: mlua::FromLua>(lua: &Lua, key: &str) -> LuaResult<T> {
 /// * `lua` - Lua 状态引用
 /// * `key` - 字段名
 /// * `value` - 值（需实现 mlua::IntoLua）
+#[allow(dead_code)]
 pub fn set_state_value<T: IntoLua>(lua: &Lua, key: &str, value: T) -> LuaResult<()> {
     let globals = lua.globals();
     let state: Table = globals.get("state")?;

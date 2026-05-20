@@ -9,6 +9,7 @@ use std::rc::Rc;
 
 /// 由 Lua 的 ctx.* 方法产生的 UI 事件类型
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum UiEvent {
     Text { text: String, font_size: Option<f32>, bold: Option<bool>, color: Option<String>, align: Option<String>, width: Option<HashMap<String, serde_json::Value>> },
     Button { label: String, enabled: bool, clicked: bool, bg: Option<String>, color: Option<String> },
@@ -35,6 +36,7 @@ fn val_f64(v: &Value) -> Option<f64> { match v { Value::Integer(i) => Some(*i as
 fn val_f32(v: &Value) -> Option<f32> { val_f64(v).map(|f| f as f32) }
 fn val_u32(v: &Value) -> Option<u32> { match v { Value::Integer(i) => Some(*i as u32), Value::Number(n) => Some(*n as u32), _ => None } }
 
+#[allow(dead_code)]
 pub struct LuaRenderContext {
     pub events: Vec<UiEvent>,
     pub button_callbacks: Vec<Box<dyn FnMut()>>,
@@ -45,6 +47,7 @@ pub struct LuaRenderContext {
 }
 
 impl LuaRenderContext {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self::new_with_interactions(HashMap::new(), Vec::new())
     }

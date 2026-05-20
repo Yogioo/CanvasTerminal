@@ -36,6 +36,7 @@ const FRAME_EXECUTION_TIMEOUT_MS: f64 = 5.0;
 /// 脚本节点 Lua 运行时
 ///
 /// 每个节点拥有独立的 Lua 状态实例，互不干扰。
+#[allow(dead_code)]
 pub struct LuaRuntime {
     /// mlua Lua 状态
     lua: Lua,
@@ -64,6 +65,7 @@ pub struct LuaRuntime {
 
 /// 端口信息
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PortInfo {
     pub port_type: String,
     pub description: Option<String>,
@@ -76,6 +78,7 @@ pub struct PortDefinitions {
     pub outputs: HashMap<String, PortInfo>,
 }
 
+#[allow(dead_code)]
 impl LuaRuntime {
     /// 用 Lua 代码创建新的运行时
     ///
@@ -550,6 +553,7 @@ impl LuaRuntime {
 }
 
 /// 从 UiEvents 中查找按钮是否被点击
+#[allow(dead_code)]
 pub fn find_clicked_button(events: &[ApiUiEvent], label: &str) -> bool {
     events.iter().any(|e| {
         if let ApiUiEvent::ButtonWithCallback { label: lbl, enabled, .. } = e {

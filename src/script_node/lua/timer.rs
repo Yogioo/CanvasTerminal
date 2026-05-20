@@ -11,6 +11,7 @@ use std::time::Instant;
 /// 维护每个节点 ID → 定时器间隔的映射。
 /// 通过 poll 方法检查定时器是否到期。
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct TimerManager {
     /// 节点 ID → 间隔（秒），0.0 = 未激活
     intervals: HashMap<usize, f64>,
@@ -24,6 +25,7 @@ impl Default for TimerManager {
     }
 }
 
+#[allow(dead_code)]
 impl TimerManager {
     /// 创建新的定时器管理器
     pub fn new() -> Self {
