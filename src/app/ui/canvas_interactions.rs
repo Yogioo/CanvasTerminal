@@ -507,16 +507,19 @@ impl GraphApp {
         }
 
         if secondary_released {
-            let had_link_gesture = self.linking_from.is_some();
+            let mut suppress_context_menu_for_link_release = false;
 
             if let Some(from) = self.linking_from {
                 if let Some(pointer_pos) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                     let local = self.screen_to_world_pos(rect, pointer_pos);
                     let alt_passthrough = ctx.input(|i| i.modifiers.alt);
                     if let Some((to, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
-                        if to != from && !self.has_edge(from, to) {
-                            self.edges.push((from, to));
-                            self.mark_workspace_dirty();
+                        if to != from {
+                            suppress_context_menu_for_link_release = true;
+                            if !self.has_edge(from, to) {
+                                self.edges.push((from, to));
+                                self.mark_workspace_dirty();
+                            }
                         }
                     }
                 }
@@ -535,7 +538,10 @@ impl GraphApp {
                 self.cut_snapshot_nodes = None;
                 self.cut_snapshot_edges = None;
 
-                if !had_link_gesture && !is_panning && !pointer_over_terminal_content {
+                if !suppress_context_menu_for_link_release
+                    && !is_panning
+                    && !pointer_over_terminal_content
+                {
                     if let Some(pointer_pos) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                         let local = self.screen_to_world_pos(rect, pointer_pos);
                         let alt_passthrough = ctx.input(|i| i.modifiers.alt);
