@@ -423,6 +423,8 @@ impl GraphApp {
         self.image_errors.clear();
         self.image_bytes.clear();
         self.image_aspects.clear();
+        self.script_bg_textures.clear();
+        self.script_bg_texture_errors.clear();
 
         self.next_node_id = self
             .nodes

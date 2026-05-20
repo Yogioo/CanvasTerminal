@@ -3,6 +3,7 @@ use crate::constants::{DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT};
 use crate::model::{NodeData, NodeKind};
 use eframe::egui::{
     self, text::{LayoutJob, TextFormat}, vec2, Align, Align2, Color32, FontId, Layout, Painter, Pos2, Rect, Stroke,
+    TextureOptions,
 };
 use egui_commonmark::CommonMarkViewer;
 
@@ -904,6 +905,54 @@ impl GraphApp {
     /// Render the Script node body content (header, JSON editor, or widget tree + buttons).
     /// Extracted from draw_nodes() to keep that function under control.
     /// Returns the title edit rect if the title is being edited.
+    fn script_color_from_lua(value: &str) -> Option<Color32> {
+        let value = value.trim();
+        let hex = value.strip_prefix('#')?;
+        if hex.len() != 6 {
+            return None;
+        }
+        let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+        Some(Color32::from_rgb(r, g, b))
+    }
+
+    fn ensure_script_bg_texture(
+        &mut self,
+        node_id: usize,
+        image_path: &str,
+        ctx: &egui::Context,
+    ) -> Option<egui::TextureId> {
+        let image_path = image_path.trim();
+        if image_path.is_empty() {
+            return None;
+        }
+        let key = format!("{node_id}:{image_path}");
+        if let Some(texture) = self.script_bg_textures.get(&key) {
+            return Some(texture.id());
+        }
+        if self.script_bg_texture_errors.contains_key(&key) {
+            return None;
+        }
+
+        match Self::load_image_from_path(image_path) {
+            Ok(color_image) => {
+                let texture = ctx.load_texture(
+                    format!("script-bg-{node_id}-{image_path}"),
+                    color_image,
+                    TextureOptions::LINEAR,
+                );
+                let id = texture.id();
+                self.script_bg_textures.insert(key, texture);
+                Some(id)
+            }
+            Err(err) => {
+                self.script_bg_texture_errors.insert(key, err);
+                None
+            }
+        }
+    }
+
     fn draw_script_node_body(
         &mut self,
         painter: &Painter,
@@ -919,6 +968,11 @@ impl GraphApp {
         let mut title_edit_rect: Option<(usize, Rect)> = None;
         let mut script_edit_rect: Option<(usize, Rect)> = None;
 
+        painter.rect_filled(
+            node_rect,
+            8.0 * zoom_scale,
+            Color32::from_rgb(38, 30, 52),
+        );
         painter.rect_stroke(
             node_rect,
             8.0 * zoom_scale,
@@ -1249,6 +1303,46 @@ impl GraphApp {
                             }
                         };
 
+                        let mut style_bg = None;
+                        let mut style_header_bg = None;
+                        let mut style_bg_image = None;
+                        for event in &events {
+                            if let crate::script_node::lua::api_ctx::UiEvent::Style { bg, header_bg, bg_image } = event {
+                                if let Some(bg) = bg.as_deref().and_then(Self::script_color_from_lua) {
+                                    style_bg = Some(bg);
+                                }
+                                if let Some(header_bg) = header_bg.as_deref().and_then(Self::script_color_from_lua) {
+                                    style_header_bg = Some(header_bg);
+                                }
+                                if let Some(bg_image) = bg_image {
+                                    style_bg_image = Some(bg_image.clone());
+                                }
+                            }
+                        }
+
+                        if let Some(bg) = style_bg {
+                            painter.rect_filled(node_rect, 8.0 * zoom_scale, bg);
+                        }
+                        if let Some(bg_image) = style_bg_image.as_deref() {
+                            if let Some(texture_id) = self.ensure_script_bg_texture(node.id, bg_image, ctx) {
+                                painter.image(
+                                    texture_id,
+                                    node_rect,
+                                    Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
+                                    Color32::WHITE,
+                                );
+                            }
+                        }
+                        if let Some(header_bg) = style_header_bg {
+                            painter.rect_filled(header_rect, header_rounding, header_bg);
+                        }
+                        painter.rect_stroke(
+                            node_rect,
+                            8.0 * zoom_scale,
+                            stroke,
+                            egui::StrokeKind::Outside,
+                        );
+
                         let mut body_ui = ui.new_child(
                             egui::UiBuilder::new()
                                 .max_rect(widget_rect)
@@ -1272,6 +1366,7 @@ impl GraphApp {
 
                         for event in events {
                             match event {
+                                crate::script_node::lua::api_ctx::UiEvent::Style { .. } => {}
                                 crate::script_node::lua::api_ctx::UiEvent::Text { text, .. } => {
                                     body_ui.label(text);
                                 }

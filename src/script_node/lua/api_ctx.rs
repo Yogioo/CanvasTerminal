@@ -11,6 +11,7 @@ use std::rc::Rc;
 #[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub enum UiEvent {
+    Style { bg: Option<String>, header_bg: Option<String>, bg_image: Option<String> },
     Text { text: String, font_size: Option<f32>, bold: Option<bool>, color: Option<String>, align: Option<String>, width: Option<HashMap<String, serde_json::Value>> },
     Button { label: String, enabled: bool, clicked: bool, bg: Option<String>, color: Option<String> },
     Slider { label: String, value: f64, enabled: bool, min: f64, max: f64 },
@@ -80,6 +81,15 @@ impl LuaRenderContext {
 
 impl UserData for LuaRenderContext {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // style
+        methods.add_method_mut("style", |_lua, ctx, opts: HashMap<String, Value>| {
+            let bg = opts.get("bg").and_then(val_str);
+            let header_bg = opts.get("header_bg").and_then(val_str);
+            let bg_image = opts.get("bg_image").and_then(val_str);
+            ctx.events.push(UiEvent::Style { bg, header_bg, bg_image });
+            Ok(())
+        });
+
         // text
         methods.add_method_mut("text", |_lua, ctx, args: (String, Option<HashMap<String, Value>>)| {
             let (text, opts) = args;

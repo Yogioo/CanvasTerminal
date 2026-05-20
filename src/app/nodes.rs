@@ -592,6 +592,8 @@ impl GraphApp {
         self.image_errors.remove(&node_id);
         self.image_bytes.remove(&node_id);
         self.image_aspects.remove(&node_id);
+        self.script_bg_textures.retain(|key, _| !key.starts_with(&format!("{node_id}:")));
+        self.script_bg_texture_errors.retain(|key, _| !key.starts_with(&format!("{node_id}:")));
 
         if self.editing_decision_buttons_node == Some(node_id) {
             self.editing_decision_buttons_node = None;

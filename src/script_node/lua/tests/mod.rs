@@ -61,6 +61,7 @@ use std::rc::Rc;
 /// capture_render() 返回此列表。
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiEvent {
+    Style,
     Text {
         text: String,
         font_size: Option<f32>,

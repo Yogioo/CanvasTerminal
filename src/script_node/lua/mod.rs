@@ -568,6 +568,7 @@ pub fn find_clicked_button(events: &[ApiUiEvent], label: &str) -> bool {
 #[cfg(test)]
 pub fn convert_events_for_test(events: &[ApiUiEvent]) -> Vec<crate::script_node::lua::tests::UiEvent> {
     events.iter().map(|e| match e {
+        ApiUiEvent::Style { .. } => crate::script_node::lua::tests::UiEvent::Style,
         ApiUiEvent::Text { text, font_size, bold, color, align, width } => {
             crate::script_node::lua::tests::UiEvent::Text {
                 text: text.clone(),

@@ -25,7 +25,7 @@ impl GraphApp {
         Ok(ColorImage::from_rgba_unmultiplied(size, &pixels))
     }
 
-    fn load_image_from_path(path: &str) -> Result<ColorImage, String> {
+    pub(in crate::app) fn load_image_from_path(path: &str) -> Result<ColorImage, String> {
         let reader = ImageReader::open(path).map_err(|e| format!("无法读取图片: {e}"))?;
         let image = reader.decode().map_err(|e| format!("图片解码失败: {e}"))?;
         let rgba = image.to_rgba8();
