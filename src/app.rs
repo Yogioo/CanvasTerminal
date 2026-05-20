@@ -26,9 +26,10 @@ use crate::event_protocol::{AppEvent, AutomationResponse};
 use crate::event_server::start_event_server;
 use crate::model::Node;
 use crate::script_node::lua::LuaRuntime;
-use eframe::egui::{self, vec2, Pos2, Rect, TextureHandle};
+use eframe::egui::{self, vec2, Pos2, Rect, TextureHandle, Vec2};
 use egui_commonmark::CommonMarkCache;
 use egui_term::{PtyEvent, TerminalBackend};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -81,6 +82,16 @@ pub(in crate::app) struct NodeClipboardPayload {
     pub nodes: Vec<Node>,
     pub edges: Vec<NodeClipboardEdge>,
     pub anchor: Pos2,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct WindowState {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    maximized: bool,
+    minimized: bool,
 }
 
 pub struct GraphApp {
@@ -228,6 +239,9 @@ pub struct GraphApp {
     text_hide_zoom_threshold: f32,
     terminal_hide_zoom_threshold: f32,
     performance_metrics: PerformanceMetrics,
+    pending_window_state_restore: Option<WindowState>,
+    last_saved_window_state: Option<WindowState>,
+    last_window_state_persist_at: f64,
 }
 
 impl GraphApp {
@@ -369,6 +383,9 @@ impl GraphApp {
             text_hide_zoom_threshold: 0.55,
             terminal_hide_zoom_threshold: 0.3,
             performance_metrics: PerformanceMetrics::new(),
+            pending_window_state_restore: Self::load_window_state_from_disk(),
+            last_saved_window_state: None,
+            last_window_state_persist_at: 0.0,
         };
 
         app
@@ -490,6 +507,85 @@ impl GraphApp {
     }
 
     fn paint_grid(&self, _painter: &egui::Painter, _rect: Rect, _pan: egui::Vec2, _zoom: f32) {}
+
+    fn window_state_path() -> PathBuf {
+        PathBuf::from("./window-state.json")
+    }
+
+    fn load_window_state_from_disk() -> Option<WindowState> {
+        let path = Self::window_state_path();
+        let text = std::fs::read_to_string(path).ok()?;
+        let state = serde_json::from_str::<WindowState>(&text).ok()?;
+        if !state.width.is_finite()
+            || !state.height.is_finite()
+            || !state.x.is_finite()
+            || !state.y.is_finite()
+            || state.width < 320.0
+            || state.height < 240.0
+        {
+            return None;
+        }
+        Some(state)
+    }
+
+    fn save_window_state_to_disk(state: &WindowState) {
+        let path = Self::window_state_path();
+        if let Ok(text) = serde_json::to_string_pretty(state) {
+            let _ = std::fs::write(path, text);
+        }
+    }
+
+    fn apply_pending_window_state_restore(&mut self, ctx: &egui::Context) {
+        let Some(state) = self.pending_window_state_restore.take() else {
+            return;
+        };
+
+        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(Pos2::new(state.x, state.y)));
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(Vec2::new(
+            state.width,
+            state.height,
+        )));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(state.maximized));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(state.minimized));
+    }
+
+    fn persist_window_state_if_changed(&mut self, ctx: &egui::Context, now: f64) {
+        if now - self.last_window_state_persist_at < 0.25 {
+            return;
+        }
+
+        let (outer_rect, inner_rect, maximized, minimized) = ctx.input(|i| {
+            let vp = i.viewport();
+            (
+                vp.outer_rect,
+                vp.inner_rect,
+                vp.maximized.unwrap_or(false),
+                vp.minimized.unwrap_or(false),
+            )
+        });
+        let Some(outer_rect) = outer_rect else {
+            return;
+        };
+        let Some(inner_rect) = inner_rect else {
+            return;
+        };
+
+        let state = WindowState {
+            x: outer_rect.min.x,
+            y: outer_rect.min.y,
+            width: inner_rect.width().max(320.0),
+            height: inner_rect.height().max(240.0),
+            maximized,
+            minimized,
+        };
+
+        if self.last_saved_window_state.as_ref() != Some(&state) {
+            Self::save_window_state_to_disk(&state);
+            self.last_saved_window_state = Some(state);
+        }
+
+        self.last_window_state_persist_at = now;
+    }
 }
 
 impl eframe::App for GraphApp {
@@ -507,6 +603,7 @@ impl eframe::App for GraphApp {
         self.script_advance_timers(dt);
 
         self.handle_global_shortcuts(ctx);
+        self.apply_pending_window_state_restore(ctx);
         self.apply_workspace_dirty_ui(ctx);
         self.performance_metrics
             .update(Some(ctx.input(|i| i.unstable_dt).max(0.0)));
@@ -514,21 +611,20 @@ impl eframe::App for GraphApp {
         let (now, screen_rect, pointer_near_top, show_window_bar) =
             self.update_window_bar_visibility(ctx);
 
+        self.draw_window_controls_overlay(ctx, screen_rect, show_window_bar);
+
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(egui::Color32::from_rgb(30, 30, 50)))
             .show(ctx, |ui| {
                 self.draw_canvas(ui, ctx, show_window_bar);
             });
 
-        if show_window_bar {
-            self.draw_window_controls_overlay(ctx, screen_rect);
-        }
-
         self.show_command_palette_if_open(ctx);
         self.show_workspace_dirty_indicator(ctx);
         self.show_toast_notifications(ctx);
         self.show_performance_overlay(ctx);
         self.script_after_frame();
+        self.persist_window_state_if_changed(ctx, now);
         self.schedule_repaint(ctx, show_window_bar, pointer_near_top, now);
     }
 }

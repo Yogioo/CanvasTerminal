@@ -1,4 +1,5 @@
 use super::GraphApp;
+use crate::constants::WINDOW_RESIZE_BORDER;
 use eframe::egui::{self, vec2, Pos2, Rect};
 use std::time::Duration;
 
@@ -122,21 +123,91 @@ impl GraphApp {
         &mut self,
         ctx: &egui::Context,
         screen_rect: Rect,
+        show_window_bar: bool,
     ) {
         egui::Area::new("window_drag_bar_overlay".into())
             .order(egui::Order::Foreground)
             .fixed_pos(screen_rect.min)
             .show(ctx, |ui| {
+                let full_rect = Rect::from_min_size(screen_rect.min, screen_rect.size());
+                ui.set_min_size(screen_rect.size());
+                let _ = ui.allocate_rect(full_rect, egui::Sense::hover());
+
                 let bar_height = 28.0;
-                let (bar_rect, _) = ui.allocate_exact_size(
-                    vec2(screen_rect.width(), bar_height),
-                    egui::Sense::hover(),
+                let bar_rect = Rect::from_min_max(
+                    screen_rect.min,
+                    Pos2::new(screen_rect.right(), screen_rect.top() + bar_height),
                 );
 
                 let button_size = vec2(24.0, 18.0);
                 let button_gap = 6.0;
                 let right_pad = 12.0;
                 let top = bar_rect.center().y - button_size.y * 0.5;
+
+                let is_maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+                if !is_maximized {
+                    let border = WINDOW_RESIZE_BORDER;
+                    let left_edge = Rect::from_min_max(
+                        Pos2::new(screen_rect.left(), screen_rect.top() + border),
+                        Pos2::new(screen_rect.left() + border, screen_rect.bottom() - border),
+                    );
+                    let right_edge = Rect::from_min_max(
+                        Pos2::new(screen_rect.right() - border, screen_rect.top() + border),
+                        Pos2::new(screen_rect.right(), screen_rect.bottom() - border),
+                    );
+                    let top_edge = Rect::from_min_max(
+                        Pos2::new(screen_rect.left() + border, screen_rect.top()),
+                        Pos2::new(screen_rect.right() - border, screen_rect.top() + border),
+                    );
+                    let bottom_edge = Rect::from_min_max(
+                        Pos2::new(screen_rect.left() + border, screen_rect.bottom() - border),
+                        Pos2::new(screen_rect.right() - border, screen_rect.bottom()),
+                    );
+                    let nw_corner = Rect::from_min_max(
+                        Pos2::new(screen_rect.left(), screen_rect.top()),
+                        Pos2::new(screen_rect.left() + border, screen_rect.top() + border),
+                    );
+                    let ne_corner = Rect::from_min_max(
+                        Pos2::new(screen_rect.right() - border, screen_rect.top()),
+                        Pos2::new(screen_rect.right(), screen_rect.top() + border),
+                    );
+                    let sw_corner = Rect::from_min_max(
+                        Pos2::new(screen_rect.left(), screen_rect.bottom() - border),
+                        Pos2::new(screen_rect.left() + border, screen_rect.bottom()),
+                    );
+                    let se_corner = Rect::from_min_max(
+                        Pos2::new(screen_rect.right() - border, screen_rect.bottom() - border),
+                        Pos2::new(screen_rect.right(), screen_rect.bottom()),
+                    );
+
+                    let resize_regions = [
+                        ("window_resize_nw", nw_corner, egui::ResizeDirection::NorthWest, egui::CursorIcon::ResizeNwSe),
+                        ("window_resize_ne", ne_corner, egui::ResizeDirection::NorthEast, egui::CursorIcon::ResizeNeSw),
+                        ("window_resize_sw", sw_corner, egui::ResizeDirection::SouthWest, egui::CursorIcon::ResizeNeSw),
+                        ("window_resize_se", se_corner, egui::ResizeDirection::SouthEast, egui::CursorIcon::ResizeNwSe),
+                        ("window_resize_n", top_edge, egui::ResizeDirection::North, egui::CursorIcon::ResizeVertical),
+                        ("window_resize_s", bottom_edge, egui::ResizeDirection::South, egui::CursorIcon::ResizeVertical),
+                        ("window_resize_w", left_edge, egui::ResizeDirection::West, egui::CursorIcon::ResizeHorizontal),
+                        ("window_resize_e", right_edge, egui::ResizeDirection::East, egui::CursorIcon::ResizeHorizontal),
+                    ];
+
+                    for (id, rect, direction, cursor) in resize_regions {
+                        let response = ui.interact(rect, ui.id().with(id), egui::Sense::click_and_drag());
+                        if response.hovered() {
+                            ui.output_mut(|o| o.cursor_icon = cursor);
+                        }
+                        if response.hovered()
+                            && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
+                        {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(direction));
+                            break;
+                        }
+                    }
+                }
+
+                if !show_window_bar {
+                    return;
+                }
 
                 let close_rect = Rect::from_min_size(
                     Pos2::new(bar_rect.right() - right_pad - button_size.x, top),
@@ -297,7 +368,6 @@ impl GraphApp {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                 }
 
-                let is_maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
                 let maxim = ui.interact(
                     maxim_rect,
                     ui.id().with("window_maximize_button"),

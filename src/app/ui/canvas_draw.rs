@@ -1,6 +1,6 @@
 use super::super::{EdgeControlHandle, GraphApp, NodeOrderAction};
 use crate::constants::{
-    DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT, TERMINAL_HEADER_HEIGHT,
+    DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT, TERMINAL_HEADER_HEIGHT, WINDOW_RESIZE_BORDER,
 };
 use crate::model::NodeKind;
 use eframe::egui::{self, Color32, Rect, Sense, Ui};
@@ -175,6 +175,13 @@ impl GraphApp {
         let primary_clicked = ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary));
         let primary_pressed = ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
         let pointer_in_window_top_strip = pointer_pos.is_some_and(|p| p.y <= rect.top() + 32.0);
+        let pointer_in_window_resize_strip = pointer_pos.is_some_and(|p| {
+            let border = WINDOW_RESIZE_BORDER;
+            p.x <= rect.left() + border
+                || p.x >= rect.right() - border
+                || p.y <= rect.top() + border
+                || p.y >= rect.bottom() - border
+        });
         let is_panning = (is_space_pan || is_middle_pan)
             && pointer_in_canvas
             && !pointer_over_terminal_content
@@ -305,6 +312,7 @@ impl GraphApp {
             is_panning,
             pointer_over_terminal_content,
             pointer_in_window_top_strip,
+            pointer_in_window_resize_strip,
             primary_clicked,
             primary_pressed,
             multi_select_modifier,
@@ -323,6 +331,7 @@ impl GraphApp {
             && !is_panning
             && !pointer_over_terminal_content
             && !pointer_in_window_top_strip
+            && !pointer_in_window_resize_strip
             && !alt_passthrough
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()

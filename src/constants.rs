@@ -2,4 +2,5 @@ pub const TERMINAL_HEADER_HEIGHT: f32 = 30.0;
 pub const DECISION_HEADER_HEIGHT: f32 = 34.0;
 pub const SCRIPT_HEADER_HEIGHT: f32 = 34.0;
 pub const GROUP_HEADER_HEIGHT: f32 = 28.0;
+pub const WINDOW_RESIZE_BORDER: f32 = 8.0;
 

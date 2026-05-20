@@ -16,6 +16,7 @@ impl GraphApp {
         is_panning: bool,
         pointer_over_terminal_content: bool,
         pointer_in_window_top_strip: bool,
+        pointer_in_window_resize_strip: bool,
         primary_clicked: bool,
         primary_pressed: bool,
         multi_select_modifier: bool,
@@ -50,6 +51,7 @@ impl GraphApp {
                     && !is_panning
                     && !pointer_over_terminal_content
                     && !pointer_in_window_top_strip
+                    && !pointer_in_window_resize_strip
                 {
                     if let (Some(last_time), Some(last_pos)) =
                         (self.last_primary_click_time, self.last_primary_click_pos)
@@ -156,6 +158,7 @@ impl GraphApp {
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()
             && primary_pressed
+            && !pointer_in_window_resize_strip
         {
             if let Some((edge, handle)) = edge_handle_hit {
                 self.editing_text_node = None;
