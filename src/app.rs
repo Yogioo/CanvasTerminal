@@ -509,6 +509,12 @@ impl GraphApp {
     fn paint_grid(&self, _painter: &egui::Painter, _rect: Rect, _pan: egui::Vec2, _zoom: f32) {}
 
     fn window_state_path() -> PathBuf {
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            let dir = PathBuf::from(appdata).join("CanvasTerminal");
+            let _ = std::fs::create_dir_all(&dir);
+            return dir.join("window-state.json");
+        }
+
         PathBuf::from("./window-state.json")
     }
 

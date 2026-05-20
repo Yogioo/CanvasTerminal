@@ -29,6 +29,7 @@ Thumbs.db
 # save cache
 graph.json
 artifacts/
+window-state.json
 
 # ── GSD baseline (auto-generated) ──
 .gsd
