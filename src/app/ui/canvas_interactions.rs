@@ -158,7 +158,7 @@ impl GraphApp {
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()
-            && self.editing_script_node.is_none()
+            && (self.editing_script_node.is_none() || resize_handle_hit.is_some())
             && primary_pressed
             && !pointer_in_window_resize_strip
         {

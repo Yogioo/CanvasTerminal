@@ -1013,7 +1013,7 @@ impl GraphApp {
                 let zoom = zoom_scale;
                 let is_debug = self.script_debug_node == Some(node.id);
 
-                let toolbar_h = (54.0 * zoom).max(40.0);
+                let toolbar_h = if is_debug { (54.0 * zoom).max(40.0) } else { 0.0 };
                 let toolbar_rect = Rect::from_min_size(
                     content_rect.left_top(),
                     vec2(content_rect.width(), toolbar_h),
@@ -1028,7 +1028,7 @@ impl GraphApp {
                 } else {
                     content_rect
                 };
-                if toolbar_rect.is_positive() {
+                if is_debug && toolbar_rect.is_positive() {
                     ui.painter().rect_filled(
                         toolbar_rect,
                         0.0,
@@ -1055,50 +1055,28 @@ impl GraphApp {
                     }
 
                     let btn_h = (22.0 * zoom).max(18.0);
-                    let review_w = (120.0 * zoom).max(80.0);
                     let btn_y = toolbar_rect.top() + 3.0 * zoom;
-                    let right_edge = if is_debug {
-                        let exit_w = (84.0 * zoom).max(66.0);
-                        let exit_rect = Rect::from_min_size(
-                            Pos2::new(toolbar_rect.right() - exit_w - 6.0 * zoom, btn_y),
-                            vec2(exit_w, btn_h),
-                        );
-                        let exit_btn = egui::Button::new(
-                            egui::RichText::new("退出调试")
-                                .color(Color32::from_rgb(22, 24, 30))
-                                .size((11.0 * zoom).max(9.0)),
-                        )
-                        .fill(Color32::from_rgb(238, 220, 220))
-                        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(190, 130, 130)))
-                        .corner_radius(4.0)
-                        .min_size(vec2(exit_w, btn_h));
-                        if ui.put(exit_rect, exit_btn).clicked() {
-                            deferred_exit_debug = true;
-                        }
-                        exit_rect.left() - 6.0 * zoom
-                    } else {
-                        toolbar_rect.right() - 6.0 * zoom
-                    };
-                    let review_btn_rect = Rect::from_min_size(
-                        Pos2::new(right_edge - review_w, btn_y),
-                        vec2(review_w, btn_h),
+                    let exit_w = (84.0 * zoom).max(66.0);
+                    let exit_rect = Rect::from_min_size(
+                        Pos2::new(toolbar_rect.right() - exit_w - 6.0 * zoom, btn_y),
+                        vec2(exit_w, btn_h),
                     );
-                    let review_btn = egui::Button::new(
-                        egui::RichText::new("📋 队列")
+                    let exit_btn = egui::Button::new(
+                        egui::RichText::new("退出调试")
                             .color(Color32::from_rgb(22, 24, 30))
                             .size((11.0 * zoom).max(9.0)),
                     )
-                    .fill(Color32::from_rgb(228, 234, 250))
-                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(130, 146, 185)))
+                    .fill(Color32::from_rgb(238, 220, 220))
+                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(190, 130, 130)))
                     .corner_radius(4.0)
-                    .min_size(vec2(review_w, btn_h));
-                    if ui.put(review_btn_rect, review_btn).clicked() {
-                        deferred_review = true;
+                    .min_size(vec2(exit_w, btn_h));
+                    if ui.put(exit_rect, exit_btn).clicked() {
+                        deferred_exit_debug = true;
                     }
 
                     let step_w = (76.0 * zoom).max(60.0);
                     let step_rect = Rect::from_min_size(
-                        Pos2::new(review_btn_rect.left() - step_w - 6.0 * zoom, btn_y),
+                        Pos2::new(exit_rect.left() - step_w - 6.0 * zoom, btn_y),
                         vec2(step_w, btn_h),
                     );
                     let step_btn = egui::Button::new(
@@ -1219,10 +1197,7 @@ impl GraphApp {
                         body_rect.right_bottom(),
                     )
                 } else {
-                    Rect::from_min_max(
-                        Pos2::new(content_rect.min.x, content_rect.min.y + toolbar_h),
-                        content_rect.max,
-                    )
+                    content_rect
                 };
 
                 if self.ensure_script_lua_runtime(node.id).is_ok() {
@@ -1259,6 +1234,20 @@ impl GraphApp {
                                 .layout(Layout::top_down(Align::Min)),
                         );
                         body_ui.set_clip_rect(widget_rect);
+
+                        let queue_resp = body_ui.add(
+                            egui::Button::new(
+                                egui::RichText::new("📋 队列")
+                                    .color(Color32::from_rgb(22, 24, 30))
+                                    .size((11.0 * zoom).max(9.0)),
+                            )
+                            .fill(Color32::from_rgb(228, 234, 250))
+                            .stroke(egui::Stroke::new(1.0, Color32::from_rgb(130, 146, 185)))
+                            .corner_radius(4.0),
+                        );
+                        if queue_resp.clicked() {
+                            deferred_review = true;
+                        }
 
                         for event in events {
                             match event {

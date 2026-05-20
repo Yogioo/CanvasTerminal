@@ -90,23 +90,37 @@ impl GraphApp {
                             self.complete_text_node_and_forward(node_id);
                             action_triggered = true;
                         }
-                        if is_script_node && ui.button("编辑脚本代码").clicked() {
-                            self.start_script_edit(node_id);
-                            action_triggered = true;
-                        }
-                        if is_script_node && ui.button("调试模式").clicked() {
-                            self.start_script_debug(node_id);
-                            action_triggered = true;
-                        }
-                        if is_script_node
-                            && self.editing_script_node == Some(node_id)
-                            && ui.button("完成编辑").clicked()
-                        {
-                            self.commit_script_edit(node_id);
-                            action_triggered = true;
-                        }
-
                         if is_script_node {
+                            let is_editing_script = self.editing_script_node == Some(node_id);
+                            let is_debug_script = self.script_debug_node == Some(node_id);
+
+                            ui.label(if is_debug_script {
+                                "当前：调试模式"
+                            } else if is_editing_script {
+                                "当前：编辑模式"
+                            } else {
+                                "当前：显示模式"
+                            });
+
+                            if is_editing_script && ui.button("切换到显示模式").clicked() {
+                                self.stop_script_debug(node_id);
+                                self.commit_script_edit(node_id);
+                                action_triggered = true;
+                            }
+                            if !is_editing_script && ui.button("切换到编辑模式").clicked() {
+                                self.start_script_edit(node_id);
+                                action_triggered = true;
+                            }
+                            if is_debug_script && ui.button("切换到编辑模式").clicked() {
+                                self.stop_script_debug(node_id);
+                                action_triggered = true;
+                            }
+                            if !is_debug_script && ui.button("切换到调试模式").clicked() {
+                                self.start_script_debug(node_id);
+                                action_triggered = true;
+                            }
+
+                            ui.separator();
                             ui.menu_button("插入代码片段", |ui| {
                                 if ui.button("番茄钟").clicked() {
                                     self.apply_script_snippet(
