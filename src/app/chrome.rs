@@ -5,6 +5,10 @@ use std::time::Duration;
 
 impl GraphApp {
     pub(in crate::app) fn handle_global_shortcuts(&mut self, ctx: &egui::Context) {
+        if self.editing_text_node.is_some() || self.editing_script_node.is_some() {
+            return;
+        }
+
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::U)) {
             self.redo_last_change();
         } else if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) {
@@ -35,6 +39,7 @@ impl GraphApp {
         }
 
         let node_clipboard_shortcut_allowed = self.editing_text_node.is_none()
+            && self.editing_script_node.is_none()
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()

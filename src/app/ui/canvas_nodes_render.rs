@@ -1083,7 +1083,15 @@ impl GraphApp {
             let is_editing = self.editing_script_node == Some(node.id);
 
             if is_editing && self.script_debug_node != Some(node.id) {
-                script_edit_rect = Some((node.id, content_rect));
+                let handle_clearance = 22.0 * zoom_scale.clamp(0.75, 1.6);
+                let editor_rect = Rect::from_min_max(
+                    content_rect.min,
+                    Pos2::new(
+                        (content_rect.max.x - handle_clearance).max(content_rect.min.x),
+                        (content_rect.max.y - handle_clearance).max(content_rect.min.y),
+                    ),
+                );
+                script_edit_rect = Some((node.id, editor_rect));
             } else {
                 let zoom = zoom_scale;
                 let is_debug = self.script_debug_node == Some(node.id);
@@ -1094,7 +1102,6 @@ impl GraphApp {
                     vec2(content_rect.width(), toolbar_h),
                 );
                 let mut deferred_review = false;
-                let mut deferred_exit_debug = false;
                 let body_rect = if is_debug {
                     Rect::from_min_max(
                         Pos2::new(content_rect.min.x, content_rect.min.y + toolbar_h),
@@ -1131,27 +1138,9 @@ impl GraphApp {
 
                     let btn_h = (22.0 * zoom).max(18.0);
                     let btn_y = toolbar_rect.top() + 3.0 * zoom;
-                    let exit_w = (84.0 * zoom).max(66.0);
-                    let exit_rect = Rect::from_min_size(
-                        Pos2::new(toolbar_rect.right() - exit_w - 6.0 * zoom, btn_y),
-                        vec2(exit_w, btn_h),
-                    );
-                    let exit_btn = egui::Button::new(
-                        egui::RichText::new("退出调试")
-                            .color(Color32::from_rgb(22, 24, 30))
-                            .size((11.0 * zoom).max(9.0)),
-                    )
-                    .fill(Color32::from_rgb(238, 220, 220))
-                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(190, 130, 130)))
-                    .corner_radius(4.0)
-                    .min_size(vec2(exit_w, btn_h));
-                    if ui.put(exit_rect, exit_btn).clicked() {
-                        deferred_exit_debug = true;
-                    }
-
                     let step_w = (76.0 * zoom).max(60.0);
                     let step_rect = Rect::from_min_size(
-                        Pos2::new(exit_rect.left() - step_w - 6.0 * zoom, btn_y),
+                        Pos2::new(toolbar_rect.right() - step_w - 6.0 * zoom, btn_y),
                         vec2(step_w, btn_h),
                     );
                     let step_btn = egui::Button::new(
@@ -1581,9 +1570,6 @@ impl GraphApp {
 
                 if deferred_review {
                     self.start_script_queue_edit(node.id);
-                }
-                if deferred_exit_debug {
-                    self.stop_script_debug(node.id);
                 }
             }
         }

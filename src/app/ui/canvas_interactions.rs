@@ -151,6 +151,7 @@ impl GraphApp {
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()
             && (self.editing_script_node.is_none() || resize_handle_hit.is_some())
+            && (self.editing_text_node.is_none() || resize_handle_hit.is_some())
             && primary_pressed
             && !pointer_in_window_resize_strip
         {
@@ -459,7 +460,9 @@ impl GraphApp {
             }
         }
 
-        if !is_panning && !pointer_over_terminal_content && secondary_pressed {
+        let inline_text_editor_active = self.editing_text_node.is_some() || self.editing_script_node.is_some();
+
+        if !inline_text_editor_active && !is_panning && !pointer_over_terminal_content && secondary_pressed {
             self.right_drag_moved = false;
             self.cutting_path_local.clear();
             self.linking_from = None;
@@ -482,7 +485,7 @@ impl GraphApp {
             }
         }
 
-        if secondary_down {
+        if !inline_text_editor_active && secondary_down {
             if let Some(pointer_pos) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                 let local = self.screen_to_world_pos(rect, pointer_pos);
 
@@ -500,7 +503,7 @@ impl GraphApp {
             }
         }
 
-        if secondary_released {
+        if !inline_text_editor_active && secondary_released {
             let mut suppress_context_menu_for_link_release = false;
 
             if let Some(from) = self.linking_from {

@@ -1,3 +1,4 @@
+use super::canvas_multiline_editor::{show_canvas_multiline_editor, GutterLine};
 use super::super::GraphApp;
 use crate::model::NodeData;
 use eframe::egui::{self, vec2, Align, Color32, FontId, Layout, Pos2, Rect, TextEdit, Ui};
@@ -29,44 +30,31 @@ impl GraphApp {
                 ctx.memory_mut(|m| m.request_focus(text_edit_id));
             }
 
-            let desired_rows = text_body.split('\n').count().max(1);
-            let mut text_ui = ui.new_child(
-                egui::UiBuilder::new()
-                    .max_rect(edit_rect)
-                    .layout(Layout::top_down(Align::Min)),
+            let output = show_canvas_multiline_editor(
+                ui,
+                edit_rect,
+                ("text-node-editor-scroll", id),
+                text_edit_id,
+                text_body,
+                FontId::proportional(15.0 * self.zoom),
+                text_color,
+                Some((Color32::from_rgb(24, 22, 24), Color32::from_rgb(12, 12, 14))),
+                None,
+                |_| GutterLine {
+                    line: 0,
+                    marker: "",
+                    color: Color32::TRANSPARENT,
+                },
+                None,
             );
-            text_ui.set_clip_rect(edit_rect);
+            let resp = output.response;
+            if output.pointer_over_editor {
+                self.context_menu_local_pos = None;
+                self.context_menu_node = None;
+                self.context_menu_edge = None;
+                self.context_menu_open = false;
 
-            {
-                let style = text_ui.style_mut();
-                let scrollbar_bg = Color32::from_rgb(0, 0, 0);
-                let scrollbar_fg = Color32::from_rgb(255, 255, 255);
-                style.visuals.extreme_bg_color = scrollbar_bg;
-                style.visuals.faint_bg_color = scrollbar_bg;
-                style.spacing.scroll.foreground_color = true;
-                style.visuals.widgets.inactive.fg_stroke.color = scrollbar_fg;
-                style.visuals.widgets.hovered.fg_stroke.color = scrollbar_fg;
-                style.visuals.widgets.active.fg_stroke.color = scrollbar_fg;
-                style.visuals.widgets.open.fg_stroke.color = scrollbar_fg;
             }
-
-            let resp = egui::ScrollArea::vertical()
-                .id_salt(("text-node-editor-scroll", id))
-                .auto_shrink([false, false])
-                .show(&mut text_ui, |ui| {
-                    ui.set_width(edit_rect.width());
-                    ui.add(
-                        TextEdit::multiline(text_body)
-                            .id(text_edit_id)
-                            .font(FontId::proportional(15.0 * self.zoom))
-                            .text_color(text_color)
-                            .margin(egui::Margin::ZERO)
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(desired_rows)
-                            .frame(false),
-                    )
-                })
-                .inner;
 
             if should_focus_and_select_all {
                 if let Some(mut state) = egui::TextEdit::load_state(ctx, text_edit_id) {
@@ -774,105 +762,77 @@ impl GraphApp {
             ctx.memory_mut(|m| m.request_focus(edit_id));
         }
 
-        let mut editor_ui = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(edit_rect)
-                .layout(Layout::top_down(Align::Min)),
-        );
-        editor_ui.set_clip_rect(edit_rect);
-
-        {
-            let style = editor_ui.style_mut();
-            style.visuals.extreme_bg_color = Color32::from_rgb(20, 22, 34);
-            style.visuals.faint_bg_color = Color32::from_rgb(20, 22, 34);
-            style.spacing.scroll.foreground_color = true;
-        }
-
         let font_size = (12.0 * self.zoom).round().max(9.0);
-        let line_h = (font_size * 1.35).max(16.0);
-        let gutter_w = (52.0 * self.zoom).clamp(42.0, 70.0);
-        let hl_font = FontId::monospace(font_size);
         let line_count = self.script_edit_buffer.lines().count().max(1);
+        let digit_count = line_count.to_string().len().max(2) as f32;
+        let gutter_w = ((digit_count + 2.0) * font_size * 0.62 + 8.0 * self.zoom)
+            .clamp(30.0, 72.0);
+        let hl_font = FontId::monospace(font_size);
         let pause_line = self.script_lua_pause_line.get(&id).copied();
         let breakpoints = self.script_lua_breakpoints.get(&id).cloned().unwrap_or_default();
+        let layouter_font = hl_font.clone();
+        let mut layouter = |ui: &egui::Ui, text: &str, wrap_width: f32| {
+            let mut job = super::canvas_nodes_render::highlight_lua(text, layouter_font.clone());
+            job.wrap.max_width = wrap_width;
+            ui.fonts(|f| f.layout_job(job))
+        };
 
-        let resp = egui::ScrollArea::vertical()
-            .id_salt(("script-node-scroll", id))
-            .auto_shrink([false, false])
-            .show(&mut editor_ui, |ui| {
-                ui.set_width(edit_rect.width());
-                ui.horizontal_top(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
+        let output = show_canvas_multiline_editor(
+            ui,
+            edit_rect,
+            ("script-node-scroll", id),
+            edit_id,
+            &mut self.script_edit_buffer,
+            hl_font,
+            Color32::from_rgb(200, 210, 230),
+            Some((Color32::from_rgb(22, 24, 36), Color32::from_rgb(16, 18, 28))),
+            Some(gutter_w),
+            |line| {
+                let line_i32 = line as i32;
+                let has_bp = breakpoints.contains(&line_i32);
+                let is_pause = pause_line == Some(line_i32);
+                let marker = if is_pause {
+                    "▶"
+                } else if has_bp {
+                    "●"
+                } else {
+                    ""
+                };
+                let color = if is_pause {
+                    Color32::from_rgb(245, 205, 95)
+                } else if has_bp {
+                    Color32::from_rgb(240, 95, 105)
+                } else {
+                    Color32::from_rgb(100, 115, 145)
+                };
+                GutterLine { line, marker, color }
+            },
+            Some(&mut layouter),
+        );
+        let resp = output.response;
+        if output.pointer_over_editor {
+            self.context_menu_local_pos = None;
+            self.context_menu_node = None;
+            self.context_menu_edge = None;
+            self.context_menu_open = false;
 
-                    ui.vertical(|ui| {
-                        ui.set_width(gutter_w);
-                        ui.add_space(6.0);
-                        for line in 1..=line_count {
-                            let line_i32 = line as i32;
-                            let has_bp = breakpoints.contains(&line_i32);
-                            let is_pause = pause_line == Some(line_i32);
-                            let marker = if is_pause {
-                                "▶"
-                            } else if has_bp {
-                                "●"
-                            } else {
-                                ""
-                            };
-                            let marker_color = if is_pause {
-                                Color32::from_rgb(245, 205, 95)
-                            } else if has_bp {
-                                Color32::from_rgb(240, 95, 105)
-                            } else {
-                                Color32::from_rgb(100, 115, 145)
-                            };
-                            let label = format!("{:>3} {marker}", line);
-                            let text = egui::RichText::new(label)
-                                .monospace()
-                                .size(font_size)
-                                .color(marker_color);
-                            let response = ui.add_sized(
-                                vec2(gutter_w, line_h),
-                                egui::Label::new(text).sense(egui::Sense::click()),
-                            );
-                            if response.clicked() {
-                                let set = self.script_lua_breakpoints.entry(id).or_default();
-                                let enable = !set.contains(&line_i32);
-                                if enable {
-                                    set.insert(line_i32);
-                                } else {
-                                    set.remove(&line_i32);
-                                }
-                                if let Some(rt) = self.script_lua_runtimes.get_mut(&id) {
-                                    let _ = rt.set_breakpoint(line_i32, enable);
-                                }
-                                self.mark_workspace_dirty();
-                                ctx.request_repaint();
-                            }
-                        }
-                    });
+        }
 
-                    let editor_w = (edit_rect.width() - gutter_w).max(120.0);
-                    ui.add_sized(
-                        vec2(editor_w, edit_rect.height()),
-                        TextEdit::multiline(&mut self.script_edit_buffer)
-                            .id(edit_id)
-                            .font(hl_font.clone())
-                            .text_color(Color32::from_rgb(200, 210, 230))
-                            .background_color(Color32::from_rgb(20, 22, 34))
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(line_count.max(10))
-                            .frame(true)
-                            .layouter(&mut |ui: &egui::Ui, text: &str, wrap_width: f32| {
-                                let mut job =
-                                    super::canvas_nodes_render::highlight_lua(text, hl_font.clone());
-                                job.wrap.max_width = wrap_width;
-                                ui.fonts(|f| f.layout_job(job))
-                            }),
-                    )
-                })
-                .inner
-            })
-            .inner;
+        if let Some(line) = output.gutter_clicked_line {
+            let line_i32 = line as i32;
+            let set = self.script_lua_breakpoints.entry(id).or_default();
+            let enable = !set.contains(&line_i32);
+            if enable {
+                set.insert(line_i32);
+            } else {
+                set.remove(&line_i32);
+            }
+            if let Some(rt) = self.script_lua_runtimes.get_mut(&id) {
+                let _ = rt.set_breakpoint(line_i32, enable);
+            }
+            self.mark_workspace_dirty();
+            ctx.request_repaint();
+        }
 
         if should_focus {
             self.pending_script_focus = None;
