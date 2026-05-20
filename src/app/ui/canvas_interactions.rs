@@ -82,18 +82,10 @@ impl GraphApp {
             let node_rect =
                 self.world_to_screen_rect(rect, Rect::from_min_size(node.pos, node.size));
             let handle_size = 18.0 * self.zoom.clamp(0.75, 1.6);
-            let handle_rect = if false {
-                // Draw handle outside the node to avoid conflict with live webview
-                Rect::from_min_size(
-                    node_rect.right_bottom() + vec2(2.0, 2.0),
-                    vec2(handle_size + 6.0, handle_size + 6.0),
-                )
-            } else {
-                Rect::from_min_size(
-                    node_rect.right_bottom() - vec2(handle_size + 6.0, handle_size + 6.0),
-                    vec2(handle_size + 6.0, handle_size + 6.0),
-                )
-            };
+            let handle_rect = Rect::from_min_size(
+                node_rect.right_bottom() - vec2(handle_size, handle_size),
+                vec2(handle_size + 6.0, handle_size + 6.0),
+            );
             if handle_rect.contains(pointer) {
                 let local = self.screen_to_world_pos(rect, pointer);
                 Some((selected_id, local, node.size))

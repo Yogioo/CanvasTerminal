@@ -119,6 +119,27 @@ pub(super) fn highlight_lua(text: &str, font: FontId) -> LayoutJob {
 }
 
 impl GraphApp {
+    fn draw_resize_handle(painter: &Painter, node_rect: Rect, zoom_scale: f32, color: Color32) {
+        let scale = zoom_scale.clamp(0.75, 1.6);
+        let handle_size = 14.0 * scale;
+        let handle_rect = Rect::from_min_size(
+            node_rect.right_bottom() - vec2(handle_size, handle_size),
+            vec2(handle_size, handle_size),
+        );
+
+        for offset in [5.0, 8.0, 11.0] {
+            let start = Pos2::new(
+                handle_rect.right() - offset * scale,
+                handle_rect.bottom() - 3.0 * scale,
+            );
+            let end = Pos2::new(
+                handle_rect.right() - 3.0 * scale,
+                handle_rect.bottom() - offset * scale,
+            );
+            painter.line_segment([start, end], Stroke::new(1.35 * scale, color));
+        }
+    }
+
     pub(in crate::app::ui) fn draw_nodes(
         &mut self,
         ui: &mut egui::Ui,
@@ -423,12 +444,12 @@ impl GraphApp {
                     }
 
                     if is_selected {
-                        let handle_size = 12.0 * zoom_scale.clamp(0.75, 1.6);
-                        let handle_rect = Rect::from_min_size(
-                            node_rect.right_bottom() - vec2(handle_size + 6.0, handle_size + 6.0),
-                            vec2(handle_size, handle_size),
+                        Self::draw_resize_handle(
+                            painter,
+                            node_rect,
+                            zoom_scale,
+                            Color32::from_rgb(205, 195, 255),
                         );
-                        painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(205, 195, 255));
                     }
                 }
                 NodeKind::Text => {
@@ -536,12 +557,12 @@ impl GraphApp {
                     }
 
                     if is_selected {
-                        let handle_size = 12.0 * zoom_scale.clamp(0.75, 1.6);
-                        let handle_rect = Rect::from_min_size(
-                            node_rect.right_bottom() - vec2(handle_size + 6.0, handle_size + 6.0),
-                            vec2(handle_size, handle_size),
+                        Self::draw_resize_handle(
+                            painter,
+                            node_rect,
+                            zoom_scale,
+                            Color32::from_rgb(255, 220, 130),
                         );
-                        painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(255, 220, 130));
                     }
                 }
                 NodeKind::Decision => {
@@ -773,12 +794,12 @@ impl GraphApp {
                     }
 
                     if is_selected {
-                        let handle_size = 12.0 * zoom_scale.clamp(0.75, 1.6);
-                        let handle_rect = Rect::from_min_size(
-                            node_rect.right_bottom() - vec2(handle_size + 6.0, handle_size + 6.0),
-                            vec2(handle_size, handle_size),
+                        Self::draw_resize_handle(
+                            painter,
+                            node_rect,
+                            zoom_scale,
+                            Color32::from_rgb(168, 236, 188),
                         );
-                        painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(168, 236, 188));
                     }
                 }
                 NodeKind::Image => {
@@ -808,12 +829,12 @@ impl GraphApp {
                     }
 
                     if is_selected {
-                        let handle_size = 12.0 * zoom_scale.clamp(0.75, 1.6);
-                        let handle_rect = Rect::from_min_size(
-                            node_rect.right_bottom() - vec2(handle_size + 6.0, handle_size + 6.0),
-                            vec2(handle_size, handle_size),
+                        Self::draw_resize_handle(
+                            painter,
+                            node_rect,
+                            zoom_scale,
+                            Color32::from_rgb(175, 230, 240),
                         );
-                        painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(175, 230, 240));
                     }
                 }
                 NodeKind::Script => {
@@ -1473,12 +1494,12 @@ impl GraphApp {
         }
 
         if is_selected {
-            let handle_size = 12.0 * zoom_scale.clamp(0.75, 1.6);
-            let handle_rect = Rect::from_min_size(
-                node_rect.right_bottom() - vec2(handle_size + 6.0, handle_size + 6.0),
-                vec2(handle_size, handle_size),
+            Self::draw_resize_handle(
+                painter,
+                node_rect,
+                zoom_scale,
+                Color32::from_rgb(200, 140, 255),
             );
-            painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(200, 140, 255));
         }
 
         (title_edit_rect, script_edit_rect)
