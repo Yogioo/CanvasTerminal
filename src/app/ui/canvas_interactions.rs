@@ -507,6 +507,8 @@ impl GraphApp {
         }
 
         if secondary_released {
+            let had_link_gesture = self.linking_from.is_some();
+
             if let Some(from) = self.linking_from {
                 if let Some(pointer_pos) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                     let local = self.screen_to_world_pos(rect, pointer_pos);
@@ -533,7 +535,7 @@ impl GraphApp {
                 self.cut_snapshot_nodes = None;
                 self.cut_snapshot_edges = None;
 
-                if !is_panning && !pointer_over_terminal_content {
+                if !had_link_gesture && !is_panning && !pointer_over_terminal_content {
                     if let Some(pointer_pos) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                         let local = self.screen_to_world_pos(rect, pointer_pos);
                         let alt_passthrough = ctx.input(|i| i.modifiers.alt);
