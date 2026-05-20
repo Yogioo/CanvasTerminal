@@ -485,24 +485,6 @@ impl GraphApp {
 
     // ── Script node queue helpers (mirrors Decision's enqueue/consume pattern) ──
 
-    /// Get queue info for a Script node: (len, first_message_or_empty)
-    pub(in crate::app) fn script_pending_queue_info(&self, node_id: usize) -> (usize, String) {
-        self.nodes
-            .iter()
-            .find(|n| n.id == node_id)
-            .and_then(|n| match &n.data {
-                NodeData::Script { pending_messages, .. } => {
-                    let first = pending_messages
-                        .first()
-                        .cloned()
-                        .unwrap_or_default();
-                    Some((pending_messages.len(), first))
-                }
-                _ => None,
-            })
-            .unwrap_or((0, String::new()))
-    }
-
     /// Consume messages from Script node queue and forward to downstream edges
     /// matching `event_key` as route_key. Returns number of messages forwarded.
     #[allow(dead_code)]

@@ -17,7 +17,7 @@ const RAINBOW: [Color32; 6] = [
 ];
 
 /// Build a syntax-highlighted LayoutJob for Lua text.
-fn highlight_lua(text: &str, font: FontId) -> LayoutJob {
+pub(super) fn highlight_lua(text: &str, font: FontId) -> LayoutJob {
     let mut job = LayoutJob::default();
     let chars: Vec<(usize, char)> = text.char_indices().collect();
     let len = chars.len();
@@ -131,12 +131,14 @@ impl GraphApp {
         Option<(usize, Rect)>,
         Option<(usize, Rect)>,
         Option<(usize, Rect)>,
+        Option<(usize, Rect)>,
     ) {
         let mut text_edit_rect: Option<(usize, Rect)> = None;
         let mut title_edit_rect: Option<(usize, Rect)> = None;
         let mut startup_edit_rect: Option<(usize, Rect)> = None;
         let mut decision_edit_rect: Option<(usize, Rect)> = None;
         let mut working_directory_edit_rect: Option<(usize, Rect)> = None;
+        let mut script_edit_rect: Option<(usize, Rect)> = None;
         let mut render_nodes = self.nodes.clone();
         render_nodes.sort_by_key(|node| usize::from(node.kind != NodeKind::Group));
         for node in &render_nodes {
@@ -815,7 +817,7 @@ impl GraphApp {
                     }
                 }
                 NodeKind::Script => {
-                    let script_title_rect = self.draw_script_node_body(
+                    let (script_title_rect, script_code_rect) = self.draw_script_node_body(
                         painter,
                         node_rect,
                         zoom_scale,
@@ -828,6 +830,9 @@ impl GraphApp {
                     );
                     if let Some(rect) = script_title_rect {
                         title_edit_rect = Some(rect);
+                    }
+                    if let Some(rect) = script_code_rect {
+                        script_edit_rect = Some(rect);
                     }
                 }
                 NodeKind::Group => {
@@ -871,6 +876,7 @@ impl GraphApp {
             startup_edit_rect,
             decision_edit_rect,
             working_directory_edit_rect,
+            script_edit_rect,
         )
     }
 
@@ -888,8 +894,9 @@ impl GraphApp {
         ctx: &egui::Context,
         node: &crate::model::Node,
         is_selected: bool,
-    ) -> Option<(usize, Rect)> {
+    ) -> (Option<(usize, Rect)>, Option<(usize, Rect)>) {
         let mut title_edit_rect: Option<(usize, Rect)> = None;
+        let mut script_edit_rect: Option<(usize, Rect)> = None;
 
         painter.rect_stroke(
             node_rect,
@@ -1001,61 +1008,7 @@ impl GraphApp {
             let is_editing = self.editing_script_node == Some(node.id);
 
             if is_editing {
-                // Show JSON editor area
-                let scroll_id = egui::Id::new(("script-node-scroll", node.id));
-                let mut editor_ui = ui.new_child(
-                    egui::UiBuilder::new()
-                        .max_rect(content_rect)
-                        .layout(Layout::top_down(Align::Min)),
-                );
-                editor_ui.set_clip_rect(content_rect);
-
-                // Track whether the text editor lost focus this frame
-                let mut focus_lost = false;
-
-                egui::ScrollArea::vertical()
-                    .id_salt(scroll_id)
-                    .auto_shrink([false, false])
-                    .show(&mut editor_ui, |ui| {
-                        ui.set_width(content_rect.width());
-                        let edit_id = egui::Id::new(("script-node-editor", node.id));
-                        let font_size = (12.0 * zoom_scale).round().max(9.0);
-                        let hl_font = FontId::monospace(font_size);
-                        let resp = ui.add_sized(
-                            vec2(content_rect.width(), content_rect.height()),
-                            egui::TextEdit::multiline(&mut self.script_edit_buffer)
-                                .id(edit_id)
-                                .font(hl_font.clone())
-                                .text_color(Color32::from_rgb(200, 210, 230))
-                                .background_color(Color32::from_rgb(20, 22, 34))
-                                .desired_width(f32::INFINITY)
-                                .desired_rows(10)
-                                .frame(true)
-                                .layouter(&mut |ui: &egui::Ui, text: &str, wrap_width: f32| {
-                                    let mut job = highlight_lua(text, hl_font.clone());
-                                    job.wrap.max_width = wrap_width;
-                                    ui.fonts(|f| f.layout_job(job))
-                                }),
-                        );
-
-                        if self.pending_script_focus == Some(node.id) {
-                            ctx.memory_mut(|m| m.request_focus(edit_id));
-                            self.pending_script_focus = None;
-                        }
-
-                        if resp.changed() {
-                            self.mark_workspace_dirty();
-                        }
-
-                        // Auto-save when text editor loses focus (clicked elsewhere)
-                        if resp.lost_focus() {
-                            focus_lost = true;
-                        }
-                    });
-
-                if focus_lost {
-                    self.commit_script_edit(node.id);
-                }
+                script_edit_rect = Some((node.id, content_rect));
             } else {
                 let zoom = zoom_scale;
 
@@ -1065,7 +1018,6 @@ impl GraphApp {
                     vec2(content_rect.width(), toolbar_h),
                 );
                 let mut deferred_review = false;
-                let (queue_len, _queue_first) = self.script_pending_queue_info(node.id);
                 if toolbar_rect.is_positive() {
                     ui.painter().rect_filled(
                         toolbar_rect,
@@ -1079,15 +1031,6 @@ impl GraphApp {
                         ],
                         Stroke::new(1.0, Color32::from_rgba_premultiplied(130, 108, 170, 60)),
                     );
-                    let label = format!("  待处理: {queue_len} 条");
-                    ui.painter().text(
-                        Pos2::new(toolbar_rect.left() + 8.0 * zoom, toolbar_rect.top() + 12.0 * zoom),
-                        Align2::LEFT_CENTER,
-                        label,
-                        FontId::proportional((13.0 * zoom).max(9.0)),
-                        Color32::from_rgb(205, 195, 230),
-                    );
-
                     if let Some(line) = self.script_lua_pause_line.get(&node.id).copied() {
                         if line > 0 {
                             let pause_label = format!("暂停: 第 {line} 行");
@@ -1491,6 +1434,6 @@ impl GraphApp {
             painter.rect_filled(handle_rect, 2.0, Color32::from_rgb(200, 140, 255));
         }
 
-        title_edit_rect
+        (title_edit_rect, script_edit_rect)
     }
 }

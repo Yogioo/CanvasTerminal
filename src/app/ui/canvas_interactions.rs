@@ -130,6 +130,7 @@ impl GraphApp {
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()
+            && self.editing_script_node.is_none()
             && primary_clicked
             && ctx.input(|i| i.modifiers.alt)
         {
@@ -157,6 +158,7 @@ impl GraphApp {
             && self.editing_title_node.is_none()
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()
+            && self.editing_script_node.is_none()
             && primary_pressed
             && !pointer_in_window_resize_strip
         {

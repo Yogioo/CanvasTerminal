@@ -444,6 +444,7 @@ impl GraphApp {
             startup_edit_rect,
             decision_edit_rect,
             working_directory_edit_rect,
+            script_edit_rect,
         ) = self.draw_nodes(ui, ctx, &painter, rect);
         self.draw_selected_edge_controls_overlay(&painter, rect);
         self.handle_text_node_editor(ui, ctx, text_edit_rect);
@@ -464,6 +465,7 @@ impl GraphApp {
             primary_clicked,
             pointer_pos,
         );
+        self.handle_script_code_editor(ui, ctx, script_edit_rect);
         self.handle_decision_queue_editor(ctx);
         self.handle_script_queue_editor(ctx);
         if alt_passthrough && !self.selected_nodes.is_empty() {
@@ -485,7 +487,19 @@ impl GraphApp {
             }
         }
 
-        if !is_panning && self.resizing.is_none() && resize_handle_hit.is_none() {
+        let any_inline_editor_open = self.editing_text_node.is_some()
+            || self.editing_title_node.is_some()
+            || self.editing_startup_node.is_some()
+            || self.editing_working_directory_node.is_some()
+            || self.editing_script_node.is_some()
+            || self.editing_decision_buttons_node.is_some()
+            || self.editing_edge.is_some();
+
+        if !any_inline_editor_open
+            && !is_panning
+            && self.resizing.is_none()
+            && resize_handle_hit.is_none()
+        {
             if let Some(pos) = response.hover_pos() {
                 let local = self.screen_to_world_pos(rect, pos);
                 if is_space_down && response.hovered() {

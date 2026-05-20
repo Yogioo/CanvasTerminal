@@ -127,10 +127,12 @@ impl GraphApp {
     ) {
         egui::Area::new("window_drag_bar_overlay".into())
             .order(egui::Order::Foreground)
+            .interactable(true)
             .fixed_pos(screen_rect.min)
             .show(ctx, |ui| {
-                ui.set_min_size(screen_rect.size());
-
+                // Keep the foreground overlay as small as possible.
+                // A full-window foreground Area can interfere with mouse hit-testing
+                // for canvas editors below it (TextEdit hover, drag-select, scrollbars).
                 let bar_height = 28.0;
                 let bar_rect = Rect::from_min_max(
                     screen_rect.min,

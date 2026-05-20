@@ -758,6 +758,80 @@ impl GraphApp {
         }
     }
 
+    pub(in crate::app::ui) fn handle_script_code_editor(
+        &mut self,
+        ui: &mut Ui,
+        ctx: &egui::Context,
+        script_edit_rect: Option<(usize, Rect)>,
+    ) {
+        let Some((id, edit_rect)) = script_edit_rect else {
+            return;
+        };
+
+        let edit_id = egui::Id::new(("script-node-editor", id));
+        let should_focus = self.pending_script_focus == Some(id);
+        if should_focus {
+            ctx.memory_mut(|m| m.request_focus(edit_id));
+        }
+
+        let mut editor_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(edit_rect)
+                .layout(Layout::top_down(Align::Min)),
+        );
+        editor_ui.set_clip_rect(edit_rect);
+
+        {
+            let style = editor_ui.style_mut();
+            style.visuals.extreme_bg_color = Color32::from_rgb(20, 22, 34);
+            style.visuals.faint_bg_color = Color32::from_rgb(20, 22, 34);
+            style.spacing.scroll.foreground_color = true;
+        }
+
+        let font_size = (12.0 * self.zoom).round().max(9.0);
+        let hl_font = FontId::monospace(font_size);
+        let resp = egui::ScrollArea::vertical()
+            .id_salt(("script-node-scroll", id))
+            .auto_shrink([false, false])
+            .show(&mut editor_ui, |ui| {
+                ui.set_width(edit_rect.width());
+                ui.add_sized(
+                    vec2(edit_rect.width(), edit_rect.height()),
+                    TextEdit::multiline(&mut self.script_edit_buffer)
+                        .id(edit_id)
+                        .font(hl_font.clone())
+                        .text_color(Color32::from_rgb(200, 210, 230))
+                        .background_color(Color32::from_rgb(20, 22, 34))
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(10)
+                        .frame(true)
+                        .layouter(&mut |ui: &egui::Ui, text: &str, wrap_width: f32| {
+                            let mut job =
+                                super::canvas_nodes_render::highlight_lua(text, hl_font.clone());
+                            job.wrap.max_width = wrap_width;
+                            ui.fonts(|f| f.layout_job(job))
+                        }),
+                )
+            })
+            .inner;
+
+        if should_focus {
+            self.pending_script_focus = None;
+        }
+
+        if resp.changed() {
+            self.mark_workspace_dirty();
+        }
+
+        if resp.lost_focus() {
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.cancel_script_edit();
+            } else {
+                self.commit_script_edit(id);
+            }
+        }
+    }
+
     pub(in crate::app::ui) fn handle_script_queue_editor(&mut self, ctx: &egui::Context) {
         let Some(node_id) = self.editing_script_queue_node else {
             return;
