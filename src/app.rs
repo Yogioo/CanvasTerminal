@@ -177,6 +177,14 @@ pub struct GraphApp {
     script_lua_next_repaint_after: Option<f64>,
     /// Per-node Lua runtime/render error text
     script_lua_errors: HashMap<usize, String>,
+    /// Per-node Lua breakpoints (line based)
+    script_lua_breakpoints: HashMap<usize, std::collections::HashSet<i32>>,
+    /// Per-node latest debug pause line
+    script_lua_pause_line: HashMap<usize, i32>,
+    /// Per-node latest debug variable snapshot
+    script_lua_debug_vars: HashMap<usize, String>,
+    /// Per-node breakpoint line input buffer
+    script_lua_breakpoint_input: HashMap<usize, String>,
     /// Id counter for script widget interaction IDs (resets each frame)
     script_widget_id_counter: u64,
     suspend_terminal_focus: Option<usize>,
@@ -315,6 +323,10 @@ impl GraphApp {
             script_lua_timer_accum: std::collections::HashMap::new(),
             script_lua_next_repaint_after: None,
             script_lua_errors: std::collections::HashMap::new(),
+            script_lua_breakpoints: std::collections::HashMap::new(),
+            script_lua_pause_line: std::collections::HashMap::new(),
+            script_lua_debug_vars: std::collections::HashMap::new(),
+            script_lua_breakpoint_input: std::collections::HashMap::new(),
             script_widget_id_counter: 0,
             suspend_terminal_focus: None,
             resizing: None,

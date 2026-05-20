@@ -132,22 +132,56 @@
   - 失败原因：端口占用 `os error 10048`（环境/端口冲突，非 Script 节点改动引入）
 
 ### 待办补充
-- [ ] 稳定化 event_server 测试端口分配（避免固定端口冲突）
-  - [ ] 改为动态端口/随机可用端口
-  - [ ] 清理测试生命周期中的端口释放竞态
-  - [ ] 目标：`cargo test --all` 全绿
+- [x] 稳定化 event_server 测试端口分配（避免固定端口冲突）
+  - [x] 改为动态端口/随机可用端口
+  - [x] 清理测试生命周期中的端口释放竞态
+  - [x] 目标：`cargo test --all` 全绿
+
+### event_server 稳定化完成备注（2026-05-20）
+- `start_event_server` 抽出可传入地址版本：`start_event_server_with_addr(bind_addr)`
+- 测试不再绑定固定 `127.0.0.1:4545`，改为临时端口（`127.0.0.1:0` 分配）
+- 测试请求 URL 改为基于实际端口动态构造
+- 验证：`cargo test --all -- --nocapture` 全绿
 
 ## 🟢 后续计划（已确认范围，2026-05-19）
 
 - [x] 代码片段库：内置更多模板（仪表盘、定时器、表单等）**暂不扩展（按当前需求冻结）**
-- [ ] Lua 调试器：断点/单步/变量查看（MVP）
-  - [ ] 行号断点（基础断点增删 + 命中暂停）
-  - [ ] 单步执行（Step Into）
-  - [ ] 变量查看（先支持全局表 + state）
-- [ ] 在画布上显示 Lua 节点运行状态（running/frozen/error）
-  - [ ] 增加节点运行态：Idle / Running / Frozen / Error
-  - [ ] 复用超时/指令预算中断逻辑映射 Frozen
-  - [ ] 节点 UI 状态徽标（颜色区分）
+- [x] Lua 调试器：断点/单步/变量查看（MVP）
+  - [x] 行号断点（基础断点增删 + 命中暂停）
+  - [x] 单步执行（Step Into）
+  - [x] 变量查看（先支持全局表 + state）
+
+### Lua 调试器 MVP 完成备注（2026-05-20）
+- 断点能力
+  - 支持按行号增删断点（输入行号回车切换）
+  - 断点命中后暂停，并记录暂停行号
+  - runtime 重建后自动恢复断点集合
+- 单步能力
+  - 支持 Step Into（下一可执行行暂停）
+- 变量查看
+  - 提供 `globals + state` 变量快照
+  - 过滤内部噪声全局（如 `__*`、标准库表）
+  - 支持 table 递归展开（含深度上限保护）
+- 画布 UI
+  - Script 节点工具栏新增：`Step`、断点输入、`清空BP`
+  - 显示断点列表摘要（`BP: ...`）与暂停行号
+  - Debug 变量面板支持“一键复制变量快照”
+- 验证
+  - 新增测试：`src/script_node/lua/tests/feature_debug.rs`
+  - 覆盖断点命中、Step Into、变量快照 3 个场景并通过
+- [x] 在画布上显示 Lua 节点运行状态（running/frozen/error）
+  - [x] 增加节点运行态：Idle / Running / Frozen / Error
+  - [x] 复用超时/指令预算中断逻辑映射 Frozen
+  - [x] 节点 UI 状态徽标（颜色区分）
+
+### 运行状态可视化完成备注（2026-05-20）
+- Script 节点头部新增状态徽标：`Idle / Running / Frozen / Error`
+- 状态判定规则：
+  - `Frozen`：错误文本命中 `HookError / instruction / timeout`
+  - `Error`：存在其它运行错误
+  - `Running`：runtime 存在且 timer interval > 0
+  - `Idle`：其余情况
+- UI：颜色区分状态并放置于 Script 节点标题栏右侧
 
 ### 说明
 - 本轮不做：条件断点、调用栈窗口、表达式求值、代码片段库扩展。

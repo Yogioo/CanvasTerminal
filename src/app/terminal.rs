@@ -343,6 +343,13 @@ impl GraphApp {
                 tagged
             })?;
         self.script_lua_runtimes.insert(node_id, rt);
+        if let Some(bp_set) = self.script_lua_breakpoints.get(&node_id).cloned() {
+            if let Some(rt) = self.script_lua_runtimes.get_mut(&node_id) {
+                for line in bp_set {
+                    let _ = rt.set_breakpoint(line, true);
+                }
+            }
+        }
         self.script_lua_timer_accum.entry(node_id).or_insert(0.0);
         self.script_lua_errors.remove(&node_id);
         Ok(())

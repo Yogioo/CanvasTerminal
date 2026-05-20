@@ -667,6 +667,10 @@ impl GraphApp {
         self.script_lua_runtimes.remove(&node_id);
         self.script_lua_timer_accum.remove(&node_id);
         self.script_lua_errors.remove(&node_id);
+        self.script_lua_breakpoints.remove(&node_id);
+        self.script_lua_pause_line.remove(&node_id);
+        self.script_lua_debug_vars.remove(&node_id);
+        self.script_lua_breakpoint_input.remove(&node_id);
 
         if self
             .editing_edge

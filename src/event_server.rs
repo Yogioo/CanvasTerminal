@@ -66,9 +66,8 @@ fn respond_automation_json(request: tiny_http::Request, response_json: String) {
     let _ = request.respond(response);
 }
 
-pub fn start_event_server() -> Result<mpsc::Receiver<AppEvent>, String> {
-    let server =
-        Server::http(DEFAULT_CANVAS_BIND_ADDR).map_err(|e| format!("事件服务启动失败: {e}"))?;
+fn start_event_server_with_addr(bind_addr: &str) -> Result<mpsc::Receiver<AppEvent>, String> {
+    let server = Server::http(bind_addr).map_err(|e| format!("事件服务启动失败: {e}"))?;
     let (tx, rx) = mpsc::channel();
 
     thread::Builder::new()
@@ -142,11 +141,16 @@ pub fn start_event_server() -> Result<mpsc::Receiver<AppEvent>, String> {
     Ok(rx)
 }
 
+pub fn start_event_server() -> Result<mpsc::Receiver<AppEvent>, String> {
+    start_event_server_with_addr(DEFAULT_CANVAS_BIND_ADDR)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::event_protocol::{empty_diagnostics, AutomationError, AutomationResponse};
     use serde_json::Value;
+    use std::net::TcpListener;
     use std::sync::mpsc::{self, Receiver};
     use std::thread;
     use std::time::{Duration, Instant};
@@ -223,16 +227,18 @@ mod tests {
         );
     }
 
+    fn allocate_test_bind_addr() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral test port");
+        let addr = listener.local_addr().expect("read local addr");
+        format!("127.0.0.1:{}", addr.port())
+    }
+
     #[test]
     fn event_server_metrics_get_and_automation_error_paths() {
-        let rx = match start_event_server() {
-            Ok(rx) => rx,
-            Err(err) if err.contains("Address already in use") => {
-                eprintln!("skip event_server_metrics test: {err}");
-                return;
-            }
-            Err(err) => panic!("start_event_server failed: {err}"),
-        };
+        let bind_addr = allocate_test_bind_addr();
+        let base_url = format!("http://{bind_addr}");
+        let rx = start_event_server_with_addr(&bind_addr)
+            .unwrap_or_else(|err| panic!("start_event_server failed at {bind_addr}: {err}"));
 
         let (done_tx, done_rx) = mpsc::channel();
         thread::spawn(move || {
@@ -270,7 +276,8 @@ mod tests {
             done_tx.send(()).expect("notify done");
         });
 
-        let metrics_response: Value = ureq::get("http://127.0.0.1:4545/automation/metrics")
+        let metrics_url = format!("{base_url}/automation/metrics");
+        let metrics_response: Value = ureq::get(&metrics_url)
             .call()
             .expect("GET /automation/metrics should succeed")
             .into_json()
@@ -290,7 +297,8 @@ mod tests {
             Some(&Value::Null)
         );
 
-        let bad_payload_response: Value = ureq::post("http://127.0.0.1:4545/automation")
+        let automation_url = format!("{base_url}/automation");
+        let bad_payload_response: Value = ureq::post(&automation_url)
             .send_string("{\"action\":\"node.create\",\"payload\":\"oops\"}")
             .expect("POST /automation should return JSON envelope")
             .into_json()
@@ -304,7 +312,7 @@ mod tests {
             Some("BAD_PAYLOAD")
         );
 
-        let malformed_response: Value = ureq::post("http://127.0.0.1:4545/automation")
+        let malformed_response: Value = ureq::post(&automation_url)
             .send_string("{not-json}")
             .expect("malformed POST /automation should return BAD_REQUEST JSON")
             .into_json()

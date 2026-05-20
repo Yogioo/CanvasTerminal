@@ -87,15 +87,31 @@ pub fn setup_sandbox(lua: &Lua) -> mlua::Result<()> {
     let budget = Rc::new(Cell::new(MAX_INSTRUCTIONS_PER_CALL));
     let budget_for_hook = budget.clone();
     lua.set_hook(
-        HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STEP),
-        move |_lua, _debug| {
+        HookTriggers::new()
+            .every_line()
+            .every_nth_instruction(INSTRUCTION_HOOK_STEP),
+        move |lua, debug| {
             let remaining = budget_for_hook.get() - INSTRUCTION_HOOK_STEP as i64;
             budget_for_hook.set(remaining);
             if remaining <= 0 {
-                Err(mlua::Error::runtime("instruction budget exceeded"))
-            } else {
-                Ok(VmState::Continue)
+                return Err(mlua::Error::runtime("instruction budget exceeded"));
             }
+
+            let globals = lua.globals();
+            let step_mode = globals.get::<bool>("__debug_step").unwrap_or(false);
+            let breakpoints = globals.get::<mlua::Table>("__debug_breakpoints").ok();
+            let line = debug.current_line().unwrap_or(0);
+            let hit_breakpoint = breakpoints
+                .as_ref()
+                .and_then(|t| t.get::<bool>(line).ok())
+                .unwrap_or(false);
+            if (step_mode || hit_breakpoint) && line > 0 {
+                let _ = globals.set("__debug_step", false);
+                let _ = globals.set("__debug_pause_line", line);
+                return Err(mlua::Error::runtime(format!("debug breakpoint hit at line {}", line)));
+            }
+
+            Ok(VmState::Continue)
         },
     )?;
 
@@ -105,6 +121,9 @@ pub fn setup_sandbox(lua: &Lua) -> mlua::Result<()> {
         Ok(())
     })?;
     globals.set("__reset_instruction_budget", reset_budget_fn)?;
+    globals.set("__debug_step", false)?;
+    globals.set("__debug_pause_line", 0_i32)?;
+    globals.set("__debug_breakpoints", lua.create_table()?)?;
 
     // ── 7. 设置内存限制 ──
     let _ = lua.set_memory_limit(MEMORY_LIMIT);

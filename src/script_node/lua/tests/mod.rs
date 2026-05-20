@@ -46,6 +46,8 @@ pub mod feature_on_init;
 pub mod feature_timer;
 #[cfg(test)]
 pub mod feature_sandbox;
+#[cfg(test)]
+pub mod feature_debug;
 
 use std::collections::HashMap;
 use std::cell::RefCell;
