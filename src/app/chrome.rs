@@ -129,9 +129,7 @@ impl GraphApp {
             .order(egui::Order::Foreground)
             .fixed_pos(screen_rect.min)
             .show(ctx, |ui| {
-                let full_rect = Rect::from_min_size(screen_rect.min, screen_rect.size());
                 ui.set_min_size(screen_rect.size());
-                let _ = ui.allocate_rect(full_rect, egui::Sense::hover());
 
                 let bar_height = 28.0;
                 let bar_rect = Rect::from_min_max(

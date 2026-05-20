@@ -325,7 +325,7 @@ impl GraphApp {
             secondary_released,
         );
 
-        self.show_canvas_context_menu(&response, ctx);
+        self.show_canvas_context_menu(&response, ctx, rect);
 
         if !any_popup_open
             && !is_panning

@@ -473,7 +473,7 @@ impl GraphApp {
             self.cut_snapshot_nodes = None;
             self.cut_snapshot_edges = None;
 
-            if let Some(pointer_pos) = response.interact_pointer_pos() {
+            if let Some(pointer_pos) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                 let local = self.screen_to_world_pos(rect, pointer_pos);
                 let alt_passthrough = ctx.input(|i| i.modifiers.alt);
                 if let Some((id, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
@@ -489,13 +489,14 @@ impl GraphApp {
         }
 
         if secondary_down {
-            if let Some(pointer_pos) = response.interact_pointer_pos() {
+            if let Some(pointer_pos) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                 let local = self.screen_to_world_pos(rect, pointer_pos);
 
                 if self.linking_from.is_some() {
                     self.linking_pointer_local = Some(local);
                 } else if let Some(prev) = self.cutting_path_local.last().copied() {
-                    if prev.distance(local) > 0.8 {
+                    let right_drag_threshold_world = 6.0 / self.zoom.max(1e-4);
+                    if prev.distance(local) > right_drag_threshold_world {
                         self.right_drag_moved = true;
                         self.cut_edges_intersecting_segment(prev, local);
                         self.cut_nodes_intersecting_segment(prev, local);
@@ -507,7 +508,7 @@ impl GraphApp {
 
         if secondary_released {
             if let Some(from) = self.linking_from {
-                if let Some(pointer_pos) = response.interact_pointer_pos() {
+                if let Some(pointer_pos) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                     let local = self.screen_to_world_pos(rect, pointer_pos);
                     let alt_passthrough = ctx.input(|i| i.modifiers.alt);
                     if let Some((to, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
@@ -531,49 +532,44 @@ impl GraphApp {
             } else {
                 self.cut_snapshot_nodes = None;
                 self.cut_snapshot_edges = None;
+
+                if !is_panning && !pointer_over_terminal_content {
+                    if let Some(pointer_pos) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
+                        let local = self.screen_to_world_pos(rect, pointer_pos);
+                        let alt_passthrough = ctx.input(|i| i.modifiers.alt);
+                        let context_menu_node = self
+                            .find_node_at_with_alt(local, alt_passthrough)
+                            .map(|(id, _)| id);
+                        let context_menu_edge = if context_menu_node.is_none() {
+                            self.find_edge_at(local, edge_hit_tolerance)
+                        } else {
+                            None
+                        };
+
+                        self.context_menu_local_pos = Some(local);
+                        self.context_menu_node = context_menu_node;
+                        self.context_menu_edge = context_menu_edge;
+
+                        if let Some(node_id) = context_menu_node {
+                            if Some(node_id) != self.editing_text_node {
+                                self.editing_text_node = None;
+                            }
+                            self.set_single_selection(node_id);
+                        } else if let Some(edge) = context_menu_edge {
+                            self.editing_text_node = None;
+                            self.set_edge_selection(edge);
+                        } else {
+                            self.clear_selection();
+                            self.editing_text_node = None;
+                            self.pending_text_focus = None;
+                        }
+
+                        self.reset_menu_search_state(true);
+                    }
+                }
             }
 
             self.cutting_path_local.clear();
-        }
-
-        if !is_panning
-            && !pointer_over_terminal_content
-            && response.secondary_clicked()
-            && self.linking_from.is_none()
-            && !self.right_drag_moved
-        {
-            if let Some(pointer_pos) = response.interact_pointer_pos() {
-                let local = self.screen_to_world_pos(rect, pointer_pos);
-                let alt_passthrough = ctx.input(|i| i.modifiers.alt);
-                let context_menu_node = self
-                    .find_node_at_with_alt(local, alt_passthrough)
-                    .map(|(id, _)| id);
-                let context_menu_edge = if context_menu_node.is_none() {
-                    self.find_edge_at(local, edge_hit_tolerance)
-                } else {
-                    None
-                };
-
-                self.context_menu_local_pos = Some(local);
-                self.context_menu_node = context_menu_node;
-                self.context_menu_edge = context_menu_edge;
-
-                if let Some(node_id) = context_menu_node {
-                    if Some(node_id) != self.editing_text_node {
-                        self.editing_text_node = None;
-                    }
-                    self.set_single_selection(node_id);
-                } else if let Some(edge) = context_menu_edge {
-                    self.editing_text_node = None;
-                    self.set_edge_selection(edge);
-                } else {
-                    self.clear_selection();
-                    self.editing_text_node = None;
-                    self.pending_text_focus = None;
-                }
-
-                self.reset_menu_search_state(true);
-            }
         }
 
         (tolerant_double_click, resize_handle_hit)
