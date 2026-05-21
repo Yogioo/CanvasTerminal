@@ -1,6 +1,7 @@
 use super::canvas_multiline_editor::{show_canvas_multiline_editor, GutterLine};
 use super::super::GraphApp;
 use crate::model::NodeData;
+use arboard::Clipboard;
 use eframe::egui::{self, vec2, Align, Color32, FontId, Layout, Pos2, Rect, TextEdit, Ui};
 use egui_term::{TerminalFont, TerminalView};
 
@@ -30,6 +31,14 @@ impl GraphApp {
                 ctx.memory_mut(|m| m.request_focus(text_edit_id));
             }
 
+            let pre_edit_state = egui::TextEdit::load_state(ctx, text_edit_id);
+            let pre_edit_char_range = pre_edit_state.as_ref().and_then(|s| {
+                s.cursor.char_range().map(|r| {
+                    let a = r.primary.index;
+                    let b = r.secondary.index;
+                    if a <= b { a..b } else { b..a }
+                })
+            });
             let output = show_canvas_multiline_editor(
                 ui,
                 edit_rect,
@@ -67,6 +76,138 @@ impl GraphApp {
                     state.store(ctx, text_edit_id);
                 }
                 self.pending_text_focus = None;
+            }
+
+            if output.pointer_over_editor
+                && ctx.input(|i| {
+                    i.pointer.button_pressed(egui::PointerButton::Secondary)
+                        || i.pointer.button_down(egui::PointerButton::Secondary)
+                        || i.pointer.button_released(egui::PointerButton::Secondary)
+                })
+            {
+                if let Some(state) = pre_edit_state {
+                    state.store(ctx, text_edit_id);
+                }
+            }
+
+            if output.pointer_over_editor
+                && ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary))
+            {
+                self.text_context_menu_selection = pre_edit_char_range.clone().map(|r| (id, r));
+                self.text_context_menu_screen_pos = ctx.input(|i| {
+                    i.pointer
+                        .latest_pos()
+                        .or_else(|| i.pointer.interact_pos())
+                        .or_else(|| i.pointer.hover_pos())
+                });
+            }
+
+            let mut text_menu_changed = false;
+            let mut close_text_menu = false;
+            if let Some(screen_pos) = self.text_context_menu_screen_pos {
+                let char_to_byte = |s: &str, char_idx: usize| -> usize {
+                    s.char_indices()
+                        .nth(char_idx)
+                        .map(|(i, _)| i)
+                        .unwrap_or_else(|| s.len())
+                };
+                let saved_range = self
+                    .text_context_menu_selection
+                    .as_ref()
+                    .and_then(|(node_id, r)| (*node_id == id).then_some(r.clone()));
+                let has_selection = saved_range.as_ref().is_some_and(|r| r.start < r.end);
+                let mut copied_from_menu = false;
+
+                let area_out = egui::Area::new(egui::Id::new(("text-node-context-menu", id)))
+                    .order(egui::Order::Foreground)
+                    .fixed_pos(screen_pos + egui::vec2(6.0, 6.0))
+                    .show(ctx, |ui| {
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            if ui
+                                .add_enabled(has_selection, egui::Button::new("复制"))
+                                .clicked()
+                            {
+                                if let Some(r) = saved_range.as_ref().filter(|r| r.start < r.end) {
+                                    let start = char_to_byte(text_body, r.start);
+                                    let end = char_to_byte(text_body, r.end);
+                                    if start <= end && end <= text_body.len() {
+                                        ctx.copy_text(text_body[start..end].to_owned());
+                                        copied_from_menu = true;
+                                    }
+                                }
+                                close_text_menu = true;
+                            }
+
+                            if ui
+                                .add_enabled(has_selection, egui::Button::new("剪切"))
+                                .clicked()
+                            {
+                                if let Some(r) = saved_range.as_ref().filter(|r| r.start < r.end) {
+                                    let start = char_to_byte(text_body, r.start);
+                                    let end = char_to_byte(text_body, r.end);
+                                    if start <= end && end <= text_body.len() {
+                                        let cut = text_body[start..end].to_owned();
+                                        ctx.copy_text(cut);
+                                        text_body.replace_range(start..end, "");
+                                        text_menu_changed = true;
+                                    }
+                                }
+                                close_text_menu = true;
+                            }
+
+                            if ui.button("粘贴").clicked() {
+                                if let Ok(mut clipboard) = Clipboard::new() {
+                                    if let Ok(paste) = clipboard.get_text() {
+                                        if let Some(r) = saved_range.as_ref() {
+                                            let start = char_to_byte(text_body, r.start);
+                                            let end = char_to_byte(text_body, r.end);
+                                            if start <= end && end <= text_body.len() {
+                                                text_body.replace_range(start..end, &paste);
+                                                text_menu_changed = true;
+                                            }
+                                        } else {
+                                            text_body.push_str(&paste);
+                                            text_menu_changed = true;
+                                        }
+                                    }
+                                }
+                                close_text_menu = true;
+                            }
+                        });
+                    });
+
+                if copied_from_menu {
+                    if let Some((node_id, range)) = self.text_context_menu_selection.clone() {
+                        if node_id == id {
+                            if let Some(mut st) = egui::TextEdit::load_state(ctx, text_edit_id) {
+                                st.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+                                    egui::text::CCursor::new(range.start),
+                                    egui::text::CCursor::new(range.end),
+                                )));
+                                st.store(ctx, text_edit_id);
+                            }
+                        }
+                    }
+                }
+
+                let clicked_outside = ctx.input(|i| {
+                    i.pointer.button_pressed(egui::PointerButton::Primary)
+                        && i.pointer
+                            .interact_pos()
+                            .is_some_and(|p| !area_out.response.rect.contains(p))
+                });
+                if clicked_outside {
+                    close_text_menu = true;
+                }
+            }
+
+            if close_text_menu {
+                self.text_context_menu_selection = None;
+                self.text_context_menu_screen_pos = None;
+            }
+
+            if text_menu_changed {
+                self.mark_workspace_dirty();
             }
 
             if resp.changed() {

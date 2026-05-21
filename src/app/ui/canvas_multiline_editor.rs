@@ -29,7 +29,7 @@ pub(super) fn show_canvas_multiline_editor(
     let editor_response = ui.interact(
         edit_rect,
         egui::Id::new(("canvas-multiline-editor-hitbox", edit_id)),
-        egui::Sense::click_and_drag(),
+        egui::Sense::hover(),
     );
     let pointer_over_editor = editor_response.hovered()
         || ui.ctx().input(|i| {

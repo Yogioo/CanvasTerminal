@@ -385,7 +385,7 @@ impl GraphApp {
             && !alt_passthrough
             && self.editing_startup_node.is_none()
             && self.editing_working_directory_node.is_none()
-            && response.clicked()
+            && primary_clicked
             && !multi_select_modifier
         {
             if let Some(pointer) = pointer_pos.or_else(|| response.interact_pointer_pos()) {

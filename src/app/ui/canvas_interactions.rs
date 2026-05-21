@@ -460,9 +460,28 @@ impl GraphApp {
             }
         }
 
-        let inline_text_editor_active = self.editing_text_node.is_some() || self.editing_script_node.is_some();
+        let inline_text_editor_active = self.editing_script_node.is_some();
+        let pointer_on_editing_text_node = if let (Some(editing_id), Some(pointer)) = (
+            self.editing_text_node,
+            pointer_pos.or_else(|| response.interact_pointer_pos()),
+        ) {
+            let local = self.screen_to_world_pos(rect, pointer);
+            self
+                .nodes
+                .iter()
+                .find(|n| n.id == editing_id && matches!(n.kind, NodeKind::Text))
+                .is_some_and(|node| Rect::from_min_size(node.pos, node.size).contains(local))
+        } else {
+            false
+        };
 
-        if !inline_text_editor_active && !is_panning && !pointer_over_terminal_content && secondary_pressed {
+
+        if !inline_text_editor_active
+            && !pointer_on_editing_text_node
+            && !is_panning
+            && !pointer_over_terminal_content
+            && secondary_pressed
+        {
             self.right_drag_moved = false;
             self.cutting_path_local.clear();
             self.linking_from = None;
@@ -472,6 +491,7 @@ impl GraphApp {
 
             if let Some(pointer_pos) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                 let local = self.screen_to_world_pos(rect, pointer_pos);
+
                 let alt_passthrough = ctx.input(|i| i.modifiers.alt);
                 if let Some((id, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
                     self.linking_from = Some(id);
@@ -485,7 +505,7 @@ impl GraphApp {
             }
         }
 
-        if !inline_text_editor_active && secondary_down {
+        if !inline_text_editor_active && !pointer_on_editing_text_node && secondary_down {
             if let Some(pointer_pos) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                 let local = self.screen_to_world_pos(rect, pointer_pos);
 
@@ -503,7 +523,7 @@ impl GraphApp {
             }
         }
 
-        if !inline_text_editor_active && secondary_released {
+        if !inline_text_editor_active && !pointer_on_editing_text_node && secondary_released {
             let mut suppress_context_menu_for_link_release = false;
 
             if let Some(from) = self.linking_from {
@@ -555,18 +575,18 @@ impl GraphApp {
                         self.context_menu_node = context_menu_node;
                         self.context_menu_edge = context_menu_edge;
 
+                        // 右键触发菜单前，先完成 Text 节点内联编辑（内容已实时写回 text_body）。
+                        self.editing_text_node = None;
+                        self.pending_text_focus = None;
+                        self.text_context_menu_selection = None;
+                        self.text_context_menu_screen_pos = None;
+
                         if let Some(node_id) = context_menu_node {
-                            if Some(node_id) != self.editing_text_node {
-                                self.editing_text_node = None;
-                            }
                             self.set_single_selection(node_id);
                         } else if let Some(edge) = context_menu_edge {
-                            self.editing_text_node = None;
                             self.set_edge_selection(edge);
                         } else {
                             self.clear_selection();
-                            self.editing_text_node = None;
-                            self.pending_text_focus = None;
                         }
 
                         self.reset_menu_search_state(true);
