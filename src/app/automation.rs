@@ -5,8 +5,8 @@ use super::automation_support::{
 };
 use super::GraphApp;
 use crate::event_protocol::{
-    now_timestamp_ms, response_error, AutomationCall, AutomationDiagnostics, AutomationError,
-    AutomationRequest, AutomationResponse,
+    now_timestamp_ms, response_error, AutomationAction, AutomationCall, AutomationDiagnostics,
+    AutomationError, AutomationRequest, AutomationResponse,
 };
 use crate::model::{NodeData, NodeKind};
 use eframe::egui::Pos2;
@@ -22,8 +22,8 @@ struct AutomationOutcome {
 
 impl GraphApp {
     pub(in crate::app) fn bump_automation_state_version(&mut self) {
-        self.automation_state_version = self.automation_state_version.saturating_add(1);
-        self.automation_state_timestamp_ms = now_timestamp_ms();
+        self.ws.automation_state_version = self.ws.automation_state_version.saturating_add(1);
+        self.ws.automation_state_timestamp_ms = now_timestamp_ms();
     }
 
     pub(in crate::app) fn handle_automation_call(&mut self, call: AutomationCall) {
@@ -31,7 +31,7 @@ impl GraphApp {
         let request = call.request;
 
         if let Some(request_id) = &request.request_id {
-            if let Some(previous) = self.processed_automation_requests.get(request_id) {
+            if let Some(previous) = self.ws.processed_automation_requests.get(request_id) {
                 let _ = call.response_tx.send(previous.clone());
                 return;
             }
@@ -49,8 +49,8 @@ impl GraphApp {
                     queue_ms,
                     exec_ms: started.elapsed().as_millis() as u64,
                     total_ms: queue_ms + started.elapsed().as_millis() as u64,
-                    state_version: self.automation_state_version,
-                    state_timestamp_ms: self.automation_state_timestamp_ms,
+                    state_version: self.ws.automation_state_version,
+                    state_timestamp_ms: self.ws.automation_state_timestamp_ms,
                     affected_ids: outcome.affected_ids,
                 },
             },
@@ -58,14 +58,14 @@ impl GraphApp {
                 resp.diagnostics.queue_ms = queue_ms;
                 resp.diagnostics.exec_ms = started.elapsed().as_millis() as u64;
                 resp.diagnostics.total_ms = queue_ms + resp.diagnostics.exec_ms;
-                resp.diagnostics.state_version = self.automation_state_version;
-                resp.diagnostics.state_timestamp_ms = self.automation_state_timestamp_ms;
+                resp.diagnostics.state_version = self.ws.automation_state_version;
+                resp.diagnostics.state_timestamp_ms = self.ws.automation_state_timestamp_ms;
                 resp
             }
         };
 
         if let Some(request_id) = &response.request_id {
-            self.processed_automation_requests
+            self.ws.processed_automation_requests
                 .insert(request_id.clone(), response.clone());
         }
 
@@ -77,26 +77,31 @@ impl GraphApp {
         &mut self,
         request: &AutomationRequest,
     ) -> Result<AutomationOutcome, AutomationResponse> {
-        match request.action.as_str() {
-            "graph.get" => self.automation_graph_get(request),
-            "metrics" => self.automation_metrics(request),
-            "node.create" => self.automation_node_create(request),
-            "group.create" => self.automation_group_create(request),
-            "node.move" => self.automation_node_move(request),
-            "node.update" => self.automation_node_update(request),
-            "node.delete" => self.automation_node_delete(request),
-            "edge.create" => self.automation_edge_create(request),
-            "edge.reconnect" => self.automation_edge_reconnect(request),
-            "edge.delete" => self.automation_edge_delete(request),
-            "inject.text" => self.automation_inject_text(request),
-            "inject.terminal" => self.automation_inject_terminal(request),
-            "terminal.restart" => self.automation_terminal_restart(request),
-            _ => Err(response_error(
-                request.request_id.clone(),
-                &request.action,
-                "UNKNOWN_ACTION",
-                format!("unsupported action: {}", request.action),
-            )),
+        let action: AutomationAction = match request.action.parse() {
+            Ok(a) => a,
+            Err(_) => {
+                return Err(response_error(
+                    request.request_id.clone(),
+                    &request.action,
+                    "UNKNOWN_ACTION",
+                    format!("unsupported action: {}", request.action),
+                ))
+            }
+        };
+        match action {
+            AutomationAction::GraphGet => self.automation_graph_get(request),
+            AutomationAction::Metrics => self.automation_metrics(request),
+            AutomationAction::NodeCreate => self.automation_node_create(request),
+            AutomationAction::GroupCreate => self.automation_group_create(request),
+            AutomationAction::NodeMove => self.automation_node_move(request),
+            AutomationAction::NodeUpdate => self.automation_node_update(request),
+            AutomationAction::NodeDelete => self.automation_node_delete(request),
+            AutomationAction::EdgeCreate => self.automation_edge_create(request),
+            AutomationAction::EdgeReconnect => self.automation_edge_reconnect(request),
+            AutomationAction::EdgeDelete => self.automation_edge_delete(request),
+            AutomationAction::InjectText => self.automation_inject_text(request),
+            AutomationAction::InjectTerminal => self.automation_inject_terminal(request),
+            AutomationAction::TerminalRestart => self.automation_terminal_restart(request),
         }
     }
 
@@ -119,8 +124,8 @@ impl GraphApp {
     ) -> Result<AutomationOutcome, AutomationResponse> {
         Ok(AutomationOutcome {
             data: metrics_payload(
-                self.performance_metrics.fps(),
-                self.performance_metrics.cpu_usage(),
+                self.ws.performance_metrics.fps(),
+                self.ws.performance_metrics.cpu_usage(),
             ),
             affected_ids: Vec::new(),
         })
@@ -131,18 +136,18 @@ impl GraphApp {
         request: &AutomationRequest,
     ) -> Result<AutomationOutcome, AutomationResponse> {
         let payload: GraphGetPayload = Self::parse_payload(request)?;
-        if payload.since_version == Some(self.automation_state_version) {
+        if payload.since_version == Some(self.ws.automation_state_version) {
             return Ok(AutomationOutcome {
                 data: json!({
-                    "version": self.automation_state_version,
-                    "timestamp_ms": self.automation_state_timestamp_ms,
+                    "version": self.ws.automation_state_version,
+                    "timestamp_ms": self.ws.automation_state_timestamp_ms,
                     "changes": [],
                 }),
                 affected_ids: Vec::new(),
             });
         }
 
-        let mut nodes: Vec<Value> = self
+        let mut nodes: Vec<Value> = self.ws
             .nodes
             .iter()
             .map(|n| {
@@ -166,10 +171,10 @@ impl GraphApp {
             .collect();
         nodes.sort_by_key(|n| n.get("id").and_then(Value::as_u64).unwrap_or_default());
 
-        let mut edges = self.edges.clone();
+        let mut edges = self.ws.edges.clone();
         edges.sort_unstable();
 
-        let mut edge_routes: Vec<Value> = self
+        let mut edge_routes: Vec<Value> = self.ws
             .edge_route_keys
             .iter()
             .filter_map(|((from, to), route_key)| {
@@ -192,7 +197,7 @@ impl GraphApp {
             )
         });
 
-        let mut edge_curve_biases: Vec<Value> = self
+        let mut edge_curve_biases: Vec<Value> = self.ws
             .edge_curve_biases
             .iter()
             .filter_map(|((from, to), bias)| {
@@ -219,7 +224,7 @@ impl GraphApp {
             )
         });
 
-        let mut edge_control_offsets: Vec<Value> = self
+        let mut edge_control_offsets: Vec<Value> = self.ws
             .edge_control_offsets
             .iter()
             .filter_map(|((from, to), offsets)| {
@@ -248,13 +253,13 @@ impl GraphApp {
             )
         });
 
-        let mut selection: Vec<usize> = self.selected_nodes.iter().copied().collect();
+        let mut selection: Vec<usize> = self.ws.selected_nodes.iter().copied().collect();
         selection.sort_unstable();
 
         Ok(AutomationOutcome {
             data: json!({
-                "version": self.automation_state_version,
-                "timestamp_ms": self.automation_state_timestamp_ms,
+                "version": self.ws.automation_state_version,
+                "timestamp_ms": self.ws.automation_state_timestamp_ms,
                 "snapshot": {
                     "nodes": nodes,
                     "edges": edges,
@@ -262,13 +267,13 @@ impl GraphApp {
                     "edge_curve_biases": edge_curve_biases,
                     "edge_control_offsets": edge_control_offsets,
                     "viewport": {
-                        "pan": {"x": self.pan.x, "y": self.pan.y},
-                        "zoom": self.zoom,
+                        "pan": {"x": self.ws.pan.x, "y": self.ws.pan.y},
+                        "zoom": self.ws.zoom,
                     },
                     "selection": {
-                        "selected": self.selected,
+                        "selected": self.ws.selected,
                         "selected_nodes": selection,
-                        "selected_edge": self.selected_edge,
+                        "selected_edge": self.ws.selected_edge,
                     }
                 }
             }),
@@ -288,14 +293,14 @@ impl GraphApp {
             "terminal" => {
                 let id = self.create_terminal_node(pos);
                 if let Some(title) = payload.title {
-                    if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
+                    if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == id) {
                         if let NodeData::Terminal { title: old, .. } = &mut node.data {
                             *old = title;
                         }
                     }
                 }
                 if let Some(startup_script) = payload.startup_script {
-                    if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
+                    if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == id) {
                         if let NodeData::Terminal {
                             startup_script: old,
                             ..
@@ -306,7 +311,7 @@ impl GraphApp {
                     }
                 }
                 if payload.working_directory.is_some() {
-                    if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
+                    if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == id) {
                         if let NodeData::Terminal {
                             working_directory,
                             ..
@@ -326,7 +331,7 @@ impl GraphApp {
             "text" => {
                 let id = self.create_text_node(pos, false);
                 if let Some(text_body) = payload.text_body {
-                    if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
+                    if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == id) {
                         if let NodeData::Text { text_body: old, .. } = &mut node.data {
                             *old = text_body;
                         }
@@ -347,7 +352,7 @@ impl GraphApp {
             }
             "decision" => {
                 let id = self.create_decision_node(pos);
-                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
+                if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == id) {
                     if let NodeData::Decision {
                         title,
                         buttons,
@@ -380,7 +385,7 @@ impl GraphApp {
             }
             "script" => {
                 let id = self.create_script_node(pos);
-                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
+                if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == id) {
                     if let NodeData::Script { title, code, .. } = &mut node.data {
                         if let Some(next_title) = payload.title {
                             *title = next_title;
@@ -402,7 +407,7 @@ impl GraphApp {
             }
         };
 
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+        if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
             if let Some(w) = payload.width {
                 node.size.x = w.max(40.0);
             }
@@ -414,7 +419,7 @@ impl GraphApp {
         self.bump_automation_state_version();
 
         Ok(AutomationOutcome {
-            data: json!({"node_id": node_id, "version": self.automation_state_version}),
+            data: json!({"node_id": node_id, "version": self.ws.automation_state_version}),
             affected_ids: vec![node_id],
         })
     }
@@ -433,8 +438,8 @@ impl GraphApp {
             ));
         }
 
-        self.selected_nodes = payload.node_ids.iter().copied().collect();
-        self.selected = payload.node_ids.last().copied();
+        self.ws.selected_nodes = payload.node_ids.iter().copied().collect();
+        self.ws.selected = payload.node_ids.last().copied();
         let Some(group_id) = self.create_group_from_selection() else {
             return Err(response_error(
                 request.request_id.clone(),
@@ -445,7 +450,7 @@ impl GraphApp {
         };
 
         if let Some(title) = payload.title {
-            if let Some(node) = self.nodes.iter_mut().find(|node| node.id == group_id) {
+            if let Some(node) = self.ws.nodes.iter_mut().find(|node| node.id == group_id) {
                 if let NodeData::Group { title: current, .. } = &mut node.data {
                     *current = title.trim().to_owned();
                 }
@@ -456,7 +461,7 @@ impl GraphApp {
         self.bump_automation_state_version();
 
         Ok(AutomationOutcome {
-            data: json!({"group_id": group_id, "version": self.automation_state_version}),
+            data: json!({"group_id": group_id, "version": self.ws.automation_state_version}),
             affected_ids: vec![group_id],
         })
     }
@@ -466,7 +471,7 @@ impl GraphApp {
         request: &AutomationRequest,
     ) -> Result<AutomationOutcome, AutomationResponse> {
         let payload: NodeMovePayload = Self::parse_payload(request)?;
-        let Some(node) = self.nodes.iter_mut().find(|n| n.id == payload.id) else {
+        let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == payload.id) else {
             return Err(response_error(
                 request.request_id.clone(),
                 &request.action,
@@ -479,7 +484,7 @@ impl GraphApp {
         self.mark_workspace_dirty();
 
         Ok(AutomationOutcome {
-            data: json!({"node_id": payload.id, "version": self.automation_state_version}),
+            data: json!({"node_id": payload.id, "version": self.ws.automation_state_version}),
             affected_ids: vec![payload.id],
         })
     }
@@ -489,7 +494,7 @@ impl GraphApp {
         request: &AutomationRequest,
     ) -> Result<AutomationOutcome, AutomationResponse> {
         let payload: NodeUpdatePayload = Self::parse_payload(request)?;
-        let Some(node) = self.nodes.iter_mut().find(|n| n.id == payload.id) else {
+        let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == payload.id) else {
             return Err(response_error(
                 request.request_id.clone(),
                 &request.action,
@@ -593,7 +598,7 @@ impl GraphApp {
             self.restart_terminal_deferred(payload.id);
         }
         Ok(AutomationOutcome {
-            data: json!({"node_id": payload.id, "version": self.automation_state_version}),
+            data: json!({"node_id": payload.id, "version": self.ws.automation_state_version}),
             affected_ids: vec![payload.id],
         })
     }
@@ -603,12 +608,12 @@ impl GraphApp {
         request: &AutomationRequest,
     ) -> Result<AutomationOutcome, AutomationResponse> {
         let payload: NodeDeletePayload = Self::parse_payload(request)?;
-        if !self.nodes.iter().any(|n| n.id == payload.id) {
+        if !self.ws.nodes.iter().any(|n| n.id == payload.id) {
             return Ok(AutomationOutcome {
                 data: json!({
                     "node_id": payload.id,
                     "status": "already_deleted",
-                    "version": self.automation_state_version,
+                    "version": self.ws.automation_state_version,
                 }),
                 affected_ids: vec![payload.id],
             });
@@ -617,7 +622,7 @@ impl GraphApp {
         self.remove_node(payload.id);
         self.bump_automation_state_version();
         Ok(AutomationOutcome {
-            data: json!({"node_id": payload.id, "version": self.automation_state_version}),
+            data: json!({"node_id": payload.id, "version": self.ws.automation_state_version}),
             affected_ids: vec![payload.id],
         })
     }
@@ -638,14 +643,14 @@ impl GraphApp {
                     "status": "already_exists",
                     "edge": [payload.from, payload.to],
                     "route_key": self.edge_route_key(payload.from, payload.to),
-                    "version": self.automation_state_version,
+                    "version": self.ws.automation_state_version,
                 }),
                 affected_ids: vec![payload.from, payload.to],
             });
         }
 
-        let has_from = self.nodes.iter().any(|n| n.id == payload.from);
-        let has_to = self.nodes.iter().any(|n| n.id == payload.to);
+        let has_from = self.ws.nodes.iter().any(|n| n.id == payload.from);
+        let has_to = self.ws.nodes.iter().any(|n| n.id == payload.to);
         if !has_from || !has_to {
             return Err(response_error(
                 request.request_id.clone(),
@@ -655,7 +660,7 @@ impl GraphApp {
             ));
         }
 
-        self.edges.push((payload.from, payload.to));
+        self.ws.edges.push((payload.from, payload.to));
         if let Some(route_key) = payload.route_key {
             self.set_edge_route_key(payload.from, payload.to, route_key);
         }
@@ -665,7 +670,7 @@ impl GraphApp {
             data: json!({
                 "edge": [payload.from, payload.to],
                 "route_key": self.edge_route_key(payload.from, payload.to),
-                "version": self.automation_state_version,
+                "version": self.ws.automation_state_version,
             }),
             affected_ids: vec![payload.from, payload.to],
         })
@@ -676,7 +681,7 @@ impl GraphApp {
         request: &AutomationRequest,
     ) -> Result<AutomationOutcome, AutomationResponse> {
         let payload: EdgeReconnectPayload = Self::parse_payload(request)?;
-        let Some(existing_idx) = self
+        let Some(existing_idx) = self.ws
             .edges
             .iter()
             .position(|(from, to)| *from == payload.from && *to == payload.to)
@@ -698,7 +703,7 @@ impl GraphApp {
         self.remove_edge_curve_bias(payload.from, payload.to);
         self.remove_edge_control_offsets(payload.from, payload.to);
 
-        self.edges[existing_idx] = (payload.new_from, payload.new_to);
+        self.ws.edges[existing_idx] = (payload.new_from, payload.new_to);
 
         if let Some(new_route_key) = payload.new_route_key {
             self.set_edge_route_key(payload.new_from, payload.new_to, new_route_key);
@@ -722,7 +727,7 @@ impl GraphApp {
             data: json!({
                 "edge": [payload.new_from, payload.new_to],
                 "route_key": self.edge_route_key(payload.new_from, payload.new_to),
-                "version": self.automation_state_version,
+                "version": self.ws.automation_state_version,
             }),
             affected_ids: vec![payload.new_from, payload.new_to],
         })
@@ -733,19 +738,19 @@ impl GraphApp {
         request: &AutomationRequest,
     ) -> Result<AutomationOutcome, AutomationResponse> {
         let payload: EdgePayload = Self::parse_payload(request)?;
-        let before = self.edges.len();
-        self.edges
+        let before = self.ws.edges.len();
+        self.ws.edges
             .retain(|(from, to)| !(*from == payload.from && *to == payload.to));
         self.remove_edge_route_key(payload.from, payload.to);
         self.remove_edge_curve_bias(payload.from, payload.to);
         self.remove_edge_control_offsets(payload.from, payload.to);
         self.prune_edge_state();
-        if self.edges.len() == before {
+        if self.ws.edges.len() == before {
             return Ok(AutomationOutcome {
                 data: json!({
                     "status": "already_deleted",
                     "edge": [payload.from, payload.to],
-                    "version": self.automation_state_version,
+                    "version": self.ws.automation_state_version,
                 }),
                 affected_ids: vec![payload.from, payload.to],
             });
@@ -755,7 +760,7 @@ impl GraphApp {
         Ok(AutomationOutcome {
             data: json!({
                 "edge": [payload.from, payload.to],
-                "version": self.automation_state_version,
+                "version": self.ws.automation_state_version,
             }),
             affected_ids: vec![payload.from, payload.to],
         })
@@ -766,7 +771,7 @@ impl GraphApp {
         request: &AutomationRequest,
     ) -> Result<AutomationOutcome, AutomationResponse> {
         let payload: InjectTextPayload = Self::parse_payload(request)?;
-        let Some(node) = self.nodes.iter_mut().find(|n| n.id == payload.node_id) else {
+        let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == payload.node_id) else {
             return Err(response_error(
                 request.request_id.clone(),
                 &request.action,
@@ -796,7 +801,7 @@ impl GraphApp {
 
         self.mark_workspace_dirty();
         Ok(AutomationOutcome {
-            data: json!({"node_id": payload.node_id, "version": self.automation_state_version}),
+            data: json!({"node_id": payload.node_id, "version": self.ws.automation_state_version}),
             affected_ids: vec![payload.node_id],
         })
     }
@@ -815,7 +820,7 @@ impl GraphApp {
                     "accepted": true,
                     "wait": false,
                     "note": "non-wait mode reserved; command is not executed",
-                    "version": self.automation_state_version,
+                    "version": self.ws.automation_state_version,
                 }),
                 affected_ids: vec![payload.node_id],
             });
@@ -842,7 +847,7 @@ impl GraphApp {
                 "stderr": output.stderr,
                 "exit_code": output.exit_code,
                 "timed_out": output.timed_out,
-                "version": self.automation_state_version,
+                "version": self.ws.automation_state_version,
             }),
             affected_ids: vec![payload.node_id],
         })
@@ -853,7 +858,7 @@ impl GraphApp {
         request: &AutomationRequest,
     ) -> Result<AutomationOutcome, AutomationResponse> {
         let payload: TerminalRestartPayload = Self::parse_payload(request)?;
-        let Some(node) = self.nodes.iter().find(|n| n.id == payload.node_id) else {
+        let Some(node) = self.ws.nodes.iter().find(|n| n.id == payload.node_id) else {
             return Err(response_error(
                 request.request_id.clone(),
                 &request.action,
@@ -878,7 +883,7 @@ impl GraphApp {
             data: json!({
                 "node_id": payload.node_id,
                 "restarted": true,
-                "version": self.automation_state_version,
+                "version": self.ws.automation_state_version,
             }),
             affected_ids: vec![payload.node_id],
         })

@@ -10,12 +10,12 @@ impl GraphApp {
         rect: Rect,
         hovered_edge: Option<(usize, usize)>,
     ) {
-        for (from, to) in &self.edges {
+        for (from, to) in &self.ws.edges {
             let Some(curve) = self.edge_curve_local(*from, *to) else {
                 continue;
             };
 
-            let is_selected = self.selected_edge == Some((*from, *to));
+            let is_selected = self.ws.selected_edge == Some((*from, *to));
             let is_hovered = hovered_edge == Some((*from, *to));
 
             let start = self.world_to_screen_pos(rect, curve.start);
@@ -23,7 +23,7 @@ impl GraphApp {
             let ctrl2 = self.world_to_screen_pos(rect, curve.ctrl2);
             let end = self.world_to_screen_pos(rect, curve.end);
 
-            let zoom_scale = self.zoom.clamp(0.7, 1.6);
+            let zoom_scale = self.ws.zoom.clamp(0.7, 1.6);
             let edge_stroke = if is_selected {
                 3.4 * zoom_scale
             } else if is_hovered {
@@ -94,10 +94,10 @@ impl GraphApp {
             ) {
                 let label_pos = self.world_to_screen_pos(rect, label_world_pos);
                 painter.text(
-                    label_pos + vec2(0.0, -8.0 * self.zoom),
+                    label_pos + vec2(0.0, -8.0 * self.ws.zoom),
                     Align2::CENTER_BOTTOM,
                     route_key,
-                    FontId::proportional((13.0 * self.zoom).max(9.0)),
+                    FontId::proportional((13.0 * self.ws.zoom).max(9.0)),
                     Color32::from_rgb(236, 232, 255),
                 );
             }
@@ -109,7 +109,7 @@ impl GraphApp {
         painter: &Painter,
         rect: Rect,
     ) {
-        let Some((from, to)) = self.selected_edge else {
+        let Some((from, to)) = self.ws.selected_edge else {
             return;
         };
 
@@ -117,7 +117,7 @@ impl GraphApp {
             return;
         };
 
-        let zoom_scale = self.zoom.clamp(0.7, 1.6);
+        let zoom_scale = self.ws.zoom.clamp(0.7, 1.6);
         let start = self.world_to_screen_pos(rect, curve.start);
         let ctrl1 = self.world_to_screen_pos(rect, curve.ctrl1);
         let ctrl2 = self.world_to_screen_pos(rect, curve.ctrl2);
@@ -138,7 +138,7 @@ impl GraphApp {
             ),
         );
 
-        let handle_radius = (6.8 * self.zoom.clamp(0.75, 1.8)).max(5.0);
+        let handle_radius = (6.8 * self.ws.zoom.clamp(0.75, 1.8)).max(5.0);
         for (handle, fill, stroke_color) in [
             (
                 EdgeControlHandle::Source,
@@ -157,7 +157,7 @@ impl GraphApp {
                 painter.circle_stroke(
                     handle_screen,
                     handle_radius,
-                    Stroke::new((1.6 * self.zoom).max(1.0), stroke_color),
+                    Stroke::new((1.6 * self.ws.zoom).max(1.0), stroke_color),
                 );
             }
         }
@@ -165,15 +165,15 @@ impl GraphApp {
 
     pub(in crate::app::ui) fn draw_link_preview(&self, painter: &Painter, rect: Rect) {
         // Right-click node-to-node linking preview
-        if let (Some(from), Some(pointer_local)) = (self.linking_from, self.linking_pointer_local) {
-            if let Some(node) = self.nodes.iter().find(|n| n.id == from) {
+        if let (Some(from), Some(pointer_local)) = (self.ws.linking_from, self.ws.linking_pointer_local) {
+            if let Some(node) = self.ws.nodes.iter().find(|n| n.id == from) {
                 let start =
                     self.world_to_screen_pos(rect, node.pos + vec2(node.size.x, node.size.y * 0.5));
                 let end = self.world_to_screen_pos(rect, pointer_local);
                 painter.line_segment(
                     [start, end],
                     Stroke::new(
-                        2.0 * self.zoom.clamp(0.6, 1.6),
+                        2.0 * self.ws.zoom.clamp(0.6, 1.6),
                         Color32::from_rgba_premultiplied(130, 195, 255, 220),
                     ),
                 );
@@ -183,17 +183,17 @@ impl GraphApp {
     }
 
     pub(in crate::app::ui) fn draw_cut_path(&self, painter: &Painter, rect: Rect) {
-        if self.cutting_path_local.len() < 2 {
+        if self.ws.cutting_path_local.len() < 2 {
             return;
         }
 
-        for pair in self.cutting_path_local.windows(2) {
+        for pair in self.ws.cutting_path_local.windows(2) {
             let a = self.world_to_screen_pos(rect, pair[0]);
             let b = self.world_to_screen_pos(rect, pair[1]);
             painter.line_segment(
                 [a, b],
                 Stroke::new(
-                    2.0 * self.zoom.clamp(0.6, 1.6),
+                    2.0 * self.ws.zoom.clamp(0.6, 1.6),
                     Color32::from_rgba_premultiplied(255, 120, 120, 220),
                 ),
             );

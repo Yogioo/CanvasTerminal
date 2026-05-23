@@ -65,7 +65,7 @@ impl GraphApp {
             nodes: vec![node.clone()],
             edges: Vec::new(),
         });
-        self.nodes.push(node);
+        self.ws.nodes.push(node);
         self.set_single_selection(id);
         self.mark_workspace_dirty();
         id
@@ -88,15 +88,15 @@ impl GraphApp {
         }
         let id = self.push_node_and_select(node);
         if edit_now {
-            self.editing_text_node = Some(id);
-            self.pending_text_focus = Some(id);
+            self.ws.editing_text_node = Some(id);
+            self.ws.pending_text_focus = Some(id);
         }
         id
     }
 
     pub(in crate::app) fn advance_spawn_pos_below_selected(&self, spawn_pos: &mut Pos2) {
-        if let Some(id) = self.selected {
-            if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
+        if let Some(id) = self.ws.selected {
+            if let Some(node) = self.ws.nodes.iter().find(|n| n.id == id) {
                 spawn_pos.y = node.pos.y + node.size.y + 16.0;
             }
         }
@@ -139,7 +139,7 @@ impl GraphApp {
 
         let mut node = self.new_base_node(NodeKind::Image, pos, size);
         if node.size.y > 0.0 {
-            self.image_aspects
+            self.ws.image_aspects
                 .insert(node.id, node.size.x / node.size.y);
         }
 
@@ -183,7 +183,7 @@ impl GraphApp {
                     *stored_path = display_name;
                 }
                 let id = self.push_node_and_select(node);
-                self.image_bytes.insert(id, bytes);
+                self.ws.image_bytes.insert(id, bytes);
             }
         }
     }
@@ -219,20 +219,20 @@ impl GraphApp {
                     color_image,
                     TextureOptions::LINEAR,
                 );
-                self.image_textures.insert(id, texture);
-                self.image_errors.remove(&id);
-                self.image_bytes.remove(&id);
-                self.image_aspects.insert(id, aspect);
+                self.ws.image_textures.insert(id, texture);
+                self.ws.image_errors.remove(&id);
+                self.ws.image_bytes.remove(&id);
+                self.ws.image_aspects.insert(id, aspect);
             }
         }
     }
 
     pub(in crate::app) fn has_edge(&self, from: usize, to: usize) -> bool {
-        self.edges.iter().any(|(a, b)| *a == from && *b == to)
+        self.ws.edges.iter().any(|(a, b)| *a == from && *b == to)
     }
 
     pub(in crate::app) fn edge_route_key(&self, from: usize, to: usize) -> Option<&str> {
-        self.edge_route_keys
+        self.ws.edge_route_keys
             .get(&(from, to))
             .map(|value| value.as_str())
             .filter(|value| !value.trim().is_empty())
@@ -241,25 +241,25 @@ impl GraphApp {
     pub(in crate::app) fn set_edge_route_key(&mut self, from: usize, to: usize, route_key: String) {
         let trimmed = route_key.trim();
         if trimmed.is_empty() {
-            self.edge_route_keys.remove(&(from, to));
+            self.ws.edge_route_keys.remove(&(from, to));
             return;
         }
 
-        self.edge_route_keys.insert((from, to), trimmed.to_owned());
+        self.ws.edge_route_keys.insert((from, to), trimmed.to_owned());
     }
 
     pub(in crate::app) fn remove_edge_route_key(&mut self, from: usize, to: usize) {
-        self.edge_route_keys.remove(&(from, to));
+        self.ws.edge_route_keys.remove(&(from, to));
     }
 
     pub(in crate::app) fn prune_edge_route_keys(&mut self) {
-        let existing: HashSet<(usize, usize)> = self.edges.iter().copied().collect();
-        self.edge_route_keys
+        let existing: HashSet<(usize, usize)> = self.ws.edges.iter().copied().collect();
+        self.ws.edge_route_keys
             .retain(|edge, route| existing.contains(edge) && !route.trim().is_empty());
     }
 
     pub(in crate::app) fn edge_curve_bias(&self, from: usize, to: usize) -> f32 {
-        self.edge_curve_biases
+        self.ws.edge_curve_biases
             .get(&(from, to))
             .copied()
             .unwrap_or(0.0)
@@ -268,14 +268,14 @@ impl GraphApp {
     pub(in crate::app) fn set_edge_curve_bias(&mut self, from: usize, to: usize, bias: f32) {
         let clamped = Self::clamp_edge_curve_bias(bias);
         if clamped.abs() <= 0.001 {
-            self.edge_curve_biases.remove(&(from, to));
+            self.ws.edge_curve_biases.remove(&(from, to));
         } else {
-            self.edge_curve_biases.insert((from, to), clamped);
+            self.ws.edge_curve_biases.insert((from, to), clamped);
         }
     }
 
     pub(in crate::app) fn remove_edge_curve_bias(&mut self, from: usize, to: usize) {
-        self.edge_curve_biases.remove(&(from, to));
+        self.ws.edge_curve_biases.remove(&(from, to));
     }
 
     pub(in crate::app) fn edge_control_offsets(
@@ -283,7 +283,7 @@ impl GraphApp {
         from: usize,
         to: usize,
     ) -> EdgeControlOffsets {
-        self.edge_control_offsets
+        self.ws.edge_control_offsets
             .get(&(from, to))
             .copied()
             .unwrap_or_default()
@@ -328,15 +328,15 @@ impl GraphApp {
         let target = Self::clamp_edge_control_offset(offsets.target);
         let is_default = source.length_sq() <= 0.01 && target.length_sq() <= 0.01;
         if is_default {
-            self.edge_control_offsets.remove(&(from, to));
+            self.ws.edge_control_offsets.remove(&(from, to));
         } else {
-            self.edge_control_offsets
+            self.ws.edge_control_offsets
                 .insert((from, to), EdgeControlOffsets { source, target });
         }
     }
 
     pub(in crate::app) fn remove_edge_control_offsets(&mut self, from: usize, to: usize) {
-        self.edge_control_offsets.remove(&(from, to));
+        self.ws.edge_control_offsets.remove(&(from, to));
     }
 
     pub(in crate::app) fn edge_has_custom_curve(&self, from: usize, to: usize) -> bool {
@@ -349,11 +349,11 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn prune_edge_curve_biases(&mut self) {
-        let existing: HashSet<(usize, usize)> = self.edges.iter().copied().collect();
-        self.edge_curve_biases
+        let existing: HashSet<(usize, usize)> = self.ws.edges.iter().copied().collect();
+        self.ws.edge_curve_biases
             .retain(|edge, bias| existing.contains(edge) && bias.is_finite() && bias.abs() > 0.001);
 
-        self.edge_control_offsets.retain(|edge, offsets| {
+        self.ws.edge_control_offsets.retain(|edge, offsets| {
             if !existing.contains(edge) {
                 return false;
             }
@@ -367,32 +367,32 @@ impl GraphApp {
             keep
         });
 
-        if self
+        if self.ws
             .selected_edge
             .is_some_and(|(from, to)| !existing.contains(&(from, to)))
         {
             self.clear_edge_selection();
         }
 
-        if self
+        if self.ws
             .editing_edge
             .is_some_and(|(from, to)| !existing.contains(&(from, to)))
         {
             self.cancel_edge_edit();
         }
 
-        if self
+        if self.ws
             .dragging_edge_control
             .is_some_and(|(edge, _, _)| !existing.contains(&edge))
         {
-            self.dragging_edge_control = None;
+            self.ws.dragging_edge_control = None;
         }
 
-        if self
+        if self.ws
             .context_menu_edge
             .is_some_and(|edge| !existing.contains(&edge))
         {
-            self.context_menu_edge = None;
+            self.ws.context_menu_edge = None;
         }
     }
 
@@ -402,7 +402,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn reset_selected_edge_curve(&mut self) -> bool {
-        let Some((from, to)) = self.selected_edge else {
+        let Some((from, to)) = self.ws.selected_edge else {
             return false;
         };
 
@@ -421,7 +421,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn cut_edges_intersecting_segment(&mut self, cut_a: Pos2, cut_b: Pos2) {
-        let hit: Vec<bool> = self
+        let hit: Vec<bool> = self.ws
             .edges
             .iter()
             .map(|(from, to)| {
@@ -435,7 +435,7 @@ impl GraphApp {
             .collect();
 
         let mut idx = 0usize;
-        self.edges.retain(|_| {
+        self.ws.edges.retain(|_| {
             let keep = !hit[idx];
             idx += 1;
             keep
@@ -444,7 +444,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn cut_nodes_intersecting_segment(&mut self, cut_a: Pos2, cut_b: Pos2) {
-        let hit_ids: Vec<usize> = self
+        let hit_ids: Vec<usize> = self.ws
             .nodes
             .iter()
             .filter(|n| {
@@ -460,16 +460,16 @@ impl GraphApp {
     }
 
     fn ordered_selected_ids(&self) -> Vec<usize> {
-        self.nodes
+        self.ws.nodes
             .iter()
-            .filter(|n| self.selected_nodes.contains(&n.id))
+            .filter(|n| self.ws.selected_nodes.contains(&n.id))
             .map(|n| n.id)
             .collect()
     }
 
     fn selection_or_single(&self, node_id: usize) -> HashSet<usize> {
-        if self.selected_nodes.contains(&node_id) && !self.selected_nodes.is_empty() {
-            self.selected_nodes.clone()
+        if self.ws.selected_nodes.contains(&node_id) && !self.ws.selected_nodes.is_empty() {
+            self.ws.selected_nodes.clone()
         } else {
             let mut picked = HashSet::new();
             picked.insert(node_id);
@@ -478,7 +478,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn apply_node_order(&mut self, order: &[usize]) {
-        let mut map: HashMap<usize, Node> = std::mem::take(&mut self.nodes)
+        let mut map: HashMap<usize, Node> = std::mem::take(&mut self.ws.nodes)
             .into_iter()
             .map(|node| (node.id, node))
             .collect();
@@ -490,11 +490,11 @@ impl GraphApp {
             }
         }
         reordered.extend(map.into_values());
-        self.nodes = reordered;
+        self.ws.nodes = reordered;
     }
 
     fn record_reorder_history(&mut self, before: Vec<usize>) {
-        let after: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
+        let after: Vec<usize> = self.ws.nodes.iter().map(|n| n.id).collect();
         if before == after {
             return;
         }
@@ -503,70 +503,70 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn bring_selection_to_front(&mut self) {
-        let selected = self.selected_nodes.clone();
+        let selected = self.ws.selected_nodes.clone();
         if selected.is_empty() {
             return;
         }
 
-        let before: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
-        self.nodes
+        let before: Vec<usize> = self.ws.nodes.iter().map(|n| n.id).collect();
+        self.ws.nodes
             .sort_by_key(|node| usize::from(selected.contains(&node.id)));
         self.record_reorder_history(before);
-        self.selected = self.ordered_selected_ids().last().copied();
+        self.ws.selected = self.ordered_selected_ids().last().copied();
     }
 
     pub(in crate::app) fn send_selection_to_back(&mut self) {
-        let selected = self.selected_nodes.clone();
+        let selected = self.ws.selected_nodes.clone();
         if selected.is_empty() {
             return;
         }
 
-        let before: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
-        self.nodes
+        let before: Vec<usize> = self.ws.nodes.iter().map(|n| n.id).collect();
+        self.ws.nodes
             .sort_by_key(|node| usize::from(!selected.contains(&node.id)));
         self.record_reorder_history(before);
-        self.selected = self.ordered_selected_ids().last().copied();
+        self.ws.selected = self.ordered_selected_ids().last().copied();
     }
 
     pub(in crate::app) fn bring_selection_forward_one(&mut self) {
-        if self.selected_nodes.is_empty() {
+        if self.ws.selected_nodes.is_empty() {
             return;
         }
 
-        let before: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
-        for idx in (0..self.nodes.len().saturating_sub(1)).rev() {
-            let current_selected = self.selected_nodes.contains(&self.nodes[idx].id);
-            let next_selected = self.selected_nodes.contains(&self.nodes[idx + 1].id);
+        let before: Vec<usize> = self.ws.nodes.iter().map(|n| n.id).collect();
+        for idx in (0..self.ws.nodes.len().saturating_sub(1)).rev() {
+            let current_selected = self.ws.selected_nodes.contains(&self.ws.nodes[idx].id);
+            let next_selected = self.ws.selected_nodes.contains(&self.ws.nodes[idx + 1].id);
             if current_selected && !next_selected {
-                self.nodes.swap(idx, idx + 1);
+                self.ws.nodes.swap(idx, idx + 1);
             }
         }
 
         self.record_reorder_history(before);
-        self.selected = self.ordered_selected_ids().last().copied();
+        self.ws.selected = self.ordered_selected_ids().last().copied();
     }
 
     pub(in crate::app) fn send_selection_backward_one(&mut self) {
-        if self.selected_nodes.is_empty() {
+        if self.ws.selected_nodes.is_empty() {
             return;
         }
 
-        let before: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
-        for idx in 1..self.nodes.len() {
-            let current_selected = self.selected_nodes.contains(&self.nodes[idx].id);
-            let prev_selected = self.selected_nodes.contains(&self.nodes[idx - 1].id);
+        let before: Vec<usize> = self.ws.nodes.iter().map(|n| n.id).collect();
+        for idx in 1..self.ws.nodes.len() {
+            let current_selected = self.ws.selected_nodes.contains(&self.ws.nodes[idx].id);
+            let prev_selected = self.ws.selected_nodes.contains(&self.ws.nodes[idx - 1].id);
             if current_selected && !prev_selected {
-                self.nodes.swap(idx - 1, idx);
+                self.ws.nodes.swap(idx - 1, idx);
             }
         }
 
         self.record_reorder_history(before);
-        self.selected = self.ordered_selected_ids().last().copied();
+        self.ws.selected = self.ordered_selected_ids().last().copied();
     }
 
     pub(in crate::app) fn reorder_from_context(&mut self, node_id: usize, mode: NodeOrderAction) {
         let target_selection = self.selection_or_single(node_id);
-        self.selected_nodes = target_selection;
+        self.ws.selected_nodes = target_selection;
 
         match mode {
             NodeOrderAction::BringToFront => self.bring_selection_to_front(),
@@ -578,123 +578,123 @@ impl GraphApp {
 
     pub(in crate::app) fn remove_node(&mut self, node_id: usize) {
         self.mark_workspace_dirty();
-        self.nodes.retain(|n| n.id != node_id);
+        self.ws.nodes.retain(|n| n.id != node_id);
         self.remove_child_from_groups(node_id);
-        self.edges
+        self.ws.edges
             .retain(|(from, to)| *from != node_id && *to != node_id);
         self.prune_edge_state();
-        self.terminal_backends.remove(&node_id);
-        self.terminal_exited.remove(&node_id);
-        self.terminal_errors.remove(&node_id);
-        self.pending_terminal_injections.remove(&node_id);
-        self.pending_terminal_starts.retain(|id| *id != node_id);
-        self.image_textures.remove(&node_id);
-        self.image_errors.remove(&node_id);
-        self.image_bytes.remove(&node_id);
-        self.image_aspects.remove(&node_id);
-        self.script_bg_textures.retain(|key, _| !key.starts_with(&format!("{node_id}:")));
-        self.script_bg_texture_errors.retain(|key, _| !key.starts_with(&format!("{node_id}:")));
+        self.ws.terminal_backends.remove(&node_id);
+        self.ws.terminal_exited.remove(&node_id);
+        self.ws.terminal_errors.remove(&node_id);
+        self.ws.pending_terminal_injections.remove(&node_id);
+        self.ws.pending_terminal_starts.retain(|id| *id != node_id);
+        self.ws.image_textures.remove(&node_id);
+        self.ws.image_errors.remove(&node_id);
+        self.ws.image_bytes.remove(&node_id);
+        self.ws.image_aspects.remove(&node_id);
+        self.ws.script_bg_textures.retain(|key, _| !key.starts_with(&format!("{node_id}:")));
+        self.ws.script_bg_texture_errors.retain(|key, _| !key.starts_with(&format!("{node_id}:")));
 
-        if self.editing_decision_buttons_node == Some(node_id) {
-            self.editing_decision_buttons_node = None;
-            self.pending_decision_buttons_focus = None;
-            self.decision_buttons_edit_rows.clear();
-            self.decision_color_popup = None;
-            self.decision_color_popup_pos = None;
-            self.decision_buttons_edit_error = None;
-        }
-
-        if self.editing_decision_queue_node == Some(node_id) {
-            self.editing_decision_queue_node = None;
-            self.pending_decision_queue_focus = None;
-            self.decision_queue_edit_buffer.clear();
+        if self.ws.editing_decision_buttons_node == Some(node_id) {
+            self.ws.editing_decision_buttons_node = None;
+            self.ws.pending_decision_buttons_focus = None;
+            self.ws.decision_buttons_edit_rows.clear();
+            self.ws.decision_color_popup = None;
+            self.ws.decision_color_popup_pos = None;
+            self.ws.decision_buttons_edit_error = None;
         }
 
-        self.selected_nodes.remove(&node_id);
-        if self.selected == Some(node_id) {
-            self.selected = self.selected_nodes.iter().copied().next();
+        if self.ws.editing_decision_queue_node == Some(node_id) {
+            self.ws.editing_decision_queue_node = None;
+            self.ws.pending_decision_queue_focus = None;
+            self.ws.decision_queue_edit_buffer.clear();
         }
-        if self.dragging.is_some_and(|(id, _)| id == node_id) {
-            self.dragging = None;
-            self.drag_start_pos = None;
-            self.drag_group_start = None;
+
+        self.ws.selected_nodes.remove(&node_id);
+        if self.ws.selected == Some(node_id) {
+            self.ws.selected = self.ws.selected_nodes.iter().copied().next();
         }
-        if self
+        if self.ws.dragging.is_some_and(|(id, _)| id == node_id) {
+            self.ws.dragging = None;
+            self.ws.drag_start_pos = None;
+            self.ws.drag_group_start = None;
+        }
+        if self.ws
             .drag_group_start
             .as_ref()
             .is_some_and(|(_, nodes)| nodes.iter().any(|(id, _)| *id == node_id))
         {
-            self.dragging = None;
-            self.drag_start_pos = None;
-            self.drag_group_start = None;
+            self.ws.dragging = None;
+            self.ws.drag_start_pos = None;
+            self.ws.drag_group_start = None;
         }
-        if self.resizing.is_some_and(|(id, _, _)| id == node_id) {
-            self.resizing = None;
+        if self.ws.resizing.is_some_and(|(id, _, _)| id == node_id) {
+            self.ws.resizing = None;
         }
-        if self.editing_text_node == Some(node_id) {
-            self.editing_text_node = None;
-            self.pending_text_focus = None;
+        if self.ws.editing_text_node == Some(node_id) {
+            self.ws.editing_text_node = None;
+            self.ws.pending_text_focus = None;
         }
-        if self.editing_title_node == Some(node_id) {
-            self.editing_title_node = None;
-            self.pending_title_focus = None;
-            self.title_edit_buffer.clear();
+        if self.ws.editing_title_node == Some(node_id) {
+            self.ws.editing_title_node = None;
+            self.ws.pending_title_focus = None;
+            self.ws.title_edit_buffer.clear();
         }
-        if self.editing_startup_node == Some(node_id) {
-            self.editing_startup_node = None;
-            self.pending_startup_focus = None;
-            self.startup_edit_buffer.clear();
+        if self.ws.editing_startup_node == Some(node_id) {
+            self.ws.editing_startup_node = None;
+            self.ws.pending_startup_focus = None;
+            self.ws.startup_edit_buffer.clear();
         }
-        if self.editing_working_directory_node == Some(node_id) {
-            self.editing_working_directory_node = None;
-            self.pending_working_directory_focus = None;
-            self.working_directory_edit_buffer.clear();
+        if self.ws.editing_working_directory_node == Some(node_id) {
+            self.ws.editing_working_directory_node = None;
+            self.ws.pending_working_directory_focus = None;
+            self.ws.working_directory_edit_buffer.clear();
         }
-        if self.suspend_terminal_focus == Some(node_id) {
-            self.suspend_terminal_focus = None;
+        if self.ws.suspend_terminal_focus == Some(node_id) {
+            self.ws.suspend_terminal_focus = None;
         }
-        if self.editing_script_node == Some(node_id) {
-            self.editing_script_node = None;
-            self.pending_script_focus = None;
-            self.script_edit_buffer.clear();
+        if self.ws.editing_script_node == Some(node_id) {
+            self.ws.editing_script_node = None;
+            self.ws.pending_script_focus = None;
+            self.ws.script_edit_buffer.clear();
         }
-        if self.script_debug_node == Some(node_id) {
-            self.script_debug_node = None;
+        if self.ws.script_debug_node == Some(node_id) {
+            self.ws.script_debug_node = None;
         }
-        if self.editing_script_queue_node == Some(node_id) {
-            self.editing_script_queue_node = None;
-            self.pending_script_queue_focus = None;
-            self.script_queue_edit_buffer.clear();
+        if self.ws.editing_script_queue_node == Some(node_id) {
+            self.ws.editing_script_queue_node = None;
+            self.ws.pending_script_queue_focus = None;
+            self.ws.script_queue_edit_buffer.clear();
         }
-        self.script_node_inputs.remove(&node_id);
-        self.script_node_outputs.remove(&node_id);
-        self.script_node_state.remove(&node_id);
-        self.script_lua_runtimes.remove(&node_id);
-        self.script_lua_timer_accum.remove(&node_id);
-        self.script_lua_errors.remove(&node_id);
-        self.script_lua_breakpoints.remove(&node_id);
-        self.script_lua_pause_line.remove(&node_id);
-        self.script_lua_debug_vars.remove(&node_id);
-        self.script_lua_breakpoint_input.remove(&node_id);
+        self.ws.script_node_inputs.remove(&node_id);
+        self.ws.script_node_outputs.remove(&node_id);
+        self.ws.script_node_state.remove(&node_id);
+        self.ws.script_lua_runtimes.remove(&node_id);
+        self.ws.script_lua_timer_accum.remove(&node_id);
+        self.ws.script_lua_errors.remove(&node_id);
+        self.ws.script_lua_breakpoints.remove(&node_id);
+        self.ws.script_lua_pause_line.remove(&node_id);
+        self.ws.script_lua_debug_vars.remove(&node_id);
+        self.ws.script_lua_breakpoint_input.remove(&node_id);
 
-        if self
+        if self.ws
             .editing_edge
             .is_some_and(|(from, to)| from == node_id || to == node_id)
         {
             self.cancel_edge_edit();
         }
-        if self.linking_from == Some(node_id) {
-            self.linking_from = None;
-            self.linking_pointer_local = None;
+        if self.ws.linking_from == Some(node_id) {
+            self.ws.linking_from = None;
+            self.ws.linking_pointer_local = None;
         }
-        if self.context_menu_node == Some(node_id) {
-            self.context_menu_node = None;
+        if self.ws.context_menu_node == Some(node_id) {
+            self.ws.context_menu_node = None;
         }
-        if self
+        if self.ws
             .context_menu_edge
             .is_some_and(|(from, to)| from == node_id || to == node_id)
         {
-            self.context_menu_edge = None;
+            self.ws.context_menu_edge = None;
         }
     }
 }

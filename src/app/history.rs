@@ -44,8 +44,8 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn push_history(&mut self, entry: HistoryEntry) {
-        self.undo_stack.push(entry);
-        self.redo_stack.clear();
+        self.ws.undo_stack.push(entry);
+        self.ws.redo_stack.clear();
         self.mark_workspace_dirty();
     }
 
@@ -77,12 +77,12 @@ impl GraphApp {
     ) {
         let removed_nodes: Vec<Node> = before_nodes
             .into_iter()
-            .filter(|old_node| !self.nodes.iter().any(|n| n.id == old_node.id))
+            .filter(|old_node| !self.ws.nodes.iter().any(|n| n.id == old_node.id))
             .collect();
 
         let removed_edges: Vec<(usize, usize)> = before_edges
             .into_iter()
-            .filter(|old_edge| !self.edges.contains(old_edge))
+            .filter(|old_edge| !self.ws.edges.contains(old_edge))
             .collect();
 
         if removed_nodes.is_empty() && removed_edges.is_empty() {
@@ -103,32 +103,32 @@ impl GraphApp {
             }
             HistoryEntry::DeleteBatch { nodes, edges } => {
                 for node in &nodes {
-                    if self.nodes.iter().any(|n| n.id == node.id) {
+                    if self.ws.nodes.iter().any(|n| n.id == node.id) {
                         continue;
                     }
-                    if node.id >= self.next_node_id {
-                        self.next_node_id = node.id + 1;
+                    if node.id >= self.ws.next_node_id {
+                        self.ws.next_node_id = node.id + 1;
                     }
-                    self.nodes.push(node.clone());
+                    self.ws.nodes.push(node.clone());
                 }
 
-                self.nodes.sort_by_key(|n| n.id);
+                self.ws.nodes.sort_by_key(|n| n.id);
 
                 for (from, to) in &edges {
                     if self.has_edge(*from, *to) {
                         continue;
                     }
-                    let has_from = self.nodes.iter().any(|n| n.id == *from);
-                    let has_to = self.nodes.iter().any(|n| n.id == *to);
+                    let has_from = self.ws.nodes.iter().any(|n| n.id == *from);
+                    let has_to = self.ws.nodes.iter().any(|n| n.id == *to);
                     if has_from && has_to {
-                        self.edges.push((*from, *to));
+                        self.ws.edges.push((*from, *to));
                     }
                 }
 
                 HistoryEntry::DeleteBatch { nodes, edges }
             }
             HistoryEntry::MoveNode { node_id, from, to } => {
-                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+                if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
                     node.pos = from;
                 }
                 HistoryEntry::MoveNode {
@@ -140,7 +140,7 @@ impl GraphApp {
             HistoryEntry::MoveNodes { nodes } => {
                 let mut swapped = Vec::with_capacity(nodes.len());
                 for (node_id, from, to) in nodes {
-                    if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+                    if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
                         node.pos = from;
                     }
                     swapped.push((node_id, to, from));
@@ -148,7 +148,7 @@ impl GraphApp {
                 HistoryEntry::MoveNodes { nodes: swapped }
             }
             HistoryEntry::ReorderNodes { before } => {
-                let current: Vec<usize> = self.nodes.iter().map(|n| n.id).collect();
+                let current: Vec<usize> = self.ws.nodes.iter().map(|n| n.id).collect();
                 self.apply_node_order(&before);
                 HistoryEntry::ReorderNodes { before: current }
             }
@@ -163,13 +163,13 @@ impl GraphApp {
 
     fn redo_create_batch(&mut self, nodes: &[Node], edges: &[CreatedEdge]) {
         for node in nodes {
-            if self.nodes.iter().any(|n| n.id == node.id) {
+            if self.ws.nodes.iter().any(|n| n.id == node.id) {
                 continue;
             }
-            if node.id >= self.next_node_id {
-                self.next_node_id = node.id + 1;
+            if node.id >= self.ws.next_node_id {
+                self.ws.next_node_id = node.id + 1;
             }
-            self.nodes.push(node.clone());
+            self.ws.nodes.push(node.clone());
         }
 
         for edge in edges {
@@ -177,13 +177,13 @@ impl GraphApp {
                 continue;
             }
 
-            let has_from = self.nodes.iter().any(|n| n.id == edge.from);
-            let has_to = self.nodes.iter().any(|n| n.id == edge.to);
+            let has_from = self.ws.nodes.iter().any(|n| n.id == edge.from);
+            let has_to = self.ws.nodes.iter().any(|n| n.id == edge.to);
             if !has_from || !has_to {
                 continue;
             }
 
-            self.edges.push((edge.from, edge.to));
+            self.ws.edges.push((edge.from, edge.to));
             if let Some(route_key) = &edge.route_key {
                 self.set_edge_route_key(edge.from, edge.to, route_key.clone());
             }
@@ -199,7 +199,7 @@ impl GraphApp {
 
     fn redo_delete_batch(&mut self, nodes: &[Node], edges: &[(usize, usize)]) {
         for (from, to) in edges {
-            self.edges.retain(|edge| edge != &(*from, *to));
+            self.ws.edges.retain(|edge| edge != &(*from, *to));
         }
         self.prune_edge_state();
 
@@ -209,7 +209,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn undo_last_change(&mut self) {
-        let Some(entry) = self.undo_stack.pop() else {
+        let Some(entry) = self.ws.undo_stack.pop() else {
             return;
         };
 
@@ -233,11 +233,11 @@ impl GraphApp {
             _ => self.apply_history_entry(entry),
         };
 
-        self.redo_stack.push(redo_entry);
+        self.ws.redo_stack.push(redo_entry);
     }
 
     pub(in crate::app) fn redo_last_change(&mut self) {
-        let Some(entry) = self.redo_stack.pop() else {
+        let Some(entry) = self.ws.redo_stack.pop() else {
             return;
         };
 
@@ -261,6 +261,6 @@ impl GraphApp {
             _ => self.apply_history_entry(entry),
         };
 
-        self.undo_stack.push(undo_entry);
+        self.ws.undo_stack.push(undo_entry);
     }
 }

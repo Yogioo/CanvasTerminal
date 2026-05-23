@@ -30,16 +30,16 @@ impl GraphApp {
             ctx.input(|i| i.pointer.button_released(egui::PointerButton::Secondary));
         let pointer_pos = ctx.input(|i| i.pointer.latest_pos().or_else(|| i.pointer.hover_pos()));
         let pointer_in_canvas = pointer_pos.is_some_and(|p| rect.contains(p));
-        let queue_editor_open = self.editing_decision_queue_node.is_some();
+        let queue_editor_open = self.ws.editing_decision_queue_node.is_some();
         let any_popup_open = ctx.memory(|m| m.any_popup_open())
-            || self.decision_color_popup.is_some()
+            || self.ws.decision_color_popup.is_some()
             || queue_editor_open;
 
 
 
         // context_menu_open is set by the context_menu callback each frame.
         // Reset it here so the next frame re-evaluates correctly.
-        self.context_menu_open = false;
+        self.ws.context_menu_open = false;
 
         let multi_select_modifier = ctx.input(|i| i.modifiers.ctrl || i.modifiers.command);
         let subtract_select_modifier = ctx.input(|i| i.modifiers.shift);
@@ -56,15 +56,15 @@ impl GraphApp {
         if dragging_files {
             ctx.request_repaint();
         } else {
-            self.last_drag_hover_world_pos = None;
+            self.ws.last_drag_hover_world_pos = None;
         }
 
         if pointer_in_canvas {
             if let Some(pointer) = pointer_pos {
                 let world_pos = self.screen_to_world_pos(rect, pointer);
-                self.last_canvas_pointer_world_pos = Some(world_pos);
+                self.ws.last_canvas_pointer_world_pos = Some(world_pos);
                 if dragging_files {
-                    self.last_drag_hover_world_pos = Some(world_pos);
+                    self.ws.last_drag_hover_world_pos = Some(world_pos);
                 }
             }
         }
@@ -74,11 +74,11 @@ impl GraphApp {
         let mut just_focused = false;
         if focus_shortcut_pressed
             && !any_popup_open
-            && self.editing_text_node.is_none()
-            && self.editing_title_node.is_none()
-            && self.editing_startup_node.is_none()
-            && self.editing_working_directory_node.is_none()
-            && self.editing_script_node.is_none()
+            && self.ws.editing_text_node.is_none()
+            && self.ws.editing_title_node.is_none()
+            && self.ws.editing_startup_node.is_none()
+            && self.ws.editing_working_directory_node.is_none()
+            && self.ws.editing_script_node.is_none()
         {
             self.focus_selected_or_all(rect);
             just_focused = true;
@@ -89,13 +89,13 @@ impl GraphApp {
             let Some((node_id, _)) = self.find_node_at_with_alt(local, alt_passthrough) else {
                 return false;
             };
-            self.nodes
+            self.ws.nodes
                 .iter()
                 .find(|n| n.id == node_id)
                 .is_some_and(|n| {
-                    let terminal_content_visible = self.zoom >= self.terminal_hide_zoom_threshold
-                        || self.editing_startup_node == Some(node_id)
-                        || self.editing_working_directory_node == Some(node_id);
+                    let terminal_content_visible = self.ws.zoom >= self.ws.terminal_hide_zoom_threshold
+                        || self.ws.editing_startup_node == Some(node_id)
+                        || self.ws.editing_working_directory_node == Some(node_id);
                     n.kind == NodeKind::Terminal
                         && terminal_content_visible
                         && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT
@@ -106,7 +106,7 @@ impl GraphApp {
             let Some((node_id, _)) = self.find_node_at_with_alt(local, alt_passthrough) else {
                 return false;
             };
-            self.nodes
+            self.ws.nodes
                 .iter()
                 .find(|n| n.id == node_id)
                 .is_some_and(|n| n.kind == NodeKind::Text)
@@ -116,7 +116,7 @@ impl GraphApp {
             let Some((node_id, _)) = self.find_node_at_with_alt(local, alt_passthrough) else {
                 return false;
             };
-            self.nodes
+            self.ws.nodes
                 .iter()
                 .find(|n| n.id == node_id)
                 .is_some_and(|n| n.kind == NodeKind::Decision)
@@ -126,7 +126,7 @@ impl GraphApp {
             && !pointer_over_terminal_before_zoom
             && !pointer_over_text_node_before_zoom
             && !pointer_over_decision_node_before_zoom
-            && self.editing_script_node.is_none()
+            && self.ws.editing_script_node.is_none()
             && !just_focused
         {
             let zoom_change = ctx.input(|i| {
@@ -136,13 +136,13 @@ impl GraphApp {
             });
             if (zoom_change - 1.0).abs() > f32::EPSILON {
                 if let Some(pointer) = pointer_pos {
-                    let old_zoom = self.zoom;
+                    let old_zoom = self.ws.zoom;
                     let new_zoom = (old_zoom * zoom_change).max(1e-4);
                     if (new_zoom - old_zoom).abs() > f32::EPSILON {
                         let world_at_pointer = self.screen_to_world_pos(rect, pointer);
-                        self.zoom = new_zoom;
-                        self.camera_world_center = (world_at_pointer.to_vec2()
-                            - (pointer - rect.center()) / self.zoom)
+                        self.ws.zoom = new_zoom;
+                        self.ws.camera_world_center = (world_at_pointer.to_vec2()
+                            - (pointer - rect.center()) / self.ws.zoom)
                             .to_pos2();
                         self.sync_pan_from_camera(rect);
                     }
@@ -151,20 +151,19 @@ impl GraphApp {
         }
 
         self.sync_all_group_bounds();
-        self.paint_grid(&painter, rect, self.pan, self.zoom);
 
         let pointer_over_terminal_content = pointer_pos.is_some_and(|p| {
             let local = self.screen_to_world_pos(rect, p);
             let Some((node_id, _)) = self.find_node_at_with_alt(local, alt_passthrough) else {
                 return false;
             };
-            self.nodes
+            self.ws.nodes
                 .iter()
                 .find(|n| n.id == node_id)
                 .is_some_and(|n| {
-                    let terminal_content_visible = self.zoom >= self.terminal_hide_zoom_threshold
-                        || self.editing_startup_node == Some(node_id)
-                        || self.editing_working_directory_node == Some(node_id);
+                    let terminal_content_visible = self.ws.zoom >= self.ws.terminal_hide_zoom_threshold
+                        || self.ws.editing_startup_node == Some(node_id)
+                        || self.ws.editing_working_directory_node == Some(node_id);
                     n.kind == NodeKind::Terminal
                         && terminal_content_visible
                         && local.y > n.pos.y + TERMINAL_HEADER_HEIGHT
@@ -186,9 +185,9 @@ impl GraphApp {
             && pointer_in_canvas
             && !pointer_over_terminal_content
             && !any_popup_open;
-        let edge_hit_tolerance = (10.0 / self.zoom.max(1e-4)).max(4.0);
+        let edge_hit_tolerance = (10.0 / self.ws.zoom.max(1e-4)).max(4.0);
 
-        if self
+        if self.ws
             .selected_edge
             .is_some_and(|(from, to)| !self.has_edge(from, to))
         {
@@ -196,8 +195,8 @@ impl GraphApp {
         }
 
         let edge_handle_hit = pointer_pos.and_then(|pointer| {
-            let edge = self.selected_edge?;
-            let radius = (8.0 * self.zoom.clamp(0.75, 1.8)).max(6.0);
+            let edge = self.ws.selected_edge?;
+            let radius = (8.0 * self.ws.zoom.clamp(0.75, 1.8)).max(6.0);
 
             let mut best: Option<(EdgeControlHandle, f32)> = None;
             for handle in [EdgeControlHandle::Source, EdgeControlHandle::Target] {
@@ -239,12 +238,12 @@ impl GraphApp {
             && !is_panning
             && !pointer_over_terminal_content
             && !any_popup_open
-            && self.editing_text_node.is_none()
-            && self.editing_title_node.is_none()
-            && self.editing_startup_node.is_none()
-            && self.editing_working_directory_node.is_none()
-            && self.editing_script_node.is_none()
-            && !self.selected_nodes.is_empty()
+            && self.ws.editing_text_node.is_none()
+            && self.ws.editing_title_node.is_none()
+            && self.ws.editing_startup_node.is_none()
+            && self.ws.editing_working_directory_node.is_none()
+            && self.ws.editing_script_node.is_none()
+            && !self.ws.selected_nodes.is_empty()
             && !keyboard_has_focus;
 
         if can_run_layer_shortcuts {
@@ -283,14 +282,14 @@ impl GraphApp {
             && !any_popup_open
             && !is_panning
             && !pointer_over_terminal_content
-            && self.editing_text_node.is_none()
-            && self.editing_title_node.is_none()
-            && self.editing_startup_node.is_none()
-            && self.editing_working_directory_node.is_none()
-            && self.editing_script_node.is_none()
-            && self.editing_edge.is_none()
+            && self.ws.editing_text_node.is_none()
+            && self.ws.editing_title_node.is_none()
+            && self.ws.editing_startup_node.is_none()
+            && self.ws.editing_working_directory_node.is_none()
+            && self.ws.editing_script_node.is_none()
+            && self.ws.editing_edge.is_none()
             && !ctx.wants_keyboard_input()
-            && self.selected_edge.is_some()
+            && self.ws.selected_edge.is_some()
             && ctx.input(|i| {
                 i.modifiers.shift
                     && !i.modifiers.ctrl
@@ -333,18 +332,18 @@ impl GraphApp {
             && !pointer_in_window_top_strip
             && !pointer_in_window_resize_strip
             && !alt_passthrough
-            && self.editing_startup_node.is_none()
-            && self.editing_working_directory_node.is_none()
+            && self.ws.editing_startup_node.is_none()
+            && self.ws.editing_working_directory_node.is_none()
             && (response.double_clicked() || tolerant_double_click)
         {
             if let Some(pointer) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                 let local = self.screen_to_world_pos(rect, pointer);
                 if let Some((id, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
                     self.set_single_selection(id);
-                    if let Some(node) = self.nodes.iter().find(|n| n.id == id) {
+                    if let Some(node) = self.ws.nodes.iter().find(|n| n.id == id) {
                         if node.kind == NodeKind::Text {
-                            self.editing_text_node = Some(id);
-                            self.pending_text_focus = Some(id);
+                            self.ws.editing_text_node = Some(id);
+                            self.ws.pending_text_focus = Some(id);
                         } else if node.kind == NodeKind::Terminal {
                             if local.y <= node.pos.y + TERMINAL_HEADER_HEIGHT {
                                 self.start_title_edit(id);
@@ -374,8 +373,8 @@ impl GraphApp {
                         self.create_text_node(local, true);
                     }
                 }
-                self.last_primary_click_time = None;
-                self.last_primary_click_pos = None;
+                self.ws.last_primary_click_time = None;
+                self.ws.last_primary_click_pos = None;
             }
         }
 
@@ -383,35 +382,35 @@ impl GraphApp {
             && !is_panning
             && !pointer_over_terminal_content
             && !alt_passthrough
-            && self.editing_startup_node.is_none()
-            && self.editing_working_directory_node.is_none()
+            && self.ws.editing_startup_node.is_none()
+            && self.ws.editing_working_directory_node.is_none()
             && primary_clicked
             && !multi_select_modifier
         {
             if let Some(pointer) = pointer_pos.or_else(|| response.interact_pointer_pos()) {
                 let local = self.screen_to_world_pos(rect, pointer);
                 if let Some((id, _)) = self.find_node_at_with_alt(local, alt_passthrough) {
-                    if self.editing_text_node == Some(id) {
+                    if self.ws.editing_text_node == Some(id) {
                         // User is editing source — keep editing, just set selection.
                         self.set_single_selection(id);
                     } else {
                         self.set_single_selection(id);
                     }
-                    if self.editing_text_node != Some(id) {
-                        self.editing_text_node = None;
+                    if self.ws.editing_text_node != Some(id) {
+                        self.ws.editing_text_node = None;
                     }
                 } else if let Some(edge) = self.find_edge_at(local, edge_hit_tolerance) {
                     self.set_edge_selection(edge);
-                    self.editing_text_node = None;
+                    self.ws.editing_text_node = None;
                 } else {
                     // blank canvas click: clear selection
                     self.clear_selection();
-                    self.editing_text_node = None;
+                    self.ws.editing_text_node = None;
                 }
             }
         }
 
-        if let (Some(start), Some(current)) = (self.box_select_start, self.box_select_current) {
+        if let (Some(start), Some(current)) = (self.ws.box_select_start, self.ws.box_select_current) {
             let box_rect_world = Rect::from_two_pos(start, current);
             let box_rect_screen = self.world_to_screen_rect(rect, box_rect_world);
             painter.rect_filled(
@@ -431,9 +430,9 @@ impl GraphApp {
         self.draw_link_preview(&painter, rect);
         self.draw_cut_path(&painter, rect);
 
-        if self.zoom < self.text_hide_zoom_threshold && self.editing_text_node.is_some() {
-            self.editing_text_node = None;
-            self.pending_text_focus = None;
+        if self.ws.zoom < self.ws.text_hide_zoom_threshold && self.ws.editing_text_node.is_some() {
+            self.ws.editing_text_node = None;
+            self.ws.pending_text_focus = None;
         }
 
         self.ensure_image_textures(ctx);
@@ -468,7 +467,7 @@ impl GraphApp {
         self.handle_script_code_editor(ui, ctx, script_edit_rect);
         self.handle_decision_queue_editor(ctx);
         self.handle_script_queue_editor(ctx);
-        if alt_passthrough && !self.selected_nodes.is_empty() {
+        if alt_passthrough && !self.ws.selected_nodes.is_empty() {
             if let Some(pointer) = pointer_pos {
                 let local = self.screen_to_world_pos(rect, pointer);
                 let hint = if self.top_group_id_at(local).is_some() {
@@ -487,17 +486,17 @@ impl GraphApp {
             }
         }
 
-        let any_inline_editor_open = self.editing_text_node.is_some()
-            || self.editing_title_node.is_some()
-            || self.editing_startup_node.is_some()
-            || self.editing_working_directory_node.is_some()
-            || self.editing_script_node.is_some()
-            || self.editing_decision_buttons_node.is_some()
-            || self.editing_edge.is_some();
+        let any_inline_editor_open = self.ws.editing_text_node.is_some()
+            || self.ws.editing_title_node.is_some()
+            || self.ws.editing_startup_node.is_some()
+            || self.ws.editing_working_directory_node.is_some()
+            || self.ws.editing_script_node.is_some()
+            || self.ws.editing_decision_buttons_node.is_some()
+            || self.ws.editing_edge.is_some();
 
         if !any_inline_editor_open
             && !is_panning
-            && self.resizing.is_none()
+            && self.ws.resizing.is_none()
             && resize_handle_hit.is_none()
         {
             if let Some(pos) = response.hover_pos() {

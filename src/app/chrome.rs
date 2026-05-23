@@ -5,7 +5,7 @@ use std::time::Duration;
 
 impl GraphApp {
     pub(in crate::app) fn handle_global_shortcuts(&mut self, ctx: &egui::Context) {
-        if self.editing_text_node.is_some() || self.editing_script_node.is_some() {
+        if self.ws.editing_text_node.is_some() || self.ws.editing_script_node.is_some() {
             return;
         }
 
@@ -34,19 +34,19 @@ impl GraphApp {
         }
 
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::P)) {
-            self.command_palette_open = true;
+            self.ws.command_palette_open = true;
             self.reset_menu_search_state(true);
         }
 
-        let node_clipboard_shortcut_allowed = self.editing_text_node.is_none()
-            && self.editing_script_node.is_none()
-            && self.editing_title_node.is_none()
-            && self.editing_startup_node.is_none()
-            && self.editing_working_directory_node.is_none()
-            && self.editing_decision_buttons_node.is_none()
-            && self.editing_decision_queue_node.is_none()
-            && self.editing_edge.is_none()
-            && !self.command_palette_open;
+        let node_clipboard_shortcut_allowed = self.ws.editing_text_node.is_none()
+            && self.ws.editing_script_node.is_none()
+            && self.ws.editing_title_node.is_none()
+            && self.ws.editing_startup_node.is_none()
+            && self.ws.editing_working_directory_node.is_none()
+            && self.ws.editing_decision_buttons_node.is_none()
+            && self.ws.editing_decision_queue_node.is_none()
+            && self.ws.editing_edge.is_none()
+            && !self.ws.command_palette_open;
         let copy_shortcut_pressed = ctx.input_mut(|i| {
             i.consume_shortcut(&egui::KeyboardShortcut::new(
                 egui::Modifiers::COMMAND,
@@ -71,7 +71,7 @@ impl GraphApp {
         }
 
         if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::M)) {
-            self.performance_metrics.toggle_visible();
+            self.ws.performance_metrics.toggle_visible();
         }
     }
 
@@ -91,10 +91,10 @@ impl GraphApp {
         let keep_top_bar = any_popup_open;
 
         if pointer_near_top || keep_top_bar {
-            self.window_bar_visible_until = now + 1.0;
+            self.ws.window_bar_visible_until = now + 1.0;
         }
         let show_window_bar =
-            pointer_near_top || keep_top_bar || now <= self.window_bar_visible_until;
+            pointer_near_top || keep_top_bar || now <= self.ws.window_bar_visible_until;
 
         (now, screen_rect, pointer_near_top, show_window_bar)
     }
@@ -226,8 +226,8 @@ impl GraphApp {
                 let title_font = egui::FontId::proportional(13.0);
                 let title_color = egui::Color32::from_rgba_unmultiplied(236, 240, 255, 220);
 
-                let title_text = if self.editing_workspace_name {
-                    self.workspace_name_edit_buffer.clone()
+                let title_text = if self.ws.editing_workspace_name {
+                    self.ws.workspace_name_edit_buffer.clone()
                 } else {
                     self.workspace_name().to_owned()
                 };
@@ -298,17 +298,17 @@ impl GraphApp {
                     ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary));
                 let pointer_pos = ui.input(|i| i.pointer.interact_pos().or(i.pointer.latest_pos()));
 
-                if self.editing_workspace_name {
+                if self.ws.editing_workspace_name {
                     ui.allocate_new_ui(egui::UiBuilder::new().max_rect(title_rect), |ui| {
                         let editor_id = ui.id().with("window_workspace_name_editor");
-                        if self.pending_workspace_name_focus {
+                        if self.ws.pending_workspace_name_focus {
                             ui.memory_mut(|m| m.request_focus(editor_id));
-                            self.pending_workspace_name_focus = false;
+                            self.ws.pending_workspace_name_focus = false;
                         }
 
                         ui.add_sized(
                             title_rect.size(),
-                            egui::TextEdit::singleline(&mut self.workspace_name_edit_buffer)
+                            egui::TextEdit::singleline(&mut self.ws.workspace_name_edit_buffer)
                                 .id(editor_id)
                                 .font(title_font.clone())
                                 .horizontal_align(egui::Align::Center)
@@ -426,7 +426,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn show_command_palette_if_open(&mut self, ctx: &egui::Context) {
-        if !self.command_palette_open {
+        if !self.ws.command_palette_open {
             return;
         }
 
@@ -439,7 +439,7 @@ impl GraphApp {
             .movable(false)
             .anchor(egui::Align2::CENTER_TOP, vec2(0.0, 40.0))
             .show(ctx, |ui| {
-                self.last_command_palette_rect = Some(ui.min_rect().expand(8.0));
+                self.ws.last_command_palette_rect = Some(ui.min_rect().expand(8.0));
                 ui.set_min_width(460.0);
 
                 let palette_items = [
@@ -467,7 +467,7 @@ impl GraphApp {
                     } else if action_id < 200 {
                         self.run_edit_menu_action(action_id - 100);
                     } else {
-                        self.performance_metrics.toggle_visible();
+                        self.ws.performance_metrics.toggle_visible();
                     }
                     action_triggered = true;
                 }
@@ -475,13 +475,13 @@ impl GraphApp {
 
         let popup_rect = palette_window.as_ref().map(|window| window.response.rect);
         if self.should_close_popup(ctx, popup_rect, action_triggered) {
-            self.command_palette_open = false;
+            self.ws.command_palette_open = false;
             self.reset_menu_search_state(false);
         }
     }
 
     pub(in crate::app) fn show_performance_overlay(&mut self, ctx: &egui::Context) {
-        if !self.performance_metrics.is_visible() {
+        if !self.ws.performance_metrics.is_visible() {
             return;
         }
 
@@ -491,14 +491,14 @@ impl GraphApp {
             .resizable(false)
             .collapsible(false)
             .show(ctx, |ui| {
-                let fps = self.performance_metrics.fps();
+                let fps = self.ws.performance_metrics.fps();
                 let fps_text = if fps.is_finite() && fps > 0.0 {
                     format!("{fps:.1}")
                 } else {
                     "--".to_owned()
                 };
 
-                let cpu_text = self
+                let cpu_text = self.ws
                     .performance_metrics
                     .cpu_usage()
                     .map(|value| format!("{value:.1}%"))
@@ -517,21 +517,21 @@ impl GraphApp {
         now: f64,
     ) {
         if show_window_bar && !pointer_near_top {
-            let remaining = (self.window_bar_visible_until - now).max(0.0);
+            let remaining = (self.ws.window_bar_visible_until - now).max(0.0);
             if remaining > 0.0 {
                 ctx.request_repaint_after(Duration::from_secs_f64(remaining.min(0.1)));
             }
         }
 
-        if !self.pending_terminal_starts.is_empty() {
+        if !self.ws.pending_terminal_starts.is_empty() {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
 
-        if self.performance_metrics.is_visible() {
+        if self.ws.performance_metrics.is_visible() {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
 
-        if let Some(secs) = self.script_lua_next_repaint_after {
+        if let Some(secs) = self.ws.script_lua_next_repaint_after {
             if secs > 0.0 {
                 ctx.request_repaint_after(Duration::from_secs_f64(secs.min(0.1)));
             }

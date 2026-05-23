@@ -35,15 +35,15 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn image_aspect(&self, node_id: usize) -> Option<f32> {
-        self.image_aspects.get(&node_id).copied()
+        self.ws.image_aspects.get(&node_id).copied()
     }
 
     fn ensure_image_texture(&mut self, node_id: usize, ctx: &egui::Context) {
-        if self.image_textures.contains_key(&node_id) || self.image_errors.contains_key(&node_id) {
+        if self.ws.image_textures.contains_key(&node_id) || self.ws.image_errors.contains_key(&node_id) {
             return;
         }
 
-        let Some(node) = self
+        let Some(node) = self.ws
             .nodes
             .iter()
             .find(|n| n.id == node_id && n.kind == NodeKind::Image)
@@ -55,7 +55,7 @@ impl GraphApp {
             NodeData::Image { image_path } => image_path.clone(),
             _ => return,
         };
-        let image = if let Some(bytes) = self.image_bytes.get(&node_id) {
+        let image = if let Some(bytes) = self.ws.image_bytes.get(&node_id) {
             Self::decode_image_bytes(bytes)
         } else if image_path.trim().is_empty() {
             return;
@@ -72,22 +72,22 @@ impl GraphApp {
                     color_image,
                     TextureOptions::LINEAR,
                 );
-                self.image_textures.insert(node_id, texture);
-                self.image_errors.remove(&node_id);
-                self.image_aspects.insert(node_id, aspect);
+                self.ws.image_textures.insert(node_id, texture);
+                self.ws.image_errors.remove(&node_id);
+                self.ws.image_aspects.insert(node_id, aspect);
 
-                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+                if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
                     node.size = vec2(w as f32, h as f32);
                 }
             }
             Err(err) => {
-                self.image_errors.insert(node_id, err);
+                self.ws.image_errors.insert(node_id, err);
             }
         }
     }
 
     pub(in crate::app) fn ensure_image_textures(&mut self, ctx: &egui::Context) {
-        let image_ids: Vec<usize> = self
+        let image_ids: Vec<usize> = self.ws
             .nodes
             .iter()
             .filter(|n| n.kind == NodeKind::Image)
@@ -99,10 +99,10 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn image_texture(&self, node_id: usize) -> Option<&TextureHandle> {
-        self.image_textures.get(&node_id)
+        self.ws.image_textures.get(&node_id)
     }
 
     pub(in crate::app) fn image_error(&self, node_id: usize) -> Option<&str> {
-        self.image_errors.get(&node_id).map(String::as_str)
+        self.ws.image_errors.get(&node_id).map(String::as_str)
     }
 }

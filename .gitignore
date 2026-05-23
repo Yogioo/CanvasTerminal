@@ -20,6 +20,9 @@ Thumbs.db
 .env.*
 !.env.example
 
+# AI agent local state (pi)
+.pi/
+
 # Logs
 *.log
 

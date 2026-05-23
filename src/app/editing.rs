@@ -95,31 +95,31 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn sync_decision_color_texts_with_mode(&mut self) {
-        for row in &mut self.decision_buttons_edit_rows {
+        for row in &mut self.ws.decision_buttons_edit_rows {
             row.color_text =
-                Self::decision_color_text_from_rgb(self.decision_color_input_mode, row.color_rgb);
+                Self::decision_color_text_from_rgb(self.ws.decision_color_input_mode, row.color_rgb);
         }
     }
 
     fn finish_title_edit(&mut self, node_id: Option<usize>) {
-        self.editing_title_node = None;
-        self.pending_title_focus = None;
-        self.title_edit_buffer.clear();
-        self.suspend_terminal_focus = node_id;
+        self.ws.editing_title_node = None;
+        self.ws.pending_title_focus = None;
+        self.ws.title_edit_buffer.clear();
+        self.ws.suspend_terminal_focus = node_id;
     }
 
     fn finish_startup_edit(&mut self, node_id: Option<usize>) {
-        self.editing_startup_node = None;
-        self.pending_startup_focus = None;
-        self.startup_edit_buffer.clear();
-        self.suspend_terminal_focus = node_id;
+        self.ws.editing_startup_node = None;
+        self.ws.pending_startup_focus = None;
+        self.ws.startup_edit_buffer.clear();
+        self.ws.suspend_terminal_focus = node_id;
     }
 
     fn finish_working_directory_edit(&mut self, node_id: Option<usize>) {
-        self.editing_working_directory_node = None;
-        self.pending_working_directory_focus = None;
-        self.working_directory_edit_buffer.clear();
-        self.suspend_terminal_focus = node_id;
+        self.ws.editing_working_directory_node = None;
+        self.ws.pending_working_directory_focus = None;
+        self.ws.working_directory_edit_buffer.clear();
+        self.ws.suspend_terminal_focus = node_id;
     }
 
     fn restart_terminal_if_changed(&mut self, node_id: usize, changed: bool, ctx: &egui::Context) {
@@ -130,44 +130,44 @@ impl GraphApp {
 
     pub(in crate::app) fn prepare_inline_node_edit(&mut self, node_id: usize) {
         self.set_single_selection(node_id);
-        self.dragging = None;
-        self.drag_start_pos = None;
-        self.drag_group_start = None;
-        self.resizing = None;
+        self.ws.dragging = None;
+        self.ws.drag_start_pos = None;
+        self.ws.drag_group_start = None;
+        self.ws.resizing = None;
 
-        self.editing_text_node = None;
-        self.pending_text_focus = None;
+        self.ws.editing_text_node = None;
+        self.ws.pending_text_focus = None;
 
-        self.editing_title_node = None;
-        self.pending_title_focus = None;
-        self.title_edit_buffer.clear();
+        self.ws.editing_title_node = None;
+        self.ws.pending_title_focus = None;
+        self.ws.title_edit_buffer.clear();
 
-        self.editing_startup_node = None;
-        self.pending_startup_focus = None;
-        self.startup_edit_buffer.clear();
+        self.ws.editing_startup_node = None;
+        self.ws.pending_startup_focus = None;
+        self.ws.startup_edit_buffer.clear();
 
-        self.editing_working_directory_node = None;
-        self.pending_working_directory_focus = None;
-        self.working_directory_edit_buffer.clear();
+        self.ws.editing_working_directory_node = None;
+        self.ws.pending_working_directory_focus = None;
+        self.ws.working_directory_edit_buffer.clear();
 
-        self.editing_decision_buttons_node = None;
-        self.pending_decision_buttons_focus = None;
-        self.decision_buttons_edit_rows.clear();
-        self.decision_color_popup = None;
-        self.decision_color_popup_pos = None;
-        self.decision_buttons_edit_error = None;
+        self.ws.editing_decision_buttons_node = None;
+        self.ws.pending_decision_buttons_focus = None;
+        self.ws.decision_buttons_edit_rows.clear();
+        self.ws.decision_color_popup = None;
+        self.ws.decision_color_popup_pos = None;
+        self.ws.decision_buttons_edit_error = None;
 
-        self.editing_decision_queue_node = None;
-        self.pending_decision_queue_focus = None;
-        self.decision_queue_edit_buffer.clear();
+        self.ws.editing_decision_queue_node = None;
+        self.ws.pending_decision_queue_focus = None;
+        self.ws.decision_queue_edit_buffer.clear();
 
-        self.editing_edge = None;
-        self.pending_edge_focus = None;
-        self.edge_edit_buffer.clear();
+        self.ws.editing_edge = None;
+        self.ws.pending_edge_focus = None;
+        self.ws.edge_edit_buffer.clear();
     }
 
     pub(in crate::app) fn start_title_edit(&mut self, node_id: usize) {
-        let Some(title) = self
+        let Some(title) = self.ws
             .nodes
             .iter()
             .find(|n| n.id == node_id)
@@ -183,15 +183,15 @@ impl GraphApp {
         };
 
         self.prepare_inline_node_edit(node_id);
-        self.editing_title_node = Some(node_id);
-        self.pending_title_focus = Some(node_id);
-        self.title_edit_buffer = title;
+        self.ws.editing_title_node = Some(node_id);
+        self.ws.pending_title_focus = Some(node_id);
+        self.ws.title_edit_buffer = title;
     }
 
     pub(in crate::app) fn commit_title_edit(&mut self, node_id: usize) {
         let mut changed = false;
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
-            let trimmed = self.title_edit_buffer.trim();
+        if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
+            let trimmed = self.ws.title_edit_buffer.trim();
             if !trimmed.is_empty() {
                 match &mut node.data {
                     NodeData::Terminal { title, .. }
@@ -214,12 +214,12 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn cancel_title_edit(&mut self) {
-        self.finish_title_edit(self.editing_title_node);
+        self.finish_title_edit(self.ws.editing_title_node);
     }
 
     pub(in crate::app) fn start_startup_edit(&mut self, node_id: usize) {
         let Some(startup_script) =
-            self.nodes
+            self.ws.nodes
                 .iter()
                 .find(|n| n.id == node_id)
                 .and_then(|n| match &n.data {
@@ -231,15 +231,15 @@ impl GraphApp {
         };
 
         self.prepare_inline_node_edit(node_id);
-        self.editing_startup_node = Some(node_id);
-        self.pending_startup_focus = Some(node_id);
-        self.startup_edit_buffer = startup_script;
+        self.ws.editing_startup_node = Some(node_id);
+        self.ws.pending_startup_focus = Some(node_id);
+        self.ws.startup_edit_buffer = startup_script;
     }
 
     pub(in crate::app) fn commit_startup_edit(&mut self, node_id: usize, ctx: &egui::Context) {
         let mut changed = false;
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
-            let next = self.startup_edit_buffer.trim().to_owned();
+        if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
+            let next = self.ws.startup_edit_buffer.trim().to_owned();
             if let NodeData::Terminal { startup_script, .. } = &mut node.data {
                 if *startup_script != next {
                     *startup_script = next;
@@ -255,7 +255,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn start_working_directory_edit(&mut self, node_id: usize) {
-        let Some(working_directory) = self
+        let Some(working_directory) = self.ws
             .nodes
             .iter()
             .find(|n| n.id == node_id)
@@ -270,9 +270,9 @@ impl GraphApp {
         };
 
         self.prepare_inline_node_edit(node_id);
-        self.editing_working_directory_node = Some(node_id);
-        self.pending_working_directory_focus = Some(node_id);
-        self.working_directory_edit_buffer = working_directory;
+        self.ws.editing_working_directory_node = Some(node_id);
+        self.ws.pending_working_directory_focus = Some(node_id);
+        self.ws.working_directory_edit_buffer = working_directory;
     }
 
     pub(in crate::app) fn commit_working_directory_edit(
@@ -281,8 +281,8 @@ impl GraphApp {
         ctx: &egui::Context,
     ) {
         let mut changed = false;
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
-            let next = self.working_directory_edit_buffer.trim();
+        if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
+            let next = self.ws.working_directory_edit_buffer.trim();
             let next_value = if next.is_empty() {
                 None
             } else {
@@ -306,12 +306,12 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn cancel_working_directory_edit(&mut self) {
-        self.finish_working_directory_edit(self.editing_working_directory_node);
+        self.finish_working_directory_edit(self.ws.editing_working_directory_node);
     }
 
     pub(in crate::app) fn start_decision_buttons_edit(&mut self, node_id: usize) {
         let Some(existing_buttons) =
-            self.nodes
+            self.ws.nodes
                 .iter()
                 .find(|n| n.id == node_id)
                 .and_then(|n| match &n.data {
@@ -323,13 +323,13 @@ impl GraphApp {
         };
 
         self.prepare_inline_node_edit(node_id);
-        self.editing_decision_buttons_node = Some(node_id);
-        self.pending_decision_buttons_focus = Some(node_id);
-        self.decision_color_popup = None;
-        self.decision_color_popup_pos = None;
-        self.decision_buttons_edit_error = None;
+        self.ws.editing_decision_buttons_node = Some(node_id);
+        self.ws.pending_decision_buttons_focus = Some(node_id);
+        self.ws.decision_color_popup = None;
+        self.ws.decision_color_popup_pos = None;
+        self.ws.decision_buttons_edit_error = None;
 
-        self.decision_buttons_edit_rows = existing_buttons
+        self.ws.decision_buttons_edit_rows = existing_buttons
             .into_iter()
             .map(|button| {
                 let color_rgb = button.color_rgb.unwrap_or([224, 232, 242]);
@@ -338,21 +338,21 @@ impl GraphApp {
                     event_key: button.event_key,
                     color_rgb,
                     color_text: Self::decision_color_text_from_rgb(
-                        self.decision_color_input_mode,
+                        self.ws.decision_color_input_mode,
                         color_rgb,
                     ),
                 }
             })
             .collect();
 
-        if self.decision_buttons_edit_rows.is_empty() {
+        if self.ws.decision_buttons_edit_rows.is_empty() {
             let default_rgb = [212, 244, 226];
-            self.decision_buttons_edit_rows.push(DecisionButtonDraft {
+            self.ws.decision_buttons_edit_rows.push(DecisionButtonDraft {
                 label: "通过".to_owned(),
                 event_key: "approve".to_owned(),
                 color_rgb: default_rgb,
                 color_text: Self::decision_color_text_from_rgb(
-                    self.decision_color_input_mode,
+                    self.ws.decision_color_input_mode,
                     default_rgb,
                 ),
             });
@@ -361,12 +361,12 @@ impl GraphApp {
 
     pub(in crate::app) fn add_decision_button_row(&mut self) {
         let default_rgb = [224, 232, 242];
-        self.decision_buttons_edit_rows.push(DecisionButtonDraft {
+        self.ws.decision_buttons_edit_rows.push(DecisionButtonDraft {
             label: "新按钮".to_owned(),
-            event_key: format!("event_{}", self.decision_buttons_edit_rows.len() + 1),
+            event_key: format!("event_{}", self.ws.decision_buttons_edit_rows.len() + 1),
             color_rgb: default_rgb,
             color_text: Self::decision_color_text_from_rgb(
-                self.decision_color_input_mode,
+                self.ws.decision_color_input_mode,
                 default_rgb,
             ),
         });
@@ -374,31 +374,31 @@ impl GraphApp {
 
 
     pub(in crate::app) fn remove_decision_button_row(&mut self, row: usize) {
-        if row < self.decision_buttons_edit_rows.len() {
-            self.decision_buttons_edit_rows.remove(row);
-            if let Some((node_id, popup_row)) = self.decision_color_popup {
+        if row < self.ws.decision_buttons_edit_rows.len() {
+            self.ws.decision_buttons_edit_rows.remove(row);
+            if let Some((node_id, popup_row)) = self.ws.decision_color_popup {
                 if popup_row == row {
-                    self.decision_color_popup = None;
-                    self.decision_color_popup_pos = None;
+                    self.ws.decision_color_popup = None;
+                    self.ws.decision_color_popup_pos = None;
                 } else if popup_row > row {
-                    self.decision_color_popup = Some((node_id, popup_row - 1));
+                    self.ws.decision_color_popup = Some((node_id, popup_row - 1));
                 }
             }
         }
     }
 
     pub(in crate::app) fn cancel_decision_buttons_edit(&mut self) {
-        self.editing_decision_buttons_node = None;
-        self.pending_decision_buttons_focus = None;
-        self.decision_buttons_edit_rows.clear();
-        self.decision_color_popup = None;
-        self.decision_color_popup_pos = None;
-        self.decision_buttons_edit_error = None;
+        self.ws.editing_decision_buttons_node = None;
+        self.ws.pending_decision_buttons_focus = None;
+        self.ws.decision_buttons_edit_rows.clear();
+        self.ws.decision_color_popup = None;
+        self.ws.decision_color_popup_pos = None;
+        self.ws.decision_buttons_edit_error = None;
     }
 
     pub(in crate::app) fn start_decision_queue_edit(&mut self, node_id: usize) {
         let Some(queue_text) =
-            self.nodes
+            self.ws.nodes
                 .iter()
                 .find(|n| n.id == node_id)
                 .and_then(|n| match &n.data {
@@ -424,27 +424,27 @@ impl GraphApp {
         };
 
         self.prepare_inline_node_edit(node_id);
-        self.editing_decision_queue_node = Some(node_id);
-        self.pending_decision_queue_focus = Some(node_id);
-        self.decision_queue_edit_buffer = queue_text;
+        self.ws.editing_decision_queue_node = Some(node_id);
+        self.ws.pending_decision_queue_focus = Some(node_id);
+        self.ws.decision_queue_edit_buffer = queue_text;
     }
 
     pub(in crate::app) fn cancel_decision_queue_edit(&mut self) {
-        self.editing_decision_queue_node = None;
-        self.pending_decision_queue_focus = None;
-        self.decision_queue_edit_buffer.clear();
+        self.ws.editing_decision_queue_node = None;
+        self.ws.pending_decision_queue_focus = None;
+        self.ws.decision_queue_edit_buffer.clear();
     }
 
     pub(in crate::app) fn commit_decision_queue_edit(&mut self, node_id: usize) {
         let mut changed = false;
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+        if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
             if let NodeData::Decision {
                 pending_message,
                 pending_messages,
                 ..
             } = &mut node.data
             {
-                let next_queue: Vec<String> = self
+                let next_queue: Vec<String> = self.ws
                     .decision_queue_edit_buffer
                     .split("\n\n-----\n\n")
                     .map(str::trim)
@@ -479,7 +479,7 @@ impl GraphApp {
     // ── Script node queue editor ──
 
     pub(in crate::app) fn start_script_queue_edit(&mut self, node_id: usize) {
-        let queue_text = self
+        let queue_text = self.ws
             .nodes
             .iter()
             .find(|n| n.id == node_id)
@@ -491,22 +491,22 @@ impl GraphApp {
             })
             .unwrap_or_default();
 
-        self.editing_script_queue_node = Some(node_id);
-        self.pending_script_queue_focus = Some(node_id);
-        self.script_queue_edit_buffer = queue_text;
+        self.ws.editing_script_queue_node = Some(node_id);
+        self.ws.pending_script_queue_focus = Some(node_id);
+        self.ws.script_queue_edit_buffer = queue_text;
     }
 
     pub(in crate::app) fn cancel_script_queue_edit(&mut self) {
-        self.editing_script_queue_node = None;
-        self.pending_script_queue_focus = None;
-        self.script_queue_edit_buffer.clear();
+        self.ws.editing_script_queue_node = None;
+        self.ws.pending_script_queue_focus = None;
+        self.ws.script_queue_edit_buffer.clear();
     }
 
     pub(in crate::app) fn commit_script_queue_edit(&mut self, node_id: usize) {
         let mut changed = false;
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+        if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
             if let NodeData::Script { pending_messages, .. } = &mut node.data {
-                let next_queue: Vec<String> = self
+                let next_queue: Vec<String> = self.ws
                     .script_queue_edit_buffer
                     .split("\n\n-----\n\n")
                     .map(str::trim)
@@ -529,28 +529,28 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn commit_decision_buttons_edit(&mut self) -> bool {
-        let Some(node_id) = self.editing_decision_buttons_node else {
+        let Some(node_id) = self.ws.editing_decision_buttons_node else {
             return false;
         };
 
         let mut parsed_buttons = Vec::new();
         let mut seen_event_keys = HashSet::new();
 
-        for (idx, row) in self.decision_buttons_edit_rows.iter().enumerate() {
+        for (idx, row) in self.ws.decision_buttons_edit_rows.iter().enumerate() {
             let label = row.label.trim();
             let event_key = row.event_key.trim();
 
             if label.is_empty() {
-                self.decision_buttons_edit_error =
+                self.ws.decision_buttons_edit_error =
                     Some(format!("第 {} 行显示名称不能为空", idx + 1));
                 return false;
             }
             if event_key.is_empty() {
-                self.decision_buttons_edit_error = Some(format!("第 {} 行事件名不能为空", idx + 1));
+                self.ws.decision_buttons_edit_error = Some(format!("第 {} 行事件名不能为空", idx + 1));
                 return false;
             }
             if !seen_event_keys.insert(event_key.to_owned()) {
-                self.decision_buttons_edit_error =
+                self.ws.decision_buttons_edit_error =
                     Some(format!("第 {} 行事件名重复: {}", idx + 1, event_key));
                 return false;
             }
@@ -563,7 +563,7 @@ impl GraphApp {
         }
 
         let mut changed = false;
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+        if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
             if let NodeData::Decision { buttons, .. } = &mut node.data {
                 if *buttons != parsed_buttons {
                     *buttons = parsed_buttons;
@@ -583,7 +583,7 @@ impl GraphApp {
     // ── Script node editing ──
 
     pub(in crate::app) fn start_script_edit(&mut self, node_id: usize) {
-        let Some(code) = self
+        let Some(code) = self.ws
             .nodes
             .iter()
             .find(|n| n.id == node_id)
@@ -596,27 +596,27 @@ impl GraphApp {
         };
 
         // If there's already a script node being edited, commit it first
-        if let Some(prev_id) = self.editing_script_node {
+        if let Some(prev_id) = self.ws.editing_script_node {
             if prev_id != node_id {
                 self.commit_script_edit(prev_id);
             }
         }
 
         self.prepare_inline_node_edit(node_id);
-        self.editing_script_node = Some(node_id);
-        self.pending_script_focus = Some(node_id);
-        self.script_edit_buffer = code;
+        self.ws.editing_script_node = Some(node_id);
+        self.ws.pending_script_focus = Some(node_id);
+        self.ws.script_edit_buffer = code;
     }
 
     pub(in crate::app) fn apply_script_snippet(&mut self, node_id: usize, code: String, start_edit: bool) {
         let mut changed = false;
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+        if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
             if let NodeData::Script { code: node_code, .. } = &mut node.data {
                 if *node_code != code {
                     *node_code = code.clone();
-                    self.script_lua_runtimes.remove(&node_id);
-                    self.script_lua_timer_accum.remove(&node_id);
-                    self.script_lua_errors.remove(&node_id);
+                    self.ws.script_lua_runtimes.remove(&node_id);
+                    self.ws.script_lua_timer_accum.remove(&node_id);
+                    self.ws.script_lua_errors.remove(&node_id);
                     changed = true;
                 }
             }
@@ -633,22 +633,22 @@ impl GraphApp {
 
     pub(in crate::app) fn commit_script_edit(&mut self, node_id: usize) {
         self.save_script_edit_buffer(node_id);
-        self.editing_script_node = None;
-        self.pending_script_focus = None;
-        self.script_edit_buffer.clear();
+        self.ws.editing_script_node = None;
+        self.ws.pending_script_focus = None;
+        self.ws.script_edit_buffer.clear();
     }
 
     pub(in crate::app) fn save_script_edit_buffer(&mut self, node_id: usize) {
         let mut changed = false;
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+        if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
             if let NodeData::Script { code, .. } = &mut node.data {
-                let new_code = self.script_edit_buffer.trim().to_owned();
+                let new_code = self.ws.script_edit_buffer.trim().to_owned();
                 if *code != new_code {
                     *code = new_code;
                     // Lua runtime must be rebuilt on code change
-                    self.script_lua_runtimes.remove(&node_id);
-                    self.script_lua_timer_accum.remove(&node_id);
-                    self.script_lua_errors.remove(&node_id);
+                    self.ws.script_lua_runtimes.remove(&node_id);
+                    self.ws.script_lua_timer_accum.remove(&node_id);
+                    self.ws.script_lua_errors.remove(&node_id);
                     changed = true;
                 }
             }
@@ -660,28 +660,28 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn start_script_debug(&mut self, node_id: usize) {
-        if self.editing_script_node != Some(node_id) {
+        if self.ws.editing_script_node != Some(node_id) {
             self.start_script_edit(node_id);
         }
-        self.script_debug_node = Some(node_id);
+        self.ws.script_debug_node = Some(node_id);
     }
 
     pub(in crate::app) fn stop_script_debug(&mut self, node_id: usize) {
-        if self.script_debug_node == Some(node_id) {
-            self.script_debug_node = None;
+        if self.ws.script_debug_node == Some(node_id) {
+            self.ws.script_debug_node = None;
         }
     }
 
     #[allow(dead_code)]
     pub(in crate::app) fn cancel_script_edit(&mut self) {
-        if let Some(node_id) = self.editing_script_node {
-            if self.script_debug_node == Some(node_id) {
-                self.script_debug_node = None;
+        if let Some(node_id) = self.ws.editing_script_node {
+            if self.ws.script_debug_node == Some(node_id) {
+                self.ws.script_debug_node = None;
             }
         }
-        self.editing_script_node = None;
-        self.pending_script_focus = None;
-        self.script_edit_buffer.clear();
+        self.ws.editing_script_node = None;
+        self.ws.pending_script_focus = None;
+        self.ws.script_edit_buffer.clear();
     }
 
     pub(in crate::app) fn start_edge_edit(&mut self, edge: (usize, usize)) {
@@ -689,43 +689,43 @@ impl GraphApp {
             return;
         }
 
-        self.editing_text_node = None;
-        self.pending_text_focus = None;
-        self.editing_title_node = None;
-        self.pending_title_focus = None;
-        self.title_edit_buffer.clear();
-        self.editing_startup_node = None;
-        self.pending_startup_focus = None;
-        self.startup_edit_buffer.clear();
-        self.editing_working_directory_node = None;
-        self.pending_working_directory_focus = None;
-        self.working_directory_edit_buffer.clear();
-        self.editing_decision_buttons_node = None;
-        self.pending_decision_buttons_focus = None;
-        self.decision_buttons_edit_rows.clear();
-        self.decision_color_popup = None;
-        self.decision_color_popup_pos = None;
-        self.decision_buttons_edit_error = None;
-        self.editing_decision_queue_node = None;
-        self.pending_decision_queue_focus = None;
-        self.decision_queue_edit_buffer.clear();
+        self.ws.editing_text_node = None;
+        self.ws.pending_text_focus = None;
+        self.ws.editing_title_node = None;
+        self.ws.pending_title_focus = None;
+        self.ws.title_edit_buffer.clear();
+        self.ws.editing_startup_node = None;
+        self.ws.pending_startup_focus = None;
+        self.ws.startup_edit_buffer.clear();
+        self.ws.editing_working_directory_node = None;
+        self.ws.pending_working_directory_focus = None;
+        self.ws.working_directory_edit_buffer.clear();
+        self.ws.editing_decision_buttons_node = None;
+        self.ws.pending_decision_buttons_focus = None;
+        self.ws.decision_buttons_edit_rows.clear();
+        self.ws.decision_color_popup = None;
+        self.ws.decision_color_popup_pos = None;
+        self.ws.decision_buttons_edit_error = None;
+        self.ws.editing_decision_queue_node = None;
+        self.ws.pending_decision_queue_focus = None;
+        self.ws.decision_queue_edit_buffer.clear();
 
         self.set_edge_selection(edge);
-        self.dragging = None;
-        self.drag_start_pos = None;
-        self.drag_group_start = None;
-        self.resizing = None;
+        self.ws.dragging = None;
+        self.ws.drag_start_pos = None;
+        self.ws.drag_group_start = None;
+        self.ws.resizing = None;
 
-        self.editing_edge = Some(edge);
-        self.pending_edge_focus = Some(edge);
-        self.edge_edit_buffer = self
+        self.ws.editing_edge = Some(edge);
+        self.ws.pending_edge_focus = Some(edge);
+        self.ws.edge_edit_buffer = self
             .edge_route_key(edge.0, edge.1)
             .unwrap_or_default()
             .to_owned();
     }
 
     pub(in crate::app) fn commit_edge_edit(&mut self) {
-        let Some((from, to)) = self.editing_edge else {
+        let Some((from, to)) = self.ws.editing_edge else {
             return;
         };
 
@@ -735,7 +735,7 @@ impl GraphApp {
         }
 
         let prev = self.edge_route_key(from, to).unwrap_or_default().to_owned();
-        let next = self.edge_edit_buffer.trim().to_owned();
+        let next = self.ws.edge_edit_buffer.trim().to_owned();
 
         if prev != next {
             if next.is_empty() {
@@ -750,9 +750,9 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn cancel_edge_edit(&mut self) {
-        self.editing_edge = None;
-        self.pending_edge_focus = None;
-        self.edge_edit_buffer.clear();
+        self.ws.editing_edge = None;
+        self.ws.pending_edge_focus = None;
+        self.ws.edge_edit_buffer.clear();
     }
 
 

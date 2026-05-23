@@ -4,7 +4,7 @@ use rfd::FileDialog;
 
 impl GraphApp {
     fn menu_item_matches(&self, label: &str) -> bool {
-        let kw = self.menu_search_text.trim();
+        let kw = self.ws.menu_search_text.trim();
         if kw.is_empty() {
             return true;
         }
@@ -17,7 +17,7 @@ impl GraphApp {
         label: &str,
         normal_color: egui::Color32,
     ) -> egui::text::LayoutJob {
-        let kw = self.menu_search_text.trim();
+        let kw = self.ws.menu_search_text.trim();
         let mut job = egui::text::LayoutJob::default();
 
         let mut normal = egui::TextFormat::default();
@@ -48,9 +48,9 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn reset_menu_search_state(&mut self, request_focus: bool) {
-        self.menu_search_text.clear();
-        self.menu_search_selected = 0;
-        self.pending_menu_search_focus = request_focus;
+        self.ws.menu_search_text.clear();
+        self.ws.menu_search_selected = 0;
+        self.ws.pending_menu_search_focus = request_focus;
     }
 
     pub(in crate::app) fn show_searchable_menu_actions(
@@ -63,22 +63,22 @@ impl GraphApp {
         empty_text: &str,
         footer_text: &str,
     ) -> Option<usize> {
-        if self.pending_menu_search_focus {
+        if self.ws.pending_menu_search_focus {
             ui.memory_mut(|m| m.request_focus(search_id));
         }
 
         let search_resp = ui.add_sized(
             [ui.available_width(), 24.0],
-            egui::TextEdit::singleline(&mut self.menu_search_text)
+            egui::TextEdit::singleline(&mut self.ws.menu_search_text)
                 .id(search_id)
                 .hint_text(hint_text),
         );
         let search_has_focus = search_resp.has_focus() || ui.memory(|m| m.has_focus(search_id));
-        if self.pending_menu_search_focus && search_has_focus {
-            self.pending_menu_search_focus = false;
+        if self.ws.pending_menu_search_focus && search_has_focus {
+            self.ws.pending_menu_search_focus = false;
         }
         if search_resp.changed() {
-            self.menu_search_selected = 0;
+            self.ws.menu_search_selected = 0;
         }
 
         ui.separator();
@@ -95,21 +95,21 @@ impl GraphApp {
             return None;
         }
 
-        if self.menu_search_selected >= matched.len() {
-            self.menu_search_selected = matched.len().saturating_sub(1);
+        if self.ws.menu_search_selected >= matched.len() {
+            self.ws.menu_search_selected = matched.len().saturating_sub(1);
         }
 
         if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
-            self.menu_search_selected = (self.menu_search_selected + 1) % matched.len();
+            self.ws.menu_search_selected = (self.ws.menu_search_selected + 1) % matched.len();
         }
         if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
-            self.menu_search_selected =
-                (self.menu_search_selected + matched.len() - 1) % matched.len();
+            self.ws.menu_search_selected =
+                (self.ws.menu_search_selected + matched.len() - 1) % matched.len();
         }
 
         let mut trigger_action = None;
         for (row, (label, action_id)) in matched.iter().enumerate() {
-            let selected = row == self.menu_search_selected;
+            let selected = row == self.ws.menu_search_selected;
             let normal_color = ui.visuals().widgets.inactive.fg_stroke.color;
             let resp = ui.add_sized(
                 [ui.available_width(), 24.0],
@@ -117,7 +117,7 @@ impl GraphApp {
                     .selected(selected),
             );
             if resp.hovered() {
-                self.menu_search_selected = row;
+                self.ws.menu_search_selected = row;
             }
             if resp.clicked() {
                 trigger_action = Some(*action_id);
@@ -125,7 +125,7 @@ impl GraphApp {
         }
 
         if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-            trigger_action = Some(matched[self.menu_search_selected].1);
+            trigger_action = Some(matched[self.ws.menu_search_selected].1);
         }
 
         ui.separator();
@@ -177,7 +177,7 @@ impl GraphApp {
             return;
         }
 
-        self.active_graph_path = Some(path.clone());
+        self.ws.active_graph_path = Some(path.clone());
         self.mark_workspace_clean();
         self.push_toast_notification(format!("已保存到: {}", path.display()));
     }
@@ -195,13 +195,13 @@ impl GraphApp {
             return;
         }
 
-        self.active_graph_path = Some(path);
+        self.ws.active_graph_path = Some(path);
     }
 
     pub(in crate::app) fn run_file_menu_action(&mut self, action_id: usize) {
         match action_id {
             0 => {
-                if self.active_graph_path.is_none() {
+                if self.ws.active_graph_path.is_none() {
                     self.save_graph_with_dialog();
                 } else {
                     match self.save_graph_to_default_path() {

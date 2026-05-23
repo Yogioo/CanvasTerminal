@@ -4,6 +4,48 @@ use serde_json::Value;
 pub const DEFAULT_CANVAS_API: &str = "http://127.0.0.1:4545";
 pub const DEFAULT_CANVAS_BIND_ADDR: &str = "127.0.0.1:4545";
 
+/// Typed automation actions. Keeps the wire format as `String` for
+/// backward compatibility; use `AutomationAction::from_str()` to parse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutomationAction {
+    GraphGet,
+    Metrics,
+    NodeCreate,
+    GroupCreate,
+    NodeMove,
+    NodeUpdate,
+    NodeDelete,
+    EdgeCreate,
+    EdgeReconnect,
+    EdgeDelete,
+    InjectText,
+    InjectTerminal,
+    TerminalRestart,
+}
+
+impl std::str::FromStr for AutomationAction {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "graph.get" => Ok(Self::GraphGet),
+            "metrics" => Ok(Self::Metrics),
+            "node.create" => Ok(Self::NodeCreate),
+            "group.create" => Ok(Self::GroupCreate),
+            "node.move" => Ok(Self::NodeMove),
+            "node.update" => Ok(Self::NodeUpdate),
+            "node.delete" => Ok(Self::NodeDelete),
+            "edge.create" => Ok(Self::EdgeCreate),
+            "edge.reconnect" => Ok(Self::EdgeReconnect),
+            "edge.delete" => Ok(Self::EdgeDelete),
+            "inject.text" => Ok(Self::InjectText),
+            "inject.terminal" => Ok(Self::InjectTerminal),
+            "terminal.restart" => Ok(Self::TerminalRestart),
+            _ => Err(format!("unknown automation action: {s}")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DoneEvent {
     pub node_uid: String,

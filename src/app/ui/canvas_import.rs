@@ -45,12 +45,12 @@ impl GraphApp {
         let now = ctx.input(|i| i.time);
         let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
         if !dropped_files.is_empty() {
-            self.pending_dropped_files = dropped_files;
-            self.pending_drop_spawn_world_pos = None;
-            self.pending_drop_requested_at = Some(now);
+            self.ws.pending_dropped_files = dropped_files;
+            self.ws.pending_drop_spawn_world_pos = None;
+            self.ws.pending_drop_requested_at = Some(now);
         }
 
-        if !self.pending_dropped_files.is_empty() {
+        if !self.ws.pending_dropped_files.is_empty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             ctx.request_repaint();
 
@@ -61,31 +61,31 @@ impl GraphApp {
             };
 
             if let Some(world_pos) = drop_pointer_world_pos {
-                self.pending_drop_spawn_world_pos = Some(world_pos);
+                self.ws.pending_drop_spawn_world_pos = Some(world_pos);
             }
 
-            if self.pending_drop_spawn_world_pos.is_none()
-                && self
+            if self.ws.pending_drop_spawn_world_pos.is_none()
+                && self.ws
                     .pending_drop_requested_at
                     .is_some_and(|start| now - start > 0.8)
             {
-                self.pending_dropped_files.clear();
-                self.pending_drop_requested_at = None;
+                self.ws.pending_dropped_files.clear();
+                self.ws.pending_drop_requested_at = None;
             }
         }
 
-        let mut spawn_local = if !self.pending_dropped_files.is_empty() {
-            self.pending_drop_spawn_world_pos
+        let mut spawn_local = if !self.ws.pending_dropped_files.is_empty() {
+            self.ws.pending_drop_spawn_world_pos
         } else if pointer_in_canvas {
             pointer_pos
                 .map(|pointer| self.screen_to_world_pos(rect, pointer))
-                .or(self.last_canvas_pointer_world_pos)
+                .or(self.ws.last_canvas_pointer_world_pos)
         } else {
-            self.last_canvas_pointer_world_pos
+            self.ws.last_canvas_pointer_world_pos
         };
 
-        if let Some(mut drop_spawn_local) = self.pending_drop_spawn_world_pos {
-            let pending_files = std::mem::take(&mut self.pending_dropped_files);
+        if let Some(mut drop_spawn_local) = self.ws.pending_drop_spawn_world_pos {
+            let pending_files = std::mem::take(&mut self.ws.pending_dropped_files);
             for file in pending_files {
                 if !Self::is_dropped_image_file(&file) {
                     continue;
@@ -105,9 +105,9 @@ impl GraphApp {
                 self.advance_spawn_pos_below_selected(&mut drop_spawn_local);
             }
             spawn_local = Some(drop_spawn_local);
-            self.last_drag_hover_world_pos = None;
-            self.pending_drop_spawn_world_pos = None;
-            self.pending_drop_requested_at = None;
+            self.ws.last_drag_hover_world_pos = None;
+            self.ws.pending_drop_spawn_world_pos = None;
+            self.ws.pending_drop_requested_at = None;
         }
 
         let Some(mut spawn_local) = spawn_local else {
@@ -140,14 +140,14 @@ impl GraphApp {
 
         let paste_shortcut = key_v_pressed && (command_down || ctrl_down);
         let paste_requested = paste_shortcut || paste_event_count > 0 || raw_paste_event_count > 0;
-        let suppress_canvas_image_paste = self.editing_text_node.is_some()
-            || self.editing_title_node.is_some()
-            || self.editing_startup_node.is_some()
-            || self.editing_working_directory_node.is_some()
-            || self.editing_decision_buttons_node.is_some()
-            || self.editing_decision_queue_node.is_some()
-            || self.editing_edge.is_some()
-            || self.command_palette_open;
+        let suppress_canvas_image_paste = self.ws.editing_text_node.is_some()
+            || self.ws.editing_title_node.is_some()
+            || self.ws.editing_startup_node.is_some()
+            || self.ws.editing_working_directory_node.is_some()
+            || self.ws.editing_decision_buttons_node.is_some()
+            || self.ws.editing_decision_queue_node.is_some()
+            || self.ws.editing_edge.is_some()
+            || self.ws.command_palette_open;
 
         if paste_requested && pointer_in_canvas && !suppress_canvas_image_paste {
             if self.paste_nodes_from_internal_clipboard(spawn_local) {

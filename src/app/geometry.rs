@@ -229,7 +229,7 @@ impl GraphApp {
         local: Pos2,
         _alt_passthrough: bool,
     ) -> Option<(usize, egui::Vec2)> {
-        let node_id = self
+        let node_id = self.ws
             .nodes
             .iter()
             .rev()
@@ -239,7 +239,7 @@ impl GraphApp {
             .map(|node| node.id)
             .or_else(|| self.top_group_id_at(local))?;
 
-        self.nodes
+        self.ws.nodes
             .iter()
             .find(|n| n.id == node_id)
             .map(|n| (n.id, n.pos.to_vec2()))
@@ -251,7 +251,7 @@ impl GraphApp {
         alt_passthrough: bool,
     ) -> Option<(usize, egui::Vec2, bool)> {
         let (id, node_pos) = self.find_node_at_with_alt(local, alt_passthrough)?;
-        let n = self.nodes.iter().find(|node| node.id == id)?;
+        let n = self.ws.nodes.iter().find(|node| node.id == id)?;
 
         let can_drag = match n.kind {
             NodeKind::Text | NodeKind::Image | NodeKind::Group => true,
@@ -264,37 +264,37 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn ensure_camera_initialized(&mut self, canvas_rect: Rect) {
-        if self.camera_initialized {
+        if self.ws.camera_initialized {
             return;
         }
 
-        self.camera_world_center =
-            ((canvas_rect.center() - canvas_rect.min - self.pan) / self.zoom).to_pos2();
-        if !self.camera_world_center.x.is_finite() || !self.camera_world_center.y.is_finite() {
-            self.camera_world_center = Pos2::new(0.0, 0.0);
+        self.ws.camera_world_center =
+            ((canvas_rect.center() - canvas_rect.min - self.ws.pan) / self.ws.zoom).to_pos2();
+        if !self.ws.camera_world_center.x.is_finite() || !self.ws.camera_world_center.y.is_finite() {
+            self.ws.camera_world_center = Pos2::new(0.0, 0.0);
         }
-        self.camera_initialized = true;
+        self.ws.camera_initialized = true;
         self.sync_pan_from_camera(canvas_rect);
     }
 
     pub(in crate::app) fn sync_pan_from_camera(&mut self, canvas_rect: Rect) {
-        self.pan =
-            canvas_rect.center() - canvas_rect.min - self.camera_world_center.to_vec2() * self.zoom;
+        self.ws.pan =
+            canvas_rect.center() - canvas_rect.min - self.ws.camera_world_center.to_vec2() * self.ws.zoom;
     }
 
     pub(in crate::app) fn world_to_screen_pos(&self, canvas_rect: Rect, world: Pos2) -> Pos2 {
-        canvas_rect.center() + (world - self.camera_world_center) * self.zoom
+        canvas_rect.center() + (world - self.ws.camera_world_center) * self.ws.zoom
     }
 
     pub(in crate::app) fn world_to_screen_rect(&self, canvas_rect: Rect, world_rect: Rect) -> Rect {
         Rect::from_min_size(
             self.world_to_screen_pos(canvas_rect, world_rect.min),
-            world_rect.size() * self.zoom,
+            world_rect.size() * self.ws.zoom,
         )
     }
 
     pub(in crate::app) fn screen_to_world_pos(&self, canvas_rect: Rect, screen: Pos2) -> Pos2 {
-        (self.camera_world_center.to_vec2() + (screen - canvas_rect.center()) / self.zoom).to_pos2()
+        (self.ws.camera_world_center.to_vec2() + (screen - canvas_rect.center()) / self.ws.zoom).to_pos2()
     }
 
     pub(in crate::app) fn maybe_rebase_world(&mut self, canvas_rect: Rect) {
@@ -319,67 +319,67 @@ impl GraphApp {
             return;
         }
 
-        for node in &mut self.nodes {
+        for node in &mut self.ws.nodes {
             node.pos -= shift;
         }
 
-        self.camera_world_center -= shift;
+        self.ws.camera_world_center -= shift;
 
-        if let Some((id, pos)) = self.drag_start_pos {
-            self.drag_start_pos = Some((id, pos - shift));
+        if let Some((id, pos)) = self.ws.drag_start_pos {
+            self.ws.drag_start_pos = Some((id, pos - shift));
         }
 
-        if let Some((start_pointer, start_nodes)) = self.drag_group_start.as_mut() {
+        if let Some((start_pointer, start_nodes)) = self.ws.drag_group_start.as_mut() {
             *start_pointer -= shift;
             for (_, node_pos) in start_nodes {
                 *node_pos -= shift;
             }
         }
 
-        if let Some((id, start_pointer, start_size)) = self.resizing {
-            self.resizing = Some((id, start_pointer - shift, start_size));
+        if let Some((id, start_pointer, start_size)) = self.ws.resizing {
+            self.ws.resizing = Some((id, start_pointer - shift, start_size));
         }
 
-        if let Some(pos) = self.context_menu_local_pos {
-            self.context_menu_local_pos = Some(pos - shift);
+        if let Some(pos) = self.ws.context_menu_local_pos {
+            self.ws.context_menu_local_pos = Some(pos - shift);
         }
 
-        if let Some(pos) = self.linking_pointer_local {
-            self.linking_pointer_local = Some(pos - shift);
+        if let Some(pos) = self.ws.linking_pointer_local {
+            self.ws.linking_pointer_local = Some(pos - shift);
         }
 
-        for p in &mut self.cutting_path_local {
+        for p in &mut self.ws.cutting_path_local {
             *p -= shift;
         }
 
-        if let Some(pos) = self.last_canvas_pointer_world_pos {
-            self.last_canvas_pointer_world_pos = Some(pos - shift);
+        if let Some(pos) = self.ws.last_canvas_pointer_world_pos {
+            self.ws.last_canvas_pointer_world_pos = Some(pos - shift);
         }
 
-        if let Some(pos) = self.last_drag_hover_world_pos {
-            self.last_drag_hover_world_pos = Some(pos - shift);
+        if let Some(pos) = self.ws.last_drag_hover_world_pos {
+            self.ws.last_drag_hover_world_pos = Some(pos - shift);
         }
 
-        if let Some(pos) = self.pending_drop_spawn_world_pos {
-            self.pending_drop_spawn_world_pos = Some(pos - shift);
+        if let Some(pos) = self.ws.pending_drop_spawn_world_pos {
+            self.ws.pending_drop_spawn_world_pos = Some(pos - shift);
         }
 
-        if let Some(pos) = self.box_select_start {
-            self.box_select_start = Some(pos - shift);
+        if let Some(pos) = self.ws.box_select_start {
+            self.ws.box_select_start = Some(pos - shift);
         }
 
-        if let Some(pos) = self.box_select_current {
-            self.box_select_current = Some(pos - shift);
+        if let Some(pos) = self.ws.box_select_current {
+            self.ws.box_select_current = Some(pos - shift);
         }
 
-        if let Some(nodes) = self.cut_snapshot_nodes.as_mut() {
+        if let Some(nodes) = self.ws.cut_snapshot_nodes.as_mut() {
             for node in nodes {
                 node.pos -= shift;
             }
         }
 
-        Self::shift_history_entries(&mut self.undo_stack, shift);
-        Self::shift_history_entries(&mut self.redo_stack, shift);
+        Self::shift_history_entries(&mut self.ws.undo_stack, shift);
+        Self::shift_history_entries(&mut self.ws.redo_stack, shift);
 
         self.sync_pan_from_camera(canvas_rect);
     }
@@ -413,7 +413,7 @@ impl GraphApp {
     }
 
     fn all_nodes_world_rect(&self) -> Option<Rect> {
-        let mut iter = self.nodes.iter();
+        let mut iter = self.ws.nodes.iter();
         let first = iter.next()?;
         let mut bounds = Self::node_world_rect(first);
         for node in iter {
@@ -430,18 +430,18 @@ impl GraphApp {
         let target_w = target_world_rect.width().max(1.0);
         let target_h = target_world_rect.height().max(1.0);
 
-        self.zoom = (view_w / target_w).min(view_h / target_h).max(1e-4);
+        self.ws.zoom = (view_w / target_w).min(view_h / target_h).max(1e-4);
 
         let target_center = target_world_rect.center();
-        self.camera_world_center = target_center;
+        self.ws.camera_world_center = target_center;
         self.sync_pan_from_camera(canvas_rect);
     }
 
     fn selected_nodes_world_rect(&self) -> Option<Rect> {
-        let mut selected_nodes = self
+        let mut selected_nodes = self.ws
             .nodes
             .iter()
-            .filter(|n| self.selected_nodes.contains(&n.id));
+            .filter(|n| self.ws.selected_nodes.contains(&n.id));
 
         let first = selected_nodes.next()?;
         let mut bounds = Self::node_world_rect(first);
@@ -462,7 +462,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn terminal_header_height_screen(&self) -> f32 {
-        let zoom_scale = self.zoom;
+        let zoom_scale = self.ws.zoom;
         let title_font_size = (17.0 * zoom_scale).max(9.0);
         let status_font_size = (13.0 * zoom_scale).max(8.0);
         let title_required_height = 10.0 * zoom_scale + title_font_size + 2.0 * zoom_scale;
@@ -475,14 +475,14 @@ impl GraphApp {
         node_id: usize,
         canvas_rect: Rect,
     ) -> Option<Rect> {
-        let n = self.nodes.iter().find(|n| n.id == node_id)?;
+        let n = self.ws.nodes.iter().find(|n| n.id == node_id)?;
         if !matches!(n.kind, NodeKind::Terminal) {
             return None;
         }
 
         let outer_world = Rect::from_min_size(n.pos, n.size);
         let outer_screen = self.world_to_screen_rect(canvas_rect, outer_world);
-        let border = 2.0 * self.zoom;
+        let border = 2.0 * self.ws.zoom;
         let header_height = self.terminal_header_height_screen();
 
         let inner_min = outer_screen.min + vec2(border, header_height + border);
@@ -507,8 +507,8 @@ impl GraphApp {
         from: usize,
         to: usize,
     ) -> Option<EdgeCurve> {
-        let source = self.nodes.iter().find(|n| n.id == from)?;
-        let target = self.nodes.iter().find(|n| n.id == to)?;
+        let source = self.ws.nodes.iter().find(|n| n.id == from)?;
+        let target = self.ws.nodes.iter().find(|n| n.id == to)?;
         Some(edge_curve_from_nodes(source, target))
     }
 
@@ -542,8 +542,8 @@ impl GraphApp {
         from: usize,
         to: usize,
     ) -> Option<egui::Vec2> {
-        let source = self.nodes.iter().find(|n| n.id == from)?;
-        let target = self.nodes.iter().find(|n| n.id == to)?;
+        let source = self.ws.nodes.iter().find(|n| n.id == from)?;
+        let target = self.ws.nodes.iter().find(|n| n.id == to)?;
 
         let source_center = Rect::from_min_size(source.pos, source.size).center();
         let target_center = Rect::from_min_size(target.pos, target.size).center();
@@ -584,7 +584,7 @@ impl GraphApp {
         local: Pos2,
         tolerance_world: f32,
     ) -> Option<(usize, usize)> {
-        self.edges.iter().rev().copied().find(|(from, to)| {
+        self.ws.edges.iter().rev().copied().find(|(from, to)| {
             self.edge_curve_segments_local(*from, *to)
                 .is_some_and(|samples| {
                     Self::distance_to_polyline(local, &samples) <= tolerance_world

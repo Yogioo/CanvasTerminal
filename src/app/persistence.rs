@@ -108,7 +108,7 @@ impl Default for ViewConfig {
 
 impl GraphConfig {
     fn from_app(app: &GraphApp) -> Self {
-        let nodes = app
+        let nodes = app.ws
             .nodes
             .iter()
             .map(|node| NodeConfig {
@@ -123,7 +123,7 @@ impl GraphConfig {
             })
             .collect();
 
-        let edge_routes = app
+        let edge_routes = app.ws
             .edge_route_keys
             .iter()
             .filter_map(|((from, to), route_key)| {
@@ -140,7 +140,7 @@ impl GraphConfig {
             })
             .collect();
 
-        let edge_curve_biases = app
+        let edge_curve_biases = app.ws
             .edge_curve_biases
             .iter()
             .filter_map(|((from, to), bias)| {
@@ -161,7 +161,7 @@ impl GraphConfig {
             })
             .collect();
 
-        let edge_control_offsets = app
+        let edge_control_offsets = app.ws
             .edge_control_offsets
             .iter()
             .filter_map(|((from, to), offsets)| {
@@ -189,17 +189,17 @@ impl GraphConfig {
         Self {
             version: GRAPH_CONFIG_VERSION,
             nodes,
-            edges: app.edges.clone(),
+            edges: app.ws.edges.clone(),
             edge_routes,
             edge_curve_biases,
             edge_control_offsets,
             view: ViewConfig {
-                pan_x: app.pan.x,
-                pan_y: app.pan.y,
-                zoom: app.zoom,
+                pan_x: app.ws.pan.x,
+                pan_y: app.ws.pan.y,
+                zoom: app.ws.zoom,
             },
             workspace_name: Some(app.workspace_name().to_owned()),
-            script_states: app
+            script_states: app.ws
                 .script_node_state
                 .iter()
                 .map(|(id, state)| ScriptStateConfig {
@@ -213,7 +213,7 @@ impl GraphConfig {
 
 impl GraphApp {
     fn quick_graph_path(&self) -> PathBuf {
-        self.active_graph_path
+        self.ws.active_graph_path
             .clone()
             .unwrap_or_else(|| PathBuf::from(DEFAULT_GRAPH_PATH))
     }
@@ -221,7 +221,7 @@ impl GraphApp {
     pub(in crate::app) fn save_graph_to_default_path(&mut self) -> Result<PathBuf, String> {
         let path = self.quick_graph_path();
         self.save_graph_to_path(&path)?;
-        self.active_graph_path = Some(path.clone());
+        self.ws.active_graph_path = Some(path.clone());
         self.mark_workspace_clean();
         Ok(path)
     }
@@ -229,7 +229,7 @@ impl GraphApp {
     pub(in crate::app) fn load_graph_from_default_path(&mut self) -> Result<PathBuf, String> {
         let path = self.quick_graph_path();
         self.load_graph_from_path(&path)?;
-        self.active_graph_path = Some(path.clone());
+        self.ws.active_graph_path = Some(path.clone());
         Ok(path)
     }
 
@@ -361,72 +361,72 @@ impl GraphApp {
             }
         }
 
-        self.nodes = nodes;
+        self.ws.nodes = nodes;
         self.sanitize_groups();
-        self.edges = edges;
-        self.edge_route_keys = edge_route_keys;
-        self.edge_curve_biases = edge_curve_biases;
-        self.edge_control_offsets = edge_control_offsets;
-        self.script_node_state = script_node_state;
-        self.selected = None;
-        self.selected_nodes.clear();
-        self.selected_edge = None;
-        self.dragging = None;
-        self.dragging_edge_control = None;
-        self.drag_start_pos = None;
-        self.drag_group_start = None;
-        self.resizing = None;
-        self.context_menu_node = None;
-        self.context_menu_edge = None;
-        self.context_menu_local_pos = None;
-        self.linking_from = None;
-        self.linking_pointer_local = None;
-        self.cutting_path_local.clear();
-        self.right_drag_moved = false;
-        self.cut_snapshot_nodes = None;
-        self.cut_snapshot_edges = None;
-        self.undo_stack.clear();
-        self.redo_stack.clear();
+        self.ws.edges = edges;
+        self.ws.edge_route_keys = edge_route_keys;
+        self.ws.edge_curve_biases = edge_curve_biases;
+        self.ws.edge_control_offsets = edge_control_offsets;
+        self.ws.script_node_state = script_node_state;
+        self.ws.selected = None;
+        self.ws.selected_nodes.clear();
+        self.ws.selected_edge = None;
+        self.ws.dragging = None;
+        self.ws.dragging_edge_control = None;
+        self.ws.drag_start_pos = None;
+        self.ws.drag_group_start = None;
+        self.ws.resizing = None;
+        self.ws.context_menu_node = None;
+        self.ws.context_menu_edge = None;
+        self.ws.context_menu_local_pos = None;
+        self.ws.linking_from = None;
+        self.ws.linking_pointer_local = None;
+        self.ws.cutting_path_local.clear();
+        self.ws.right_drag_moved = false;
+        self.ws.cut_snapshot_nodes = None;
+        self.ws.cut_snapshot_edges = None;
+        self.ws.undo_stack.clear();
+        self.ws.redo_stack.clear();
 
-        self.editing_text_node = None;
-        self.pending_text_focus = None;
-        self.editing_title_node = None;
-        self.pending_title_focus = None;
-        self.title_edit_buffer.clear();
-        self.editing_startup_node = None;
-        self.pending_startup_focus = None;
-        self.startup_edit_buffer.clear();
-        self.editing_working_directory_node = None;
-        self.pending_working_directory_focus = None;
-        self.working_directory_edit_buffer.clear();
-        self.editing_decision_buttons_node = None;
-        self.pending_decision_buttons_focus = None;
-        self.decision_buttons_edit_rows.clear();
-        self.decision_color_popup = None;
-        self.decision_color_popup_pos = None;
-        self.decision_buttons_edit_error = None;
-        self.editing_decision_queue_node = None;
-        self.pending_decision_queue_focus = None;
-        self.decision_queue_edit_buffer.clear();
-        self.editing_edge = None;
-        self.pending_edge_focus = None;
-        self.edge_edit_buffer.clear();
-        self.suspend_terminal_focus = None;
+        self.ws.editing_text_node = None;
+        self.ws.pending_text_focus = None;
+        self.ws.editing_title_node = None;
+        self.ws.pending_title_focus = None;
+        self.ws.title_edit_buffer.clear();
+        self.ws.editing_startup_node = None;
+        self.ws.pending_startup_focus = None;
+        self.ws.startup_edit_buffer.clear();
+        self.ws.editing_working_directory_node = None;
+        self.ws.pending_working_directory_focus = None;
+        self.ws.working_directory_edit_buffer.clear();
+        self.ws.editing_decision_buttons_node = None;
+        self.ws.pending_decision_buttons_focus = None;
+        self.ws.decision_buttons_edit_rows.clear();
+        self.ws.decision_color_popup = None;
+        self.ws.decision_color_popup_pos = None;
+        self.ws.decision_buttons_edit_error = None;
+        self.ws.editing_decision_queue_node = None;
+        self.ws.pending_decision_queue_focus = None;
+        self.ws.decision_queue_edit_buffer.clear();
+        self.ws.editing_edge = None;
+        self.ws.pending_edge_focus = None;
+        self.ws.edge_edit_buffer.clear();
+        self.ws.suspend_terminal_focus = None;
 
-        self.terminal_backends.clear();
-        self.terminal_exited.clear();
-        self.terminal_errors.clear();
-        self.pending_terminal_injections.clear();
-        self.pending_terminal_starts.clear();
+        self.ws.terminal_backends.clear();
+        self.ws.terminal_exited.clear();
+        self.ws.terminal_errors.clear();
+        self.ws.pending_terminal_injections.clear();
+        self.ws.pending_terminal_starts.clear();
 
-        self.image_textures.clear();
-        self.image_errors.clear();
-        self.image_bytes.clear();
-        self.image_aspects.clear();
-        self.script_bg_textures.clear();
-        self.script_bg_texture_errors.clear();
+        self.ws.image_textures.clear();
+        self.ws.image_errors.clear();
+        self.ws.image_bytes.clear();
+        self.ws.image_aspects.clear();
+        self.ws.script_bg_textures.clear();
+        self.ws.script_bg_texture_errors.clear();
 
-        self.next_node_id = self
+        self.ws.next_node_id = self.ws
             .nodes
             .iter()
             .map(|n| n.id)
@@ -438,24 +438,24 @@ impl GraphApp {
             config.workspace_name.as_deref(),
             fallback_path,
         ));
-        self.editing_workspace_name = false;
-        self.pending_workspace_name_focus = false;
-        self.workspace_name_edit_buffer.clear();
+        self.ws.editing_workspace_name = false;
+        self.ws.pending_workspace_name_focus = false;
+        self.ws.workspace_name_edit_buffer.clear();
 
-        self.pan = vec2(config.view.pan_x, config.view.pan_y);
-        self.zoom = if config.view.zoom.is_finite() && config.view.zoom >= 1e-4 {
+        self.ws.pan = vec2(config.view.pan_x, config.view.pan_y);
+        self.ws.zoom = if config.view.zoom.is_finite() && config.view.zoom >= 1e-4 {
             config.view.zoom
         } else {
             1.0
         };
-        self.camera_world_center = Pos2::new(0.0, 0.0);
-        self.camera_initialized = false;
+        self.ws.camera_world_center = Pos2::new(0.0, 0.0);
+        self.ws.camera_initialized = false;
 
-        for node in &self.nodes {
+        for node in &self.ws.nodes {
             if node.kind != NodeKind::Image || node.size.y <= 0.0 {
                 continue;
             }
-            self.image_aspects
+            self.ws.image_aspects
                 .insert(node.id, node.size.x / node.size.y);
         }
 

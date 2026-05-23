@@ -30,6 +30,12 @@ pub fn system_shell() -> String {
     }
 }
 
+/// Embedded PowerShell init script template.
+/// Placeholders: %NODE_ID%, %NODE_UID%, %CANVAS_API%, %CANVAS_ROOT%
+/// See assets/init-canvas-terminal.ps1 for the readable version.
+const WINDOWS_PTY_INIT_SCRIPT: &str =
+    include_str!("../assets/init-canvas-terminal.ps1");
+
 pub fn terminal_shell_args(node_id: usize, node_uid: &str) -> Vec<String> {
     #[cfg(windows)]
     {
@@ -39,12 +45,15 @@ pub fn terminal_shell_args(node_id: usize, node_uid: &str) -> Vec<String> {
             .ok()
             .map(|p| p.to_string_lossy().replace('\'', "''"))
             .unwrap_or_default();
+        let cmd = WINDOWS_PTY_INIT_SCRIPT
+            .replace("%NODE_ID%", &node_id.to_string())
+            .replace("%NODE_UID%", &escaped_node_uid)
+            .replace("%CANVAS_API%", &escaped_api)
+            .replace("%CANVAS_ROOT%", &escaped_cwd);
         vec![
             "-NoExit".to_owned(),
             "-Command".to_owned(),
-            format!(
-                "$env:CANVAS_NODE_ID='{node_id}'; $env:CANVAS_NODE_UID='{escaped_node_uid}'; $env:CANVAS_API='{escaped_api}'; $canvasRoot='{escaped_cwd}'; $machinePath=[Environment]::GetEnvironmentVariable('Path','Machine'); $userPath=[Environment]::GetEnvironmentVariable('Path','User'); $pathParts=@(); foreach ($rawPath in @($machinePath, $userPath, $env:Path)) {{ if ($rawPath) {{ foreach ($part in ($rawPath -split ';')) {{ $expanded=[Environment]::ExpandEnvironmentVariables($part).Trim(); if ($expanded) {{ $pathParts += $expanded }} }} }} }}; if ($env:USERPROFILE) {{ $pathParts += (Join-Path $env:USERPROFILE 'scoop\\shims') }}; $pathParts += 'C:\\Program Files\\Git\\cmd'; $pathParts += 'C:\\Program Files\\Git\\bin'; if ($canvasRoot) {{ $pathParts += $canvasRoot }}; $env:Path=(($pathParts | Where-Object {{ $_ -and $_.Trim() -ne '' }} | Select-Object -Unique) -join ';'); $env:PATH=$env:Path; $gitCandidates=@('C:\\Program Files\\Git\\cmd\\git.exe',(Join-Path $env:USERPROFILE 'scoop\\shims\\git.exe')); $gitExe=$gitCandidates | Where-Object {{ Test-Path $_ }} | Select-Object -First 1; if (-not (Get-Command git -ErrorAction SilentlyContinue) -and $gitExe) {{ function global:git {{ & $gitExe @args }} }}; $exeDir=$null; try {{ $procPath=(Get-Process -Id $PID).Path; if ($procPath) {{ $exeDir=Split-Path -Parent $procPath }} }} catch {{}}; $canvasCandidates=@(); if ($exeDir) {{ $canvasCandidates += (Join-Path $exeDir 'canvas.exe') }}; if ($canvasRoot) {{ $canvasCandidates += (Join-Path $canvasRoot 'canvas.exe'); $canvasCandidates += (Join-Path $canvasRoot 'dist\\canvas.exe') }}; $canvasExe=$canvasCandidates | Where-Object {{ Test-Path $_ }} | Select-Object -First 1; if ($canvasExe) {{ function global:canvas {{ & $canvasExe @args }} }}; $starshipConfigCandidates=@((Join-Path $canvasRoot 'assets\\starship.toml'), (Join-Path $canvasRoot 'dist\\starship.toml'), (Join-Path $canvasRoot 'starship.toml')); $starshipConfig=$starshipConfigCandidates | Where-Object {{ Test-Path $_ }} | Select-Object -First 1; if ($starshipConfig) {{ $env:STARSHIP_CONFIG=$starshipConfig; if (Get-Command starship -ErrorAction SilentlyContinue) {{ Invoke-Expression (& starship init powershell) }} }}"
-            ),
+            cmd,
         ]
     }
 

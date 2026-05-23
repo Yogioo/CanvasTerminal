@@ -42,11 +42,11 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn workspace_name(&self) -> &str {
-        &self.workspace_name
+        &self.ws.workspace_name
     }
 
     pub(in crate::app) fn set_workspace_name(&mut self, name: &str) {
-        self.workspace_name = Self::normalize_workspace_name(name);
+        self.ws.workspace_name = Self::normalize_workspace_name(name);
     }
 
     fn workspace_name_submit_result(current: &str, draft: &str) -> (String, bool) {
@@ -56,38 +56,38 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn start_workspace_name_edit(&mut self) {
-        self.editing_workspace_name = true;
-        self.pending_workspace_name_focus = true;
-        self.workspace_name_edit_buffer = self.workspace_name().to_owned();
+        self.ws.editing_workspace_name = true;
+        self.ws.pending_workspace_name_focus = true;
+        self.ws.workspace_name_edit_buffer = self.workspace_name().to_owned();
     }
 
     pub(in crate::app) fn commit_workspace_name_edit(&mut self) {
         let (next_name, changed) =
-            Self::workspace_name_submit_result(self.workspace_name(), &self.workspace_name_edit_buffer);
+            Self::workspace_name_submit_result(self.workspace_name(), &self.ws.workspace_name_edit_buffer);
         if changed {
-            self.workspace_name = next_name;
+            self.ws.workspace_name = next_name;
             self.mark_workspace_dirty();
         }
         self.cancel_workspace_name_edit();
     }
 
     pub(in crate::app) fn cancel_workspace_name_edit(&mut self) {
-        self.editing_workspace_name = false;
-        self.pending_workspace_name_focus = false;
-        self.workspace_name_edit_buffer.clear();
+        self.ws.editing_workspace_name = false;
+        self.ws.pending_workspace_name_focus = false;
+        self.ws.workspace_name_edit_buffer.clear();
     }
 
     pub(in crate::app) fn mark_workspace_dirty(&mut self) {
-        self.workspace_dirty = true;
+        self.ws.workspace_dirty = true;
         self.bump_automation_state_version();
     }
 
     pub(in crate::app) fn mark_workspace_clean(&mut self) {
-        self.workspace_dirty = false;
+        self.ws.workspace_dirty = false;
     }
 
     fn workspace_window_title(&self) -> String {
-        Self::format_workspace_window_title(self.workspace_name(), self.workspace_dirty)
+        Self::format_workspace_window_title(self.workspace_name(), self.ws.workspace_dirty)
     }
 
     fn format_workspace_window_title(workspace_name: &str, workspace_dirty: bool) -> String {
@@ -97,16 +97,16 @@ impl GraphApp {
 
     pub(in crate::app) fn apply_workspace_dirty_ui(&mut self, ctx: &egui::Context) {
         let title = self.workspace_window_title();
-        if self.last_window_title.as_ref() == Some(&title) {
+        if self.ws.last_window_title.as_ref() == Some(&title) {
             return;
         }
 
-        self.last_window_title = Some(title.clone());
+        self.ws.last_window_title = Some(title.clone());
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
     }
 
     pub(in crate::app) fn show_workspace_dirty_indicator(&self, ctx: &egui::Context) {
-        if !self.workspace_dirty {
+        if !self.ws.workspace_dirty {
             return;
         }
 

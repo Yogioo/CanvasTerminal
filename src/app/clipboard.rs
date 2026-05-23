@@ -5,18 +5,18 @@ use uuid::Uuid;
 
 impl GraphApp {
     pub(in crate::app) fn copy_selected_nodes_to_internal_clipboard(&mut self) -> bool {
-        if self.selected_nodes.is_empty() {
+        if self.ws.selected_nodes.is_empty() {
             return false;
         }
 
-        let mut selected_ids = self.selected_nodes.clone();
-        for group_id in self.selected_nodes.iter().copied() {
+        let mut selected_ids = self.ws.selected_nodes.clone();
+        for group_id in self.ws.selected_nodes.iter().copied() {
             if let Some(children) = self.group_child_ids(group_id) {
                 selected_ids.extend(children);
             }
         }
 
-        let nodes: Vec<_> = self
+        let nodes: Vec<_> = self.ws
             .nodes
             .iter()
             .filter(|node| selected_ids.contains(&node.id))
@@ -30,7 +30,7 @@ impl GraphApp {
         let anchor = Self::clipboard_anchor(&nodes);
         let edges = self.collect_clipboard_edges(&selected_ids);
 
-        self.node_clipboard = Some(NodeClipboardPayload {
+        self.ws.node_clipboard = Some(NodeClipboardPayload {
             nodes,
             edges,
             anchor,
@@ -39,7 +39,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn paste_nodes_from_internal_clipboard(&mut self, spawn_pos: Pos2) -> bool {
-        let Some(payload) = self.node_clipboard.clone() else {
+        let Some(payload) = self.ws.node_clipboard.clone() else {
             return false;
         };
 
@@ -84,7 +84,7 @@ impl GraphApp {
                 continue;
             }
 
-            self.edges.push((from, to));
+            self.ws.edges.push((from, to));
 
             if let Some(route_key) = edge.route_key.clone() {
                 self.set_edge_route_key(from, to, route_key);
@@ -105,42 +105,42 @@ impl GraphApp {
             });
         }
 
-        self.nodes.extend(pasted_nodes.clone());
+        self.ws.nodes.extend(pasted_nodes.clone());
 
         self.push_history(super::history::HistoryEntry::CreateBatch {
             nodes: pasted_nodes.clone(),
             edges: pasted_edges,
         });
 
-        self.selected_nodes.clear();
+        self.ws.selected_nodes.clear();
         for node in &pasted_nodes {
-            self.selected_nodes.insert(node.id);
+            self.ws.selected_nodes.insert(node.id);
         }
-        self.selected = pasted_nodes.last().map(|node| node.id);
+        self.ws.selected = pasted_nodes.last().map(|node| node.id);
         self.clear_edge_selection();
 
         true
     }
 
     fn collect_clipboard_edges(&self, selected_ids: &HashSet<usize>) -> Vec<NodeClipboardEdge> {
-        self.edges
+        self.ws.edges
             .iter()
             .filter_map(|(from, to)| {
                 if !selected_ids.contains(from) || !selected_ids.contains(to) {
                     return None;
                 }
 
-                let route_key = self
+                let route_key = self.ws
                     .edge_route_keys
                     .get(&(*from, *to))
                     .cloned()
                     .filter(|value| !value.trim().is_empty());
-                let curve_bias = self
+                let curve_bias = self.ws
                     .edge_curve_biases
                     .get(&(*from, *to))
                     .copied()
                     .filter(|bias| bias.is_finite() && bias.abs() > 0.001);
-                let control_offsets = self.edge_control_offsets.get(&(*from, *to)).copied().filter(
+                let control_offsets = self.ws.edge_control_offsets.get(&(*from, *to)).copied().filter(
                     |offsets| {
                         offsets.source.length_sq() > 0.01 || offsets.target.length_sq() > 0.01
                     },

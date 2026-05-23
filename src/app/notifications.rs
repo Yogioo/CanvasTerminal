@@ -50,21 +50,21 @@ impl ToastNotification {
 
 impl GraphApp {
     pub(in crate::app) fn push_toast_notification(&mut self, message: impl Into<String>) {
-        let id = self.next_toast_id;
-        self.next_toast_id += 1;
-        self.toast_notifications
+        let id = self.ws.next_toast_id;
+        self.ws.next_toast_id += 1;
+        self.ws.toast_notifications
             .push(ToastNotification::new(id, message.into()));
     }
 
     pub(in crate::app) fn show_toast_notifications(&mut self, ctx: &egui::Context) {
-        if self.toast_notifications.is_empty() {
+        if self.ws.toast_notifications.is_empty() {
             return;
         }
 
         let now = Instant::now();
-        self.toast_notifications
+        self.ws.toast_notifications
             .retain(|item| !item.is_expired(now));
-        if self.toast_notifications.is_empty() {
+        if self.ws.toast_notifications.is_empty() {
             return;
         }
 
@@ -75,7 +75,7 @@ impl GraphApp {
         let margin = vec2(18.0, 18.0);
         let screen_rect = ctx.screen_rect();
 
-        for (idx, toast) in self.toast_notifications.iter().rev().enumerate() {
+        for (idx, toast) in self.ws.toast_notifications.iter().rev().enumerate() {
             let alpha = toast.alpha(now);
             if alpha <= 0.0 {
                 continue;

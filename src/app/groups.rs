@@ -9,10 +9,10 @@ const GROUP_PADDING: f32 = 20.0;
 
 impl GraphApp {
     pub(in crate::app) fn create_group_from_selection(&mut self) -> Option<usize> {
-        let child_ids: Vec<usize> = self
+        let child_ids: Vec<usize> = self.ws
             .nodes
             .iter()
-            .filter(|node| self.selected_nodes.contains(&node.id) && node.kind != NodeKind::Group)
+            .filter(|node| self.ws.selected_nodes.contains(&node.id) && node.kind != NodeKind::Group)
             .map(|node| node.id)
             .collect();
 
@@ -40,16 +40,16 @@ impl GraphApp {
 
         self.apply_group_bounds_from_children(&mut group);
 
-        let insert_at = self
+        let insert_at = self.ws
             .nodes
             .iter()
             .enumerate()
             .filter(|(_, node)| child_ids.contains(&node.id))
             .map(|(idx, _)| idx)
             .min()
-            .unwrap_or(self.nodes.len());
+            .unwrap_or(self.ws.nodes.len());
 
-        self.nodes.insert(insert_at, group.clone());
+        self.ws.nodes.insert(insert_at, group.clone());
         self.push_history(super::history::HistoryEntry::CreateBatch {
             nodes: vec![group],
             edges: Vec::<CreatedEdge>::new(),
@@ -60,7 +60,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn sync_all_group_bounds(&mut self) {
-        let group_ids: Vec<usize> = self
+        let group_ids: Vec<usize> = self.ws
             .nodes
             .iter()
             .filter(|node| node.kind == NodeKind::Group)
@@ -73,24 +73,24 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn sync_group_bounds(&mut self, group_id: usize) {
-        let Some(group_idx) = self.nodes.iter().position(|node| node.id == group_id) else {
+        let Some(group_idx) = self.ws.nodes.iter().position(|node| node.id == group_id) else {
             return;
         };
 
-        if self.nodes[group_idx].kind != NodeKind::Group {
+        if self.ws.nodes[group_idx].kind != NodeKind::Group {
             return;
         }
 
-        let mut updated = self.nodes[group_idx].clone();
+        let mut updated = self.ws.nodes[group_idx].clone();
         self.apply_group_bounds_from_children(&mut updated);
-        self.nodes[group_idx].pos = updated.pos;
-        self.nodes[group_idx].size = updated.size;
+        self.ws.nodes[group_idx].pos = updated.pos;
+        self.ws.nodes[group_idx].size = updated.size;
     }
 
     pub(in crate::app) fn remove_child_from_groups(&mut self, node_id: usize) {
         let mut empty_groups = Vec::new();
 
-        for group in self.nodes.iter_mut().filter(|node| node.kind == NodeKind::Group) {
+        for group in self.ws.nodes.iter_mut().filter(|node| node.kind == NodeKind::Group) {
             let NodeData::Group { child_node_ids, .. } = &mut group.data else {
                 continue;
             };
@@ -114,7 +114,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn top_group_id_at(&self, pointer_world: Pos2) -> Option<usize> {
-        self.nodes
+        self.ws.nodes
             .iter()
             .enumerate()
             .filter_map(|(idx, node)| {
@@ -142,7 +142,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn group_child_ids(&self, group_id: usize) -> Option<Vec<usize>> {
-        let group = self.nodes.iter().find(|node| node.id == group_id)?;
+        let group = self.ws.nodes.iter().find(|node| node.id == group_id)?;
         let NodeData::Group { child_node_ids, .. } = &group.data else {
             return None;
         };
@@ -155,7 +155,7 @@ impl GraphApp {
         target.sort_unstable();
         target.dedup();
 
-        self.nodes.iter().find_map(|node| {
+        self.ws.nodes.iter().find_map(|node| {
             if node.kind != NodeKind::Group {
                 return None;
             }
@@ -177,14 +177,14 @@ impl GraphApp {
         multi_drag: bool,
     ) -> HashSet<usize> {
         let base_ids: HashSet<usize> = if multi_drag {
-            self.selected_nodes.clone()
+            self.ws.selected_nodes.clone()
         } else {
             std::iter::once(anchor_id).collect()
         };
 
         let mut drag_ids = HashSet::new();
         for selected_id in &base_ids {
-            let is_group = self
+            let is_group = self.ws
                 .nodes
                 .iter()
                 .find(|node| node.id == *selected_id)
@@ -205,7 +205,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn jump_selected_nodes_to(&mut self, pointer_world: Pos2) -> bool {
-        if self.selected_nodes.is_empty() {
+        if self.ws.selected_nodes.is_empty() {
             return false;
         }
 
@@ -218,7 +218,7 @@ impl GraphApp {
             return false;
         }
 
-        let moving_nodes: Vec<_> = self
+        let moving_nodes: Vec<_> = self.ws
             .nodes
             .iter()
             .filter(|node| moving_ids.contains(&node.id))
@@ -237,7 +237,7 @@ impl GraphApp {
         let delta = pointer_world - anchor;
 
         let mut moves = Vec::new();
-        for node in self.nodes.iter_mut().filter(|node| moving_ids.contains(&node.id)) {
+        for node in self.ws.nodes.iter_mut().filter(|node| moving_ids.contains(&node.id)) {
             let from = node.pos;
             node.pos += delta;
             moves.push((node.id, from, node.pos));
@@ -256,8 +256,8 @@ impl GraphApp {
 
     fn resolve_jump_node_ids(&self) -> HashSet<usize> {
         let mut ids = HashSet::new();
-        for selected_id in &self.selected_nodes {
-            let is_group = self
+        for selected_id in &self.ws.selected_nodes {
+            let is_group = self.ws
                 .nodes
                 .iter()
                 .find(|node| node.id == *selected_id)
@@ -277,7 +277,7 @@ impl GraphApp {
     }
 
     fn remove_nodes_from_all_groups(&mut self, node_ids: &[usize]) {
-        for group in self.nodes.iter_mut().filter(|node| node.kind == NodeKind::Group) {
+        for group in self.ws.nodes.iter_mut().filter(|node| node.kind == NodeKind::Group) {
             if let NodeData::Group { child_node_ids, .. } = &mut group.data {
                 child_node_ids.retain(|child_id| !node_ids.contains(child_id));
             }
@@ -285,7 +285,7 @@ impl GraphApp {
     }
 
     fn add_nodes_to_group(&mut self, group_id: usize, node_ids: &[usize]) {
-        let Some(group) = self.nodes.iter_mut().find(|node| node.id == group_id) else {
+        let Some(group) = self.ws.nodes.iter_mut().find(|node| node.id == group_id) else {
             return;
         };
 
@@ -299,14 +299,14 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn sanitize_groups(&mut self) {
-        let non_group_ids: std::collections::HashSet<usize> = self
+        let non_group_ids: std::collections::HashSet<usize> = self.ws
             .nodes
             .iter()
             .filter(|node| node.kind != NodeKind::Group)
             .map(|node| node.id)
             .collect();
 
-        for group in self.nodes.iter_mut().filter(|node| node.kind == NodeKind::Group) {
+        for group in self.ws.nodes.iter_mut().filter(|node| node.kind == NodeKind::Group) {
             if let NodeData::Group {
                 title,
                 child_node_ids,
@@ -328,7 +328,7 @@ impl GraphApp {
             return;
         };
 
-        let children: Vec<&Node> = self
+        let children: Vec<&Node> = self.ws
             .nodes
             .iter()
             .filter(|node| child_node_ids.contains(&node.id))
@@ -356,7 +356,7 @@ impl GraphApp {
     fn next_group_title(&self) -> String {
         let mut max_index = 0usize;
 
-        for node in self.nodes.iter().filter(|node| node.kind == NodeKind::Group) {
+        for node in self.ws.nodes.iter().filter(|node| node.kind == NodeKind::Group) {
             let NodeData::Group { title, .. } = &node.data else {
                 continue;
             };

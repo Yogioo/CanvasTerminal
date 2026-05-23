@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 impl GraphApp {
     fn terminal_uid(&self, node_id: usize) -> Option<&str> {
-        self.nodes
+        self.ws.nodes
             .iter()
             .find(|n| n.id == node_id)
             .map(|n| n.uid.as_str())
@@ -17,7 +17,7 @@ impl GraphApp {
 
     pub(in crate::app) fn complete_text_node_and_forward(&mut self, node_id: usize) {
         let Some(text_body) =
-            self.nodes
+            self.ws.nodes
                 .iter()
                 .find(|n| n.id == node_id)
                 .and_then(|n| match &n.data {
@@ -33,7 +33,7 @@ impl GraphApp {
             return;
         }
 
-        let downstream_targets: Vec<(usize, Option<String>)> = self
+        let downstream_targets: Vec<(usize, Option<String>)> = self.ws
             .edges
             .iter()
             .filter_map(|(from, to)| {
@@ -60,7 +60,7 @@ impl GraphApp {
     }
 
     fn terminal_startup_script(&self, node_id: usize) -> Option<String> {
-        self.nodes
+        self.ws.nodes
             .iter()
             .find(|n| n.id == node_id)
             .and_then(|n| match &n.data {
@@ -72,7 +72,7 @@ impl GraphApp {
     }
 
     fn terminal_working_directory(&self, node_id: usize) -> Option<PathBuf> {
-        self.nodes
+        self.ws.nodes
             .iter()
             .find(|n| n.id == node_id)
             .and_then(|n| match &n.data {
@@ -87,10 +87,10 @@ impl GraphApp {
     }
 
     fn inject_terminal_text(&mut self, node_id: usize, text: &str) {
-        if let Some(backend) = self.terminal_backends.get_mut(&node_id) {
+        if let Some(backend) = self.ws.terminal_backends.get_mut(&node_id) {
             backend.process_command(BackendCommand::Write(text.as_bytes().to_vec()));
         } else {
-            self.pending_terminal_injections
+            self.ws.pending_terminal_injections
                 .entry(node_id)
                 .or_default()
                 .push(text.to_owned());
@@ -161,7 +161,7 @@ impl GraphApp {
         route_key: Option<&str>,
         message: &str,
     ) -> bool {
-        let Some(kind) = self
+        let Some(kind) = self.ws
             .nodes
             .iter()
             .find(|n| n.id == target_id)
@@ -178,12 +178,12 @@ impl GraphApp {
             NodeKind::Decision => self.enqueue_decision_message(target_id, message),
             NodeKind::Script => {
                 let port_name = route_key.unwrap_or("input");
-                self.script_node_inputs
+                self.ws.script_node_inputs
                     .entry(target_id)
                     .or_default()
                     .insert(port_name.to_owned(), message.to_owned());
                 // Also enqueue into pending_messages like Decision node
-                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == target_id) {
+                if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == target_id) {
                     if let NodeData::Script { pending_messages, .. } = &mut node.data {
                         let trimmed = message.trim();
                         if !trimmed.is_empty() {
@@ -195,7 +195,7 @@ impl GraphApp {
                 true
             }
             NodeKind::Text => {
-                if let Some(node) = self.nodes.iter_mut().find(|n| n.id == target_id) {
+                if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == target_id) {
                     if let crate::model::NodeData::Text { text_body, .. } = &mut node.data {
                         if !text_body.is_empty() {
                             text_body.push('\n');
@@ -217,7 +217,7 @@ impl GraphApp {
             return false;
         }
 
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+        if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
             if let NodeData::Decision {
                 pending_message,
                 pending_messages,
@@ -235,7 +235,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn decision_pending_queue_len(&self, node_id: usize) -> usize {
-        self.nodes
+        self.ws.nodes
             .iter()
             .find(|n| n.id == node_id)
             .and_then(|n| match &n.data {
@@ -281,7 +281,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn decision_queue_preview(&self, node_id: usize) -> (usize, String) {
-        self.nodes
+        self.ws.nodes
             .iter()
             .find(|n| n.id == node_id)
             .and_then(|n| match &n.data {
@@ -310,11 +310,11 @@ impl GraphApp {
     // ── Script Node V2 lifecycle ─────────────────────────────────────────────
 
     pub(in crate::app) fn ensure_script_lua_runtime(&mut self, node_id: usize) -> Result<(), String> {
-        if self.script_lua_runtimes.contains_key(&node_id) {
+        if self.ws.script_lua_runtimes.contains_key(&node_id) {
             return Ok(());
         }
 
-        let code = self
+        let code = self.ws
             .nodes
             .iter()
             .find(|n| n.id == node_id)
@@ -324,7 +324,7 @@ impl GraphApp {
             })
             .ok_or_else(|| "Script node not found".to_owned())?;
 
-        let state_json = self
+        let state_json = self.ws
             .script_node_state
             .get(&node_id)
             .and_then(|m| serde_json::to_string(m).ok());
@@ -342,22 +342,22 @@ impl GraphApp {
                 eprintln!("[script-node:{node_id}] ensure_script_lua_runtime failed: {tagged}");
                 tagged
             })?;
-        self.script_lua_runtimes.insert(node_id, rt);
-        if let Some(bp_set) = self.script_lua_breakpoints.get(&node_id).cloned() {
-            if let Some(rt) = self.script_lua_runtimes.get_mut(&node_id) {
+        self.ws.script_lua_runtimes.insert(node_id, rt);
+        if let Some(bp_set) = self.ws.script_lua_breakpoints.get(&node_id).cloned() {
+            if let Some(rt) = self.ws.script_lua_runtimes.get_mut(&node_id) {
                 for line in bp_set {
                     let _ = rt.set_breakpoint(line, true);
                 }
             }
         }
-        self.script_lua_timer_accum.entry(node_id).or_insert(0.0);
-        self.script_lua_errors.remove(&node_id);
+        self.ws.script_lua_timer_accum.entry(node_id).or_insert(0.0);
+        self.ws.script_lua_errors.remove(&node_id);
         Ok(())
     }
 
     pub(in crate::app) fn script_before_frame(&mut self) {
-        self.script_lua_next_repaint_after = None;
-        let script_ids: Vec<usize> = self
+        self.ws.script_lua_next_repaint_after = None;
+        let script_ids: Vec<usize> = self.ws
             .nodes
             .iter()
             .filter(|n| n.kind == NodeKind::Script)
@@ -367,10 +367,10 @@ impl GraphApp {
         for node_id in script_ids {
             if let Err(err) = self.ensure_script_lua_runtime(node_id) {
                 eprintln!("[script-node:{node_id}] before_frame runtime unavailable: {err}");
-                self.script_lua_errors.insert(node_id, err);
+                self.ws.script_lua_errors.insert(node_id, err);
                 continue;
             }
-            let pending = self
+            let pending = self.ws
                 .nodes
                 .iter_mut()
                 .find(|n| n.id == node_id)
@@ -386,7 +386,7 @@ impl GraphApp {
                 .map(|m| ("input".to_owned(), m))
                 .collect();
 
-            if let Some(rt) = self.script_lua_runtimes.get_mut(&node_id) {
+            if let Some(rt) = self.ws.script_lua_runtimes.get_mut(&node_id) {
                 if let Err(err) = rt.before_frame(&msgs) {
                     let lower = err.to_lowercase();
                     let tagged = if lower.contains("hook") || lower.contains("instruction") || lower.contains("timeout") {
@@ -395,16 +395,16 @@ impl GraphApp {
                         format!("[RuntimeError] {err}")
                     };
                     eprintln!("[script-node:{node_id}] before_frame failed: {tagged}");
-                    self.script_lua_errors.insert(node_id, tagged);
+                    self.ws.script_lua_errors.insert(node_id, tagged);
                 }
             }
         }
     }
 
     pub(in crate::app) fn script_after_frame(&mut self) {
-        let ids: Vec<usize> = self.script_lua_runtimes.keys().copied().collect();
+        let ids: Vec<usize> = self.ws.script_lua_runtimes.keys().copied().collect();
         for node_id in ids {
-            let (state_json, should_sync_state, emits, interval) = if let Some(rt) = self.script_lua_runtimes.get_mut(&node_id) {
+            let (state_json, should_sync_state, emits, interval) = if let Some(rt) = self.ws.script_lua_runtimes.get_mut(&node_id) {
                 let should_sync_state = rt.is_state_dirty() || !rt.has_serialized_state();
                 let state_json = match rt.after_frame() {
                     Ok(json) => Some(json),
@@ -416,7 +416,7 @@ impl GraphApp {
                             format!("[RuntimeError] {err}")
                         };
                         eprintln!("[script-node:{node_id}] after_frame failed: {tagged}");
-                        self.script_lua_errors.insert(node_id, tagged);
+                        self.ws.script_lua_errors.insert(node_id, tagged);
                         None
                     }
                 };
@@ -438,14 +438,14 @@ impl GraphApp {
                                     _ => v.to_string(),
                                 });
                             }
-                            self.script_node_state.insert(node_id, map);
+                            self.ws.script_node_state.insert(node_id, map);
                         }
                     }
                 }
             }
 
             for (event_key, value) in &emits {
-                let targets: Vec<(usize, Option<String>)> = self
+                let targets: Vec<(usize, Option<String>)> = self.ws
                     .edges
                     .iter()
                     .filter_map(|(from, to)| {
@@ -459,8 +459,8 @@ impl GraphApp {
             }
 
             if interval > 0.0 {
-                self.script_lua_next_repaint_after = Some(
-                    self.script_lua_next_repaint_after
+                self.ws.script_lua_next_repaint_after = Some(
+                    self.ws.script_lua_next_repaint_after
                         .map_or(interval, |v| v.min(interval))
                 );
             }
@@ -468,13 +468,13 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn script_advance_timers(&mut self, dt: f64) {
-        for (id, rt) in self.script_lua_runtimes.iter_mut() {
+        for (id, rt) in self.ws.script_lua_runtimes.iter_mut() {
             let interval = rt.timer_interval();
             if interval <= 0.0 {
-                self.script_lua_timer_accum.insert(*id, 0.0);
+                self.ws.script_lua_timer_accum.insert(*id, 0.0);
                 continue;
             }
-            let acc = self.script_lua_timer_accum.entry(*id).or_insert(0.0);
+            let acc = self.ws.script_lua_timer_accum.entry(*id).or_insert(0.0);
             *acc += dt.max(0.0);
             while *acc >= interval {
                 *acc -= interval;
@@ -495,7 +495,7 @@ impl GraphApp {
         process_all: bool,
     ) -> usize {
         // Find downstream targets with matching route_key
-        let downstream_targets: Vec<(usize, Option<String>)> = self
+        let downstream_targets: Vec<(usize, Option<String>)> = self.ws
             .edges
             .iter()
             .filter_map(|(from, to)| {
@@ -507,7 +507,7 @@ impl GraphApp {
             .collect();
 
         // Get node title for user-friendly notifications
-        let node_title = self
+        let node_title = self.ws
             .nodes
             .iter()
             .find(|n| n.id == node_id)
@@ -525,7 +525,7 @@ impl GraphApp {
         }
 
         // Extract queue from node data
-        let queue: Vec<String> = self
+        let queue: Vec<String> = self.ws
             .nodes
             .iter_mut()
             .find(|n| n.id == node_id)
@@ -553,7 +553,7 @@ impl GraphApp {
         };
 
         // Put remaining back
-        if let Some(n) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+        if let Some(n) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
             if let NodeData::Script { pending_messages, .. } = &mut n.data {
                 *pending_messages = remaining;
             }
@@ -575,7 +575,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn clear_decision_pending_first(&mut self, node_id: usize) -> bool {
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+        if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
             Self::normalize_decision_queue(&mut node.data);
             if let NodeData::Decision {
                 pending_message,
@@ -597,7 +597,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn clear_decision_pending_last(&mut self, node_id: usize) -> bool {
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+        if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
             Self::normalize_decision_queue(&mut node.data);
             if let NodeData::Decision {
                 pending_message,
@@ -618,7 +618,7 @@ impl GraphApp {
     }
 
     pub(in crate::app) fn clear_decision_pending_all(&mut self, node_id: usize) -> bool {
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.id == node_id) {
+        if let Some(node) = self.ws.nodes.iter_mut().find(|n| n.id == node_id) {
             Self::normalize_decision_queue(&mut node.data);
             if let NodeData::Decision {
                 pending_message,
@@ -652,7 +652,7 @@ impl GraphApp {
             return;
         }
 
-        let downstream_targets: Vec<(usize, Option<String>)> = self
+        let downstream_targets: Vec<(usize, Option<String>)> = self.ws
             .edges
             .iter()
             .filter_map(|(from, to)| {
@@ -674,7 +674,7 @@ impl GraphApp {
         let mut delivered_messages = 0usize;
 
         while remaining > 0 {
-            let maybe_message = self
+            let maybe_message = self.ws
                 .nodes
                 .iter_mut()
                 .find(|n| n.id == node_id)
@@ -735,7 +735,7 @@ impl GraphApp {
     }
 
     fn handle_done_event(&mut self, event: DoneEvent) {
-        let Some(source_id) = self
+        let Some(source_id) = self.ws
             .nodes
             .iter()
             .find(|n| n.uid == event.node_uid)
@@ -750,7 +750,7 @@ impl GraphApp {
             .map(str::trim)
             .filter(|value| !value.is_empty());
 
-        let downstream_targets: Vec<(usize, Option<String>)> = self
+        let downstream_targets: Vec<(usize, Option<String>)> = self.ws
             .edges
             .iter()
             .filter_map(|(from, to)| {
@@ -785,13 +785,13 @@ impl GraphApp {
     }
 
     fn ensure_terminal(&mut self, node_id: usize, ctx: &egui::Context) {
-        if self.terminal_backends.contains_key(&node_id) {
+        if self.ws.terminal_backends.contains_key(&node_id) {
             return;
         }
 
         let shell = system_shell();
         let Some(node_uid) = self.terminal_uid(node_id) else {
-            self.terminal_errors
+            self.ws.terminal_errors
                 .insert(node_id, "终端启动失败: 未找到节点 UID".to_owned());
             return;
         };
@@ -808,34 +808,34 @@ impl GraphApp {
             },
         ) {
             Ok(backend) => {
-                self.terminal_backends.insert(node_id, backend);
-                self.terminal_exited.remove(&node_id);
-                self.terminal_errors.remove(&node_id);
+                self.ws.terminal_backends.insert(node_id, backend);
+                self.ws.terminal_exited.remove(&node_id);
+                self.ws.terminal_errors.remove(&node_id);
 
                 self.run_terminal_startup_script(node_id);
 
-                if let Some(pending) = self.pending_terminal_injections.remove(&node_id) {
+                if let Some(pending) = self.ws.pending_terminal_injections.remove(&node_id) {
                     for text in pending {
                         self.inject_terminal_text(node_id, &text);
                     }
                 }
             }
             Err(e) => {
-                self.terminal_errors
+                self.ws.terminal_errors
                     .insert(node_id, format!("终端启动失败: {e}"));
             }
         }
     }
 
     pub(in crate::app) fn queue_terminal_start(&mut self, node_id: usize) {
-        if self.terminal_backends.contains_key(&node_id)
-            || self.terminal_errors.contains_key(&node_id)
-            || self.terminal_exited.contains(&node_id)
+        if self.ws.terminal_backends.contains_key(&node_id)
+            || self.ws.terminal_errors.contains_key(&node_id)
+            || self.ws.terminal_exited.contains(&node_id)
         {
             return;
         }
 
-        let is_terminal_node = self
+        let is_terminal_node = self.ws
             .nodes
             .iter()
             .any(|n| n.id == node_id && matches!(n.kind, NodeKind::Terminal));
@@ -843,8 +843,8 @@ impl GraphApp {
             return;
         }
 
-        if !self.pending_terminal_starts.contains(&node_id) {
-            self.pending_terminal_starts.push(node_id);
+        if !self.ws.pending_terminal_starts.contains(&node_id) {
+            self.ws.pending_terminal_starts.push(node_id);
         }
     }
 
@@ -852,20 +852,20 @@ impl GraphApp {
         const MAX_TERMINAL_STARTS_PER_FRAME: usize = 1;
 
         for _ in 0..MAX_TERMINAL_STARTS_PER_FRAME {
-            if self.pending_terminal_starts.is_empty() {
+            if self.ws.pending_terminal_starts.is_empty() {
                 break;
             }
 
-            let node_id = self.pending_terminal_starts.remove(0);
+            let node_id = self.ws.pending_terminal_starts.remove(0);
             self.ensure_terminal(node_id, ctx);
         }
     }
 
     pub(in crate::app) fn restart_terminal_deferred(&mut self, node_id: usize) {
-        self.terminal_backends.remove(&node_id);
-        self.terminal_exited.remove(&node_id);
-        self.terminal_errors.remove(&node_id);
-        self.pending_terminal_starts.retain(|id| *id != node_id);
+        self.ws.terminal_backends.remove(&node_id);
+        self.ws.terminal_exited.remove(&node_id);
+        self.ws.terminal_errors.remove(&node_id);
+        self.ws.pending_terminal_starts.retain(|id| *id != node_id);
         self.queue_terminal_start(node_id);
     }
 
@@ -878,8 +878,8 @@ impl GraphApp {
         while let Ok((id, event)) = self.pty_rx.try_recv() {
             if let PtyEvent::Exit = event {
                 let node_id = id as usize;
-                self.terminal_exited.insert(node_id);
-                self.terminal_backends.remove(&node_id);
+                self.ws.terminal_exited.insert(node_id);
+                self.ws.terminal_backends.remove(&node_id);
             }
         }
     }
