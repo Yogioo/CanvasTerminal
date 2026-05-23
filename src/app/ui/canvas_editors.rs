@@ -47,7 +47,7 @@ impl GraphApp {
                 text_body,
                 FontId::proportional(15.0 * self.ws.zoom),
                 text_color,
-                Some((Color32::from_rgb(24, 22, 24), Color32::from_rgb(12, 12, 14))),
+                None,
                 None,
                 |_| GutterLine {
                     line: 0,
