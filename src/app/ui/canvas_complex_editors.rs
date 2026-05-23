@@ -414,6 +414,8 @@ impl GraphApp {
         ui: &mut Ui,
         ctx: &egui::Context,
         script_edit_rect: Option<(usize, Rect)>,
+        primary_clicked: bool,
+        pointer_pos: Option<Pos2>,
     ) {
         let Some((id, edit_rect)) = script_edit_rect else {
             return;
@@ -509,6 +511,24 @@ impl GraphApp {
             self.cancel_script_edit();
         } else if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter)) {
             self.commit_script_edit(id);
+        } else if !should_focus && resp.lost_focus() && !ctx.input(|i| {
+            // 鼠标操作导致的失焦由其他分支处理（primary_clicked、右键菜单），
+            // lost_focus 只处理非鼠标原因（如 Tab 键、窗口切换）导致的失焦自动提交。
+            i.pointer.any_down()
+                || i.pointer.any_pressed()
+                || i.pointer.button_released(egui::PointerButton::Secondary)
+        }) {
+            let node_id = id;
+            self.stop_script_debug(node_id);
+            self.commit_script_edit(node_id);
+        } else if !should_focus && primary_clicked {
+            if let Some(pointer) = pointer_pos {
+                if !edit_rect.contains(pointer) {
+                    let node_id = id;
+                    self.stop_script_debug(node_id);
+                    self.commit_script_edit(node_id);
+                }
+            }
         }
     }
 

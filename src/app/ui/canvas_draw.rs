@@ -464,7 +464,7 @@ impl GraphApp {
             primary_clicked,
             pointer_pos,
         );
-        self.handle_script_code_editor(ui, ctx, script_edit_rect);
+        self.handle_script_code_editor(ui, ctx, script_edit_rect, primary_clicked, pointer_pos);
         self.handle_decision_queue_editor(ctx);
         self.handle_script_queue_editor(ctx);
         if alt_passthrough && !self.ws.selected_nodes.is_empty() {
