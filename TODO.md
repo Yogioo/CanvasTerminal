@@ -19,44 +19,22 @@
 - 新增 `src/bin/msdf_spike.rs`，验证 fdsm 依赖 + glyph 生成可行性。
 - `Cargo.toml` / `Cargo.lock` 添加 runtime MSDF spike 所需依赖（`fdsm`、`fdsm-ttf-parser`、`ttf-parser`、`nalgebra`）。
 
+### P5-B2 — Dynamic MSDF Atlas 核心实现
+- 新增 `src/msdf/dynamic_atlas.rs`：`DynamicMsdfAtlas` 管理 glyph cache、pending queue、row-by-row atlas packing、动态 GPU texture。
+- 使用 `fdsm` / `fdsm-ttf-parser` 运行时生成 MTSDF glyph，使用 `fontdb` 查找 CJK fallback 字体，避免硬编码字体路径。
+- 支持 `queue.write_texture` 向动态 atlas 局部上传新 glyph，并处理 256-byte row alignment。
+- 支持每帧最多生成 2 个 glyph，避免一次性生成大量缺字导致帧率抖动。
+- 修复 dynamic atlas UV 坐标系：动态 atlas 使用 packer top-left texture origin，不复用静态 atlas JSON 的 bottom-origin 公式。
+- 验收：用户实测静态 atlas 缺失的稀有汉字可运行时生成并正确显示；`cargo check` 通过。
+
+### P5-B3 — 接入节点标题 / Edge Label
+- Dynamic Atlas 已接入 `paint_msdf_label`，节点标题与 edge label 共用该绘制路径。
+- `debug_paint` 绘制流程已更新为：查 static → 查 dynamic → 缺失则 enqueue/generate → static/dynamic 分组绘制。
+- 动态 atlas 不可用时 graceful fallback 到原静态 atlas/tofu 行为。
+
 ---
 
 ## 🔜 下一步
-
-### P5-B2 — Dynamic MSDF Atlas 核心实现
-
-**目标**：实现完整的 Dynamic MSDF Atlas，支持运行时向 GPU texture 添加新 glyph。
-
-| # | 子任务 | 说明 |
-|---|--------|------|
-| 1 | `dynamic_atlas.rs` | 核心数据结构：DynamicMsdfAtlas，管理 glyph cache + atlas packing |
-| 2 | fdsm glyph generation | 利用 fdsm/fontdb 从 TTF 生成 MSDF 位图 |
-| 3 | Glyph cache | `HashMap<GlyphId, (u32, AtlasRect)>` 记录已生成的 glyph |
-| 4 | Atlas packing | 简单的 row-by-row / shelf packing，满足首次可运行即可 |
-| 5 | GPU texture + queue.write_texture | 创建 `wgpu::Texture`，新 glyph 写入空闲区域 |
-| 6 | Static / Dynamic atlas lookup | 静态 atlas 查不到时 fallback 到 dynamic atlas |
-| 7 | 每帧生成节流 | 每帧最多生成 N 个 glyph，避免帧率抖动 |
-| 8 | 单字体起步 | 以 NotoSansSC-VF（Variable Font）为唯一 fallback 字体 |
-
-**验收标准**：
-- 运行时首次遇到不在静态 atlas 中的汉字时，触发 fdsm 生成并写入 GPU texture，画面正确显示该汉字。
-- 后续同字不再重复生成。
-- 单帧生成超过 N 个 glyph 时平滑分摊到后续帧。
-- 不存在 GPU 同步 / texture 写入时序问题。
-
-**Stop rules**：
-- 如果 fdsm 在 Windows 上无法加载 NotoSansSC-VF（路径问题 / fontdb 找不到），报告具体错误，不要硬编码 fallback 路径。
-- 如果 queue.write_texture 导致 wgpu validations 报错，停下来分析布局对齐条件。
-
----
-
-### P5-B3 — 接入节点标题 / Edge Label
-
-- 将 Dynamic Atlas 接入 CanvasNode / EdgeLabel 的文本渲染路径。
-- 节点标题和 edge label 使用 dynamic atlas 查缺。
-- 更新 debug_paint 的绘制流程：查 static → 查 dynamic → 生成。
-
----
 
 ### 🔭 后续方向
 

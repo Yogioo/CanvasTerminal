@@ -56,6 +56,7 @@ pub struct MsdfUniform {
 pub struct MsdfRenderer {
     pub pipeline: wgpu::RenderPipeline,
     pub bind_group: wgpu::BindGroup,
+    pub bind_group_layout: wgpu::BindGroupLayout,
     #[allow(dead_code)]
     pub target_format: wgpu::TextureFormat,
 }
@@ -63,10 +64,16 @@ pub struct MsdfRenderer {
 // ── Per-frame resources stored in CallbackResources ──
 
 /// Per-label GPU buffers created in `prepare()` and consumed in `paint()`.
+/// Now split into static-atlas and dynamic-atlas buffer pairs.
 pub struct MsdfFrameResources {
-    pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
+    /// Static-atlas glyph quads.
+    pub vertex_buffer: Option<wgpu::Buffer>,
+    pub index_buffer: Option<wgpu::Buffer>,
     pub num_indices: u32,
+    /// Dynamic-atlas glyph quads (only present when text uses runtime glyphs).
+    pub dynamic_vertex_buffer: Option<wgpu::Buffer>,
+    pub dynamic_index_buffer: Option<wgpu::Buffer>,
+    pub dynamic_num_indices: u32,
 }
 
 /// Map from label key → per-label resources.
@@ -77,13 +84,13 @@ pub struct MsdfFrameResourceMap(pub HashMap<u64, MsdfFrameResources>);
 // ── Atlas texture loading ──
 
 /// Load atlas PNG via `image` crate and create the GPU pipeline + bind group.
-/// Returns (pipeline, bind_group) for use each frame.
+/// Returns (pipeline, bind_group, bind_group_layout) for use each frame.
 pub fn create_msdf_pipeline(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     atlas: &MsdfAtlas,
     target_format: wgpu::TextureFormat,
-) -> (wgpu::RenderPipeline, wgpu::BindGroup) {
+) -> (wgpu::RenderPipeline, wgpu::BindGroup, wgpu::BindGroupLayout) {
     // Decode PNG to RGBA via `image` crate
     let img = image::load_from_memory(&atlas.png_data)
         .expect("MSDF atlas PNG decode failed")
@@ -217,7 +224,7 @@ pub fn create_msdf_pipeline(
         cache: None,
     });
 
-    (pipeline, bind_group)
+    (pipeline, bind_group, bind_group_layout)
 }
 
 // ── Text layout helpers ──

@@ -28,6 +28,7 @@ fdsm = "0.8"
 fdsm-ttf-parser = "0.2"
 ttf-parser = "0.25"
 nalgebra = "0.34"
+fontdb = "0.22"
 
 [[bin]]
 name = "msdf_spike"
