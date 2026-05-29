@@ -17,7 +17,7 @@
 ### P5-B1 — Runtime MSDF 生成 spike
 - 完成 spike：`docs/msdf-runtime-msdf-spike.md`。
 - 新增 `src/bin/msdf_spike.rs`，验证 fdsm 依赖 + glyph 生成可行性。
-- `Cargo.toml` / `Cargo.lock` 添加 `fdsm`、`image`、`fontdb`、`ttf-parser` 等依赖。
+- `Cargo.toml` / `Cargo.lock` 添加 runtime MSDF spike 所需依赖（`fdsm`、`fdsm-ttf-parser`、`ttf-parser`、`nalgebra`）。
 
 ---
 
