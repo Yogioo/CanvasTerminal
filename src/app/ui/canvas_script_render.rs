@@ -1,5 +1,6 @@
 use super::super::GraphApp;
 use crate::model::NodeData;
+use crate::msdf::debug_paint::paint_msdf_label;
 use eframe::egui::{
     self, vec2, Align, Align2, Color32, FontId, Layout, Painter, Pos2, Rect, Stroke,
 };
@@ -40,12 +41,17 @@ impl GraphApp {
                 NodeData::Script { title, .. } => title.as_str(),
                 _ => "Script",
             };
-            painter.text(
-                Pos2::new(node_rect.min.x + 12.0 * zoom_scale, header_rect.center().y),
-                Align2::LEFT_CENTER,
+            let font_px = (16.0 * zoom_scale).max(0.5);
+            let bl_x = node_rect.min.x + 12.0 * zoom_scale;
+            let bl_y = header_rect.center().y + font_px * 0.38;
+            paint_msdf_label(
+                painter,
+                node_rect,
+                egui::Pos2::new(bl_x, bl_y),
                 title,
-                FontId::proportional((16.0 * zoom_scale).max(10.0)),
+                font_px,
                 Color32::from_rgb(220, 200, 240),
+                0x1000_0000_0000_0000 | node.id as u64,
             );
 
             let status = if let Some(err) = self.ws.script_lua_errors.get(&node.id) {

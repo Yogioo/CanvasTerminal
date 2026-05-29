@@ -1,6 +1,7 @@
 use super::super::GraphApp;
 use crate::constants::{DECISION_HEADER_HEIGHT, GROUP_HEADER_HEIGHT};
 use crate::model::{NodeData, NodeKind};
+use crate::msdf::debug_paint::paint_msdf_label;
 use eframe::egui::{
     self, text::{LayoutJob, TextFormat}, vec2, Align, Align2, Color32, FontId, Layout, Painter, Pos2, Rect, Stroke,
     TextureOptions,
@@ -326,12 +327,17 @@ impl GraphApp {
                             NodeData::Terminal { title, .. } => title.as_str(),
                             _ => "Terminal",
                         };
-                        painter.text(
-                            Pos2::new(node_rect.min.x + 12.0 * zoom_scale, header_rect.center().y),
-                            Align2::LEFT_CENTER,
+                        let font_px = (17.0 * zoom_scale).max(0.5);
+                        let bl_x = node_rect.min.x + 12.0 * zoom_scale;
+                        let bl_y = header_rect.center().y + font_px * 0.38;
+                        paint_msdf_label(
+                            painter,
+                            rect,
+                            egui::Pos2::new(bl_x, bl_y),
                             title_text,
-                            FontId::proportional((17.0 * zoom_scale).max(9.0)),
+                            font_px,
                             Color32::WHITE,
+                            0x1000_0000_0000_0000 | node.id as u64,
                         );
                     } else {
                         let rect_min = node_rect.left_top() + vec2(10.0, 6.0) * zoom_scale;
@@ -588,12 +594,17 @@ impl GraphApp {
                             NodeData::Decision { title, .. } => title.as_str(),
                             _ => "Decision",
                         };
-                        painter.text(
-                            Pos2::new(node_rect.min.x + 12.0 * zoom_scale, header_rect.center().y),
-                            Align2::LEFT_CENTER,
+                        let font_px = (16.0 * zoom_scale).max(0.5);
+                        let bl_x = node_rect.min.x + 12.0 * zoom_scale;
+                        let bl_y = header_rect.center().y + font_px * 0.38;
+                        paint_msdf_label(
+                            painter,
+                            rect,
+                            egui::Pos2::new(bl_x, bl_y),
                             title,
-                            FontId::proportional((16.0 * zoom_scale).max(10.0)),
+                            font_px,
                             Color32::from_rgb(230, 255, 238),
+                            0x1000_0000_0000_0000 | node.id as u64,
                         );
                     } else {
                         let rect_min = node_rect.left_top() + vec2(10.0, 6.0) * zoom_scale;
@@ -872,12 +883,17 @@ impl GraphApp {
                             NodeData::Group { title, .. } => title.as_str(),
                             _ => "Group",
                         };
-                        painter.text(
-                            node_rect.left_top() + vec2(12.0, 10.0) * zoom_scale,
-                            Align2::LEFT_TOP,
+                        let font_px = (14.0 * zoom_scale).max(0.5);
+                        let anchor = node_rect.left_top() + vec2(12.0, 10.0) * zoom_scale;
+                        let bl_y = anchor.y + font_px * 0.82;
+                        paint_msdf_label(
+                            painter,
+                            rect,
+                            egui::Pos2::new(anchor.x, bl_y),
                             title,
-                            FontId::proportional((14.0 * zoom_scale).max(9.0)),
+                            font_px,
                             Color32::from_rgb(220, 230, 255),
+                            0x1000_0000_0000_0000 | node.id as u64,
                         );
                     } else {
                         let rect_min = node_rect.left_top() + vec2(10.0, 6.0) * zoom_scale;

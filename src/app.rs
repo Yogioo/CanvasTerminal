@@ -98,10 +98,13 @@ pub struct GraphApp {
     pty_rx: mpsc::Receiver<(u64, PtyEvent)>,
     pty_tx: mpsc::Sender<(u64, PtyEvent)>,
     event_rx: Option<mpsc::Receiver<AppEvent>>,
+
+    #[allow(dead_code)]
+    msdf_initialized: bool,
 }
 
 impl GraphApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let (pty_tx, pty_rx) = mpsc::channel();
 
         let event_rx = match start_event_server() {
@@ -111,6 +114,29 @@ impl GraphApp {
                 None
             }
         };
+
+        // Initialize MSDF atlas + renderer (requires wgpu device)
+        let msdf_initialized = cc
+            .wgpu_render_state
+            .as_ref()
+            .and_then(|render_state| {
+                let result = crate::msdf::debug_paint::init_msdf(
+                    &render_state.device,
+                    &render_state.queue,
+                    render_state.target_format,
+                );
+                match result {
+                    Ok(_) => {
+                        eprintln!("MSDF: init ok");
+                        Some(true)
+                    }
+                    Err(e) => {
+                        eprintln!("MSDF: init failed: {e}");
+                        None
+                    }
+                }
+            })
+            .unwrap_or(false);
 
         let mut ws = WorkspaceState::default();
         ws.workspace_name = Self::default_workspace_name().to_owned();
@@ -122,6 +148,7 @@ impl GraphApp {
             pty_rx,
             pty_tx,
             event_rx,
+            msdf_initialized,
         }
     }
 

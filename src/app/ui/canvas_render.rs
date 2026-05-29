@@ -1,6 +1,7 @@
 use super::super::{EdgeControlHandle, GraphApp};
+use crate::msdf::debug_paint::{self as msdf_paint, paint_msdf_label};
 use eframe::egui::{
-    epaint::CubicBezierShape, vec2, Align2, Color32, FontId, Painter, Rect, Stroke,
+    epaint::CubicBezierShape, vec2, Color32, Painter, Rect, Stroke,
 };
 
 impl GraphApp {
@@ -93,12 +94,23 @@ impl GraphApp {
                 self.edge_label_world_pos(*from, *to),
             ) {
                 let label_pos = self.world_to_screen_pos(rect, label_world_pos);
-                painter.text(
-                    label_pos + vec2(0.0, -8.0 * self.ws.zoom),
-                    Align2::CENTER_BOTTOM,
+                let font_size_px = (13.0 * self.ws.zoom).max(0.5);
+                // Determine baseline position (roughly same as old center-bottom anchor)
+                let baseline_y = label_pos.y - 8.0 * self.ws.zoom;
+                // Measure text width for centering
+                let text_width = msdf_paint::with_msdf_atlas(|atlas| {
+                    crate::msdf::renderer::measure_text_width_screen(atlas, route_key, font_size_px)
+                }).unwrap_or(route_key.len() as f32 * font_size_px * 0.55);
+                let baseline_x = label_pos.x - text_width / 2.0;
+                let label_key = ((*from as u64) << 32) | (*to as u64);
+                paint_msdf_label(
+                    painter,
+                    rect,
+                    egui::Pos2::new(baseline_x, baseline_y),
                     route_key,
-                    FontId::proportional((13.0 * self.ws.zoom).max(9.0)),
+                    font_size_px,
                     Color32::from_rgb(236, 232, 255),
+                    label_key,
                 );
             }
         }

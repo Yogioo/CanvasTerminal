@@ -4,6 +4,7 @@ mod event_protocol;
 mod event_server;
 mod fonts;
 mod model;
+mod msdf;
 mod script_node;
 mod shell;
 
@@ -16,7 +17,7 @@ fn main() -> eframe::Result<()> {
             .with_drag_and_drop(true)
             .with_transparent(false)
             .with_decorations(false),
-        renderer: eframe::Renderer::Glow,
+        renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
 
