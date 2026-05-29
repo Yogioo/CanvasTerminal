@@ -23,6 +23,15 @@ rfd = "0.15"
 uuid = { version = "1", features = ["v4"] }
 sysinfo = "0.38.4"
 mlua = { version = "0.11", features = ["lua54", "serialize", "vendored"] }
+# P5-B1: runtime MSDF generation spike
+fdsm = "0.8"
+fdsm-ttf-parser = "0.2"
+ttf-parser = "0.25"
+nalgebra = "0.34"
+
+[[bin]]
+name = "msdf_spike"
+path = "src/bin/msdf_spike.rs"
 
 
 [patch.crates-io]

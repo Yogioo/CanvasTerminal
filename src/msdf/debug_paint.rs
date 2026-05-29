@@ -115,10 +115,10 @@ impl egui_wgpu::CallbackTrait for MsdfLabelCallback {
         let ndc_x0 = (rel_x / cb_w) * 2.0 - 1.0;
         let ndc_y0 = 1.0 - (rel_y / cb_h) * 2.0;
 
-        // Font size in NDC
+        // Font size in NDC (y-direction only; x is corrected below)
         let ndc_font_size = (self.font_size_px * sf) / cb_h * 2.0;
 
-        let (vertices, indices) = layout_text_ndc(
+        let (mut vertices, indices) = layout_text_ndc(
             atlas,
             &self.text,
             ndc_x0,
@@ -126,6 +126,20 @@ impl egui_wgpu::CallbackTrait for MsdfLabelCallback {
             ndc_font_size,
             self.color,
         );
+
+        // Correct NDC x-coordinates to prevent aspect-ratio-induced horizontal
+        // stretching.  layout_text_ndc uses ndc_font_size (derived from cb_h) for
+        // both x and y, but NDC x spans cb_w physical pixels while NDC y spans
+        // cb_h.  Without correction, glyphs are stretched by cb_w / cb_h.
+        //
+        // After this fix: pixel_width = (plane_right-plane_left) * font_size_px * sf
+        // independent of callback rect aspect ratio.
+        if cb_w != cb_h && !vertices.is_empty() {
+            let x_scale = cb_h / cb_w;
+            for v in &mut vertices {
+                v.pos[0] = ndc_x0 + (v.pos[0] - ndc_x0) * x_scale;
+            }
+        }
 
         if vertices.is_empty() {
             return Vec::new();
