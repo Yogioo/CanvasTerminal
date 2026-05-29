@@ -32,6 +32,21 @@
 - `debug_paint` 绘制流程已更新为：查 static → 查 dynamic → 缺失则 enqueue/generate → static/dynamic 分组绘制。
 - 动态 atlas 不可用时 graceful fallback 到原静态 atlas/tofu 行为。
 
+### P5-C — Fallback 字体链 + GlyphId/FontId key
+- `FALLBACK_FAMILIES` 扩展为包含更多 CJK 字体（NotoSans SC/CJK JP/CJK KR、Microsoft YaHei/JhengHei、SimHei、Malgun Gothic）。
+- `DynamicMsdfAtlas` 维护 `Vec<FontEntry>` 字体链，每个 glyph 按序查找第一个可用的字体。
+- `DynamicGlyphEntry` 增加 `font_index` 字段避免跨字体 glyph 冲突（GlyphId/FontId key）。
+- `discover_fallback_font_chain()` 一次扫描加载所有可用 fallback 字体并去重。
+
+### P5-D — measure_text_width_screen 双 atlas 测宽
+- `debug_paint.rs` 新增 `measure_text_width_dual()`，同时查静态 + 动态 atlas 计算文本宽度。
+- `canvas_render.rs` 中 edge label 居中对齐改用双 atlas 测宽，不再对动态 atlas 中的字符用 tofu 宽度。
+
+### P5-E — 真实 UI 场景验收
+- Canvas debug 协议自动化测试通过（data layer PASS）。
+- 用户肉眼确认：节点标题、edge label、多 label 同屏、缺字自动补字在实际 UI 中显示正确。
+- 验收结论：动态 MSDF atlas 接入全链路稳定。
+
 ---
 
 ## 🔜 下一步
@@ -40,10 +55,9 @@
 
 | 任务 | 说明 |
 |------|------|
-| **Fallback 字体链** | 支持多个 fallback 字体（如 NotoSansSC → NotoSansJP → NotoSansKR）按序查找 |
-| **GlyphId / FontId key** | 跨字体区分 glyph，避免不同字体的同名 glyph 冲突 |
 | **非 BMP / Emoji / Complex Shaping** | 未来扩展：emoji 用 color emoji atlas，复杂文字用 shaping engine |
 | **P2 — 合批** | MSDF quad 合批减少 draw call，与 dynamic atlas 配合 |
+| **静态 charset 继续补强** | 结合项目内常见文案与标题字符，继续提高静态 atlas 覆盖率，减少 tofu 依赖动态补字 |
 
 ---
 

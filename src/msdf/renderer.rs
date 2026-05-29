@@ -313,6 +313,7 @@ pub fn layout_text_ndc(
 
 /// Compute text width in logical screen pixels.
 /// Uses atlas glyph advances, so it's independent of screen/NDC conversion.
+#[allow(dead_code)]
 pub fn measure_text_width_screen(
     atlas: &MsdfAtlas,
     text: &str,

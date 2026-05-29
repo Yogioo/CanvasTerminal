@@ -97,10 +97,8 @@ impl GraphApp {
                 let font_size_px = (13.0 * self.ws.zoom).max(0.5);
                 // Determine baseline position (roughly same as old center-bottom anchor)
                 let baseline_y = label_pos.y - 8.0 * self.ws.zoom;
-                // Measure text width for centering
-                let text_width = msdf_paint::with_msdf_atlas(|atlas| {
-                    crate::msdf::renderer::measure_text_width_screen(atlas, route_key, font_size_px)
-                }).unwrap_or(route_key.len() as f32 * font_size_px * 0.55);
+                // Measure text width for centering (checks both static and dynamic atlases)
+                let text_width = msdf_paint::measure_text_width_dual(route_key, font_size_px);
                 let baseline_x = label_pos.x - text_width / 2.0;
                 let label_key = ((*from as u64) << 32) | (*to as u64);
                 paint_msdf_label(

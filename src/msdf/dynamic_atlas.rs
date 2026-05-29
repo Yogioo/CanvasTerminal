@@ -11,8 +11,11 @@
 //! - **Graceful disable**: if font cannot be found, `active = false` and all
 //!   operations become no-ops.
 //! - **write_texture alignment**: `bytes_per_row` rounded up to 256.
+//! - **Fallback font chain**: multiple fonts are tried in order per glyph. Each
+//!   cached glyph records its `font_index` to avoid cross-font glyph conflicts.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::time::Instant;
 
 use crate::msdf::atlas::Bounds;
 use egui_wgpu::wgpu;
@@ -42,8 +45,14 @@ const GLYPH_PADDING: u32 = 2;
 /// Maximum number of glyphs to generate in a single frame.
 const MAX_GLYPHS_PER_FRAME: u32 = 2;
 
-/// Fallback font families to search, in order of preference.
-const FALLBACK_FAMILIES: &[&str] = &["Noto Sans SC", "Noto Sans CJK SC", "Microsoft YaHei", "SimHei"];
+/// Fallback font families to search, in order of preference (font chain).
+/// The first font that contains a glyph is used for that glyph.
+const FALLBACK_FAMILIES: &[&str] = &[
+    "Noto Sans SC", "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK KR",
+    "Noto Sans JP", "Noto Sans KR",
+    "Microsoft YaHei", "Microsoft JhengHei",
+    "SimHei", "Malgun Gothic",
+];
 
 // ── Data structures ──
 
@@ -56,6 +65,17 @@ pub struct DynamicGlyphEntry {
     pub plane_bounds: Option<Bounds>,
     /// Atlas pixel bounds within the dynamic texture.
     pub atlas_bounds: Bounds,
+    /// Index into the font chain that produced this glyph.
+    #[allow(dead_code)]
+    pub font_index: usize,
+}
+
+/// Font entry in the fallback font chain.
+struct FontEntry {
+    #[allow(dead_code)]
+    data: &'static [u8],
+    face: ttf_parser::Face<'static>,
+    units_per_em: f64,
 }
 
 /// Simple row-based atlas packer.
@@ -136,11 +156,8 @@ pub struct DynamicMsdfAtlas {
     #[allow(dead_code)]
     error: Option<String>,
 
-    // Font data. Leaked for app lifetime so ttf_parser::Face can borrow it.
-    #[allow(dead_code)]
-    font_data: &'static [u8],
-    face: ttf_parser::Face<'static>,
-    units_per_em: f64,
+    // Font chain: ordered list of fallback fonts.
+    fonts: Vec<FontEntry>,
 
     // GPU resources
     texture: wgpu::Texture,
@@ -157,22 +174,24 @@ pub struct DynamicMsdfAtlas {
     // Packing state
     packer: RowPacker,
 
-    // Glyph cache: char → metadata
+    // Glyph cache: char → metadata (glyph tagged with font_index)
     glyph_cache: HashMap<char, DynamicGlyphEntry>,
 
-    // Pending generation queue
+    // Pending generation queue (char to generate, font index resolved at gen time)
     pending: VecDeque<char>,
 
-    // Characters that exist in the font but cannot produce renderable outlines.
+    // Characters that cannot be found in any font.
     failed: HashSet<char>,
 
     // Per-frame tracking
     generated_this_frame: u32,
+    last_frame_reset: Instant,
+    atlas_full_reported: bool,
 }
 
 impl DynamicMsdfAtlas {
-    /// Create a new dynamic atlas.  Returns Ok if a fallback font was found and
-    /// GPU resources could be created, or Err with a human-readable message.
+    /// Create a new dynamic atlas.  Returns Ok if at least one fallback font
+    /// was found and GPU resources could be created, or Err with a message.
     ///
     /// `bind_group_layout` must be the same layout used by the static MSDF
     /// pipeline (texture @ 0, sampler @ 1, uniform @ 2).
@@ -182,16 +201,30 @@ impl DynamicMsdfAtlas {
         bind_group_layout: &wgpu::BindGroupLayout,
         target_format: wgpu::TextureFormat,
     ) -> Result<Self, String> {
-        // ── Font discovery ──
-        let DiscoveredFont { data: font_data, face_index } = discover_fallback_font()?;
-        let font_data: &'static [u8] = Box::leak(font_data.into_boxed_slice());
-        let face = ttf_parser::Face::parse(font_data, face_index)
-            .map_err(|e| format!("ttf-parser parse error: {e:?}"))?;
-        let units_per_em = face.units_per_em() as f64;
-        eprintln!(
-            "MSDF dynamic: using font, units_per_em={units_per_em}, size={}",
-            font_data.len()
-        );
+        // ── Font discovery (font chain) ──
+        let discovered = discover_fallback_font_chain()?;
+        let mut fonts = Vec::with_capacity(discovered.len());
+        for df in &discovered {
+            let font_data: &'static [u8] = Box::leak(df.data.clone().into_boxed_slice());
+            match ttf_parser::Face::parse(font_data, df.face_index) {
+                Ok(face) => {
+                    let units_per_em = face.units_per_em() as f64;
+                    eprintln!(
+                        "MSDF dynamic: loaded font (index {}), units_per_em={units_per_em}, size={}",
+                        fonts.len(),
+                        font_data.len()
+                    );
+                    fonts.push(FontEntry { data: font_data, face, units_per_em });
+                }
+                Err(e) => {
+                    eprintln!("MSDF dynamic: skipping font (index {}): ttf-parser error {e:?}", fonts.len());
+                }
+            }
+        }
+        if fonts.is_empty() {
+            return Err("No usable font found in fallback chain.".into());
+        }
+        eprintln!("MSDF dynamic: font chain has {} font(s)", fonts.len());
 
         // ── GPU texture ──
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -280,9 +313,7 @@ impl DynamicMsdfAtlas {
         Ok(Self {
             active: true,
             error: None,
-            font_data,
-            face,
-            units_per_em,
+            fonts,
             texture,
             texture_view,
             sampler,
@@ -294,10 +325,10 @@ impl DynamicMsdfAtlas {
             pending: VecDeque::new(),
             failed: HashSet::new(),
             generated_this_frame: 0,
+            last_frame_reset: Instant::now(),
+            atlas_full_reported: false,
         })
     }
-
-
 
     /// Accessor for use in paint callbacks.
     pub fn bind_group(&self) -> Option<&wgpu::BindGroup> {
@@ -319,8 +350,9 @@ impl DynamicMsdfAtlas {
     }
 
     /// Look up a glyph.  Checks the runtime cache (does NOT check static atlas).
-    /// If not found and char is valid, enqueues it for generation.
-    /// Returns `None` if the char is not in cache yet (pending or not enqueued).
+    /// If not found and char is valid in any fallback font, enqueues it for
+    /// generation using the first font that contains the glyph.
+    /// Returns `None` if the char is not in cache yet (pending or not found).
     pub fn lookup_or_enqueue(&mut self, ch: char) -> Option<&DynamicGlyphEntry> {
         if !self.active {
             return None;
@@ -331,7 +363,15 @@ impl DynamicMsdfAtlas {
             return self.glyph_cache.get(&ch);
         }
 
-        if self.failed.contains(&ch) || self.face.glyph_index(ch).is_none() {
+        // Already known to be unfindable?
+        if self.failed.contains(&ch) {
+            return None;
+        }
+
+        // Check if any font in the chain has this glyph
+        let has_glyph = self.fonts.iter().any(|f| f.face.glyph_index(ch).is_some());
+        if !has_glyph {
+            self.failed.insert(ch);
             return None;
         }
 
@@ -342,17 +382,45 @@ impl DynamicMsdfAtlas {
         None
     }
 
+    /// Auto-detect frame boundary and reset per-frame counter if needed.
+    /// Call this at the start of each `prepare()` before `generate_pending()`.
+    pub fn maybe_begin_frame(&mut self) {
+        let now = Instant::now();
+        // Frames are typically ~16ms apart; any gap > 5ms signals a new frame.
+        if now.duration_since(self.last_frame_reset) > std::time::Duration::from_millis(5) {
+            self.generated_this_frame = 0;
+            self.last_frame_reset = now;
+        }
+    }
+
     /// Generate up to `MAX_GLYPHS_PER_FRAME` pending glyphs.
     /// Performs fdsm generation, packing, and GPU texture upload.
-    /// Should be called once per frame in `prepare()`.
+    /// Safe to call multiple times per frame — respects per-frame throttle.
     pub fn generate_pending(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
-        if !self.active || self.packer.is_full() {
+        if !self.active {
+            return;
+        }
+
+        if self.packer.is_full() {
+            if !self.atlas_full_reported {
+                eprintln!(
+                    "MSDF dynamic: atlas full ({}/{} glyphs cached, {} pending)",
+                    self.glyph_cache.len(),
+                    self.pending.len(),
+                    self.glyph_cache.len() + self.pending.len()
+                );
+                self.atlas_full_reported = true;
+            }
+            return;
+        }
+
+        if self.generated_this_frame >= MAX_GLYPHS_PER_FRAME {
             return;
         }
 
         let mut generated: u32 = 0;
 
-        while generated < MAX_GLYPHS_PER_FRAME {
+        while self.generated_this_frame + generated < MAX_GLYPHS_PER_FRAME {
             let Some(ch) = self.pending.pop_front() else {
                 break;
             };
@@ -373,17 +441,33 @@ impl DynamicMsdfAtlas {
             }
         }
 
-        self.generated_this_frame = generated;
+        self.generated_this_frame += generated;
+    }
+
+    /// Find the first font index in the chain that contains this char.
+    fn find_best_font(&self, ch: char) -> Option<usize> {
+        for (i, font) in self.fonts.iter().enumerate() {
+            if font.face.glyph_index(ch).is_some() {
+                return Some(i);
+            }
+        }
+        None
     }
 
     /// Generate a single glyph: fdsm → flip → pack → upload.
+    /// Uses the first font in the chain that contains the glyph.
     fn generate_one_glyph(
         &mut self,
         _device: &wgpu::Device,
         queue: &wgpu::Queue,
         ch: char,
     ) -> Result<(), String> {
-        let face = &self.face;
+        // Resolve which font in the chain to use
+        let font_idx = self.find_best_font(ch)
+            .ok_or_else(|| format!("glyph not in any font"))?;
+
+        let face = &self.fonts[font_idx].face;
+        let units_per_em = self.fonts[font_idx].units_per_em;
 
         let glyph_id = face
             .glyph_index(ch)
@@ -393,7 +477,7 @@ impl DynamicMsdfAtlas {
             .glyph_bounding_box(glyph_id)
             .ok_or_else(|| format!("no bounding box"))?;
 
-        let shrinkage = self.units_per_em / FONT_SIZE_PX;
+        let shrinkage = units_per_em / FONT_SIZE_PX;
 
         // Compute output image dimensions (including PX_RANGE margin)
         let img_w = ((bbox.x_max as f64 - bbox.x_min as f64) / shrinkage + 2.0 * PX_RANGE)
@@ -484,43 +568,43 @@ impl DynamicMsdfAtlas {
         );
 
         // ── Compute metadata ──
-        let advance = face.glyph_hor_advance(glyph_id).unwrap_or(0) as f64 / self.units_per_em;
+        let advance = face.glyph_hor_advance(glyph_id).unwrap_or(0) as f64 / units_per_em;
         let plane_bounds = Some(Bounds {
-            left: bbox.x_min as f32 / self.units_per_em as f32,
-            bottom: bbox.y_min as f32 / self.units_per_em as f32,
-            right: bbox.x_max as f32 / self.units_per_em as f32,
-            top: bbox.y_max as f32 / self.units_per_em as f32,
+            left: bbox.x_min as f32 / units_per_em as f32,
+            bottom: bbox.y_min as f32 / units_per_em as f32,
+            right: bbox.x_max as f32 / units_per_em as f32,
+            top: bbox.y_max as f32 / units_per_em as f32,
         });
         let atlas_bounds = Bounds {
             left: atlas_x as f32,
-            bottom: atlas_y as f32,
+            bottom: (atlas_y + img_h) as f32,
             right: (atlas_x + img_w) as f32,
-            top: (atlas_y + img_h) as f32,
+            top: atlas_y as f32,
         };
 
-        // ── Cache ──
+        // ── Cache with font_index ──
         self.glyph_cache.insert(
             ch,
             DynamicGlyphEntry {
                 advance: advance as f32,
                 plane_bounds,
                 atlas_bounds,
+                font_index: font_idx,
             },
         );
 
         Ok(())
     }
 
-    /// Called at the start of each frame to reset per-frame counters.
-    #[allow(dead_code)]
-    pub fn end_frame(&mut self) {
-        self.generated_this_frame = 0;
-    }
-
-    /// Get cache entry (for layout).
+    /// Get cache entry (for external measurement / layout).
     #[allow(dead_code)]
     pub fn get_cached(&self, ch: char) -> Option<&DynamicGlyphEntry> {
         self.glyph_cache.get(&ch)
+    }
+
+    /// Look up advance for a char from the dynamic cache (for text measurement).
+    pub fn advance_for_char(&self, ch: char) -> Option<f32> {
+        self.glyph_cache.get(&ch).map(|e| e.advance)
     }
 
     /// Return whether the dynamic atlas is full.
@@ -549,43 +633,60 @@ struct DiscoveredFont {
     face_index: u32,
 }
 
-/// Find a suitable CJK fallback font using fontdb.
-fn discover_fallback_font() -> Result<DiscoveredFont, String> {
+/// Discover the fallback font chain by trying each family in order.
+/// Returns all fonts that were found (not just the first), so that the
+/// dynamic atlas can fall through to subsequent fonts per-glyph.
+fn discover_fallback_font_chain() -> Result<Vec<DiscoveredFont>, String> {
     let mut db = fontdb::Database::new();
     db.load_system_fonts();
 
-    let families: Vec<fontdb::Family> = FALLBACK_FAMILIES
-        .iter()
-        .map(|name| fontdb::Family::Name(name))
-        .collect();
+    let mut results = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
 
-    let query = fontdb::Query {
-        families: &families,
-        weight: fontdb::Weight::NORMAL,
-        stretch: fontdb::Stretch::Normal,
-        style: fontdb::Style::Normal,
-    };
+    for family_name in FALLBACK_FAMILIES {
+        let families = [fontdb::Family::Name(family_name)];
+        let query = fontdb::Query {
+            families: &families,
+            weight: fontdb::Weight::NORMAL,
+            stretch: fontdb::Stretch::Normal,
+            style: fontdb::Style::Normal,
+        };
 
-    let font_id = db
-        .query(&query)
-        .ok_or_else(|| {
-            format!(
-                "No fallback font found among: {}. \
-                 Please install a CJK font (e.g. NotoSansSC) or configure a custom path.",
-                FALLBACK_FAMILIES.join(", ")
-            )
-        })?;
+        let Some(font_id) = db.query(&query) else {
+            continue;
+        };
 
-    let face = db.face(font_id).ok_or_else(|| "fontdb: face not found".to_string())?;
+        // Deduplicate: skip if we already loaded this font ID
+        if !seen_ids.insert(font_id) {
+            continue;
+        }
 
-    let data = match &face.source {
-        fontdb::Source::File(path) => std::fs::read(path)
-            .map_err(|e| format!("Cannot read font file '{}': {e}", path.display()))?,
-        // `Binary` wraps Arc<dyn AsRef<[u8]>>; deref twice to get &[u8]
-        fontdb::Source::Binary(data) => data.as_ref().as_ref().to_vec(),
-        // `SharedFile` has a path + mapped data; use the data directly
-        fontdb::Source::SharedFile(_, data) => data.as_ref().as_ref().to_vec(),
-    };
+        let Some(face) = db.face(font_id) else {
+            continue;
+        };
 
-    Ok(DiscoveredFont { data, face_index: face.index })
+        let data = match &face.source {
+            fontdb::Source::File(path) => match std::fs::read(path) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("MSDF dynamic: cannot read '{}': {e}", path.display());
+                    continue;
+                }
+            },
+            fontdb::Source::Binary(data) => data.as_ref().as_ref().to_vec(),
+            fontdb::Source::SharedFile(_, data) => data.as_ref().as_ref().to_vec(),
+        };
+
+        results.push(DiscoveredFont { data, face_index: face.index });
+    }
+
+    if results.is_empty() {
+        return Err(format!(
+            "No fallback font found among: {}. \
+             Please install a CJK font (e.g. NotoSansSC) or configure a custom path.",
+            FALLBACK_FAMILIES.join(", ")
+        ));
+    }
+
+    Ok(results)
 }

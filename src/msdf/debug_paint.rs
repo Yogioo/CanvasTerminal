@@ -55,6 +55,7 @@ pub fn init_msdf(
 }
 
 /// Access the global MSDF atlas for read-only operations (e.g. text measurement).
+#[allow(dead_code)]
 pub fn with_msdf_atlas<F, R>(f: F) -> Option<R>
 where
     F: FnOnce(&MsdfAtlas) -> R,
@@ -72,6 +73,33 @@ where
         .get()
         .and_then(|m| m.lock().ok())
         .map(|guard| f(&guard))
+}
+
+/// Measure text width using both static and dynamic atlases.
+/// Falls back to tofu width (0.5 * font_size_px) for chars missing from both.
+pub fn measure_text_width_dual(text: &str, font_size_px: f32) -> f32 {
+    let em_scale = font_size_px;
+    let static_atlas = MSDF_ATLAS.get();
+    // Lock dynamic atlas once (if available) for the whole measurement
+    let dyn_guard = DYNAMIC_MSDF_ATLAS
+        .get()
+        .and_then(|m| m.lock().ok());
+
+    let mut width = 0.0;
+    for ch in text.chars() {
+        if let Some(glyph) = static_atlas.and_then(|a| a.glyph(ch)) {
+            width += glyph.advance * em_scale;
+        } else if let Some(ref dyn_atlas) = dyn_guard {
+            if let Some(advance) = dyn_atlas.advance_for_char(ch) {
+                width += advance * em_scale;
+            } else {
+                width += font_size_px * 0.5;
+            }
+        } else {
+            width += font_size_px * 0.5;
+        }
+    }
+    width
 }
 
 // ── Per-frame glyph layout: produces two vertex/index sets ──
@@ -172,10 +200,7 @@ fn layout_text_dual(
 
                 let u_l = atlas_bounds.left / dynamic_atlas_size;
                 let u_r = atlas_bounds.right / dynamic_atlas_size;
-                // Dynamic atlas bounds use the packer's top-left texture origin.
-                // fdsm rows are flipped before upload, so sample dynamic glyphs
-                // directly in texture row coordinates instead of applying the
-                // static atlas JSON bottom-origin conversion.
+                // After Y-flip: bottom-of-glyph at low v (rect top), top-of-glyph at high v (rect bottom).
                 let v_t = atlas_bounds.top / dynamic_atlas_size;
                 let v_b = atlas_bounds.bottom / dynamic_atlas_size;
 
@@ -340,6 +365,7 @@ impl egui_wgpu::CallbackTrait for MsdfLabelCallback {
         let ndc_font_size = (self.font_size_px * sf) / cb_h * 2.0;
 
         // 1. Enqueue missing chars and generate pending glyphs
+        dynamic.maybe_begin_frame();
         for ch in self.text.chars() {
             if static_atlas.glyph(ch).is_none() {
                 dynamic.lookup_or_enqueue(ch);
